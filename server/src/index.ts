@@ -1,0 +1,188 @@
+import express from 'express';
+import { createServer } from 'node:http';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { WebSocket, WebSocketServer } from 'ws';
+import { ClientMsg, GameView, ServerMsg } from '../../shared/src/protocol';
+import { makeApi } from './api';
+import { Db } from './db';
+import { Rooms } from './rooms';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PORT = Number(process.env.PORT ?? 8787);
+const DB_PATH = process.env.ZJMJ_DB ?? path.join(__dirname, '..', 'zjmj.db');
+
+interface Session {
+  playerId: string;
+  name: string;
+  ws: WebSocket | null;
+}
+
+const sessions = new Map<string, Session>();
+const db = new Db(DB_PATH);
+
+const rooms = new Rooms({
+  onLobbyChanged: () => broadcastLobby(),
+  onMatchFinished: (record, aborted) => {
+    if (!aborted) db.saveMatch(record);
+  },
+  isConnected: (playerId) => {
+    const s = sessions.get(playerId);
+    return !!s && s.ws !== null && s.ws.readyState === WebSocket.OPEN;
+  },
+});
+
+function send(session: Session, msg: ServerMsg): void {
+  if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+    session.ws.send(JSON.stringify(msg));
+  }
+}
+
+function sendViewTo(playerId: string, view: GameView): void {
+  const s = sessions.get(playerId);
+  if (s) send(s, { type: 'game', view });
+}
+
+function lobbyMsgFor(session: Session): ServerMsg {
+  const room = rooms.roomOf(session.playerId);
+  return {
+    type: 'lobby',
+    rooms: rooms.list(),
+    myRoom: room ? room.id : null,
+    inMatch: !!room?.match && !room.match.finished,
+  };
+}
+
+function broadcastLobby(): void {
+  for (const s of sessions.values()) send(s, lobbyMsgFor(s));
+}
+
+function handleMsg(session: Session, msg: ClientMsg): void {
+  switch (msg.type) {
+    case 'hello':
+      break; // handled at connection setup
+    case 'createRoom': {
+      const r = rooms.create(sessionLike(session), msg.settings);
+      if (typeof r === 'string') send(session, { type: 'toast', message: r });
+      break;
+    }
+    case 'joinRoom': {
+      const r = rooms.join(sessionLike(session), msg.roomId);
+      if (typeof r === 'string') send(session, { type: 'toast', message: r });
+      break;
+    }
+    case 'leaveRoom':
+    case 'leaveMatch':
+      rooms.leave(session.playerId);
+      broadcastLobby();
+      break;
+    case 'deleteRoom': {
+      const err = rooms.deleteRoom(session.playerId);
+      if (err) send(session, { type: 'toast', message: err });
+      break;
+    }
+    case 'startMatch': {
+      const err = rooms.startMatch(session.playerId, sendViewTo);
+      if (err) send(session, { type: 'toast', message: err });
+      break;
+    }
+    case 'action': {
+      const room = rooms.roomOf(session.playerId);
+      if (room?.match && !room.match.finished) {
+        room.match.handleAction(session.playerId, msg.action);
+      }
+      break;
+    }
+  }
+}
+
+function sessionLike(session: Session) {
+  return {
+    playerId: session.playerId,
+    get name() {
+      return sessions.get(session.playerId)?.name ?? session.name;
+    },
+    get connected() {
+      const s = sessions.get(session.playerId);
+      return !!s?.ws && s.ws.readyState === WebSocket.OPEN;
+    },
+  };
+}
+
+const app = express();
+app.use('/api', makeApi(db));
+
+// Serve the built client in production.
+const clientDist = path.join(__dirname, '..', '..', 'client', 'dist');
+if (existsSync(clientDist)) {
+  app.use(express.static(clientDist));
+  app.get('/', (_req, res) => res.sendFile(path.join(clientDist, 'index.html')));
+}
+
+const server = createServer(app);
+const wss = new WebSocketServer({ server, path: '/ws' });
+
+wss.on('connection', (ws) => {
+  let session: Session | null = null;
+
+  ws.on('message', (data) => {
+    let msg: ClientMsg;
+    try {
+      msg = JSON.parse(String(data)) as ClientMsg;
+    } catch {
+      return;
+    }
+    if (!session) {
+      if (msg.type !== 'hello' || !msg.playerId) {
+        ws.close();
+        return;
+      }
+      const name = (msg.name || 'Guest').slice(0, 24);
+      const existing = sessions.get(msg.playerId);
+      if (existing) {
+        existing.ws?.close();
+        existing.ws = ws;
+        existing.name = name;
+        session = existing;
+      } else {
+        session = { playerId: msg.playerId, name, ws };
+        sessions.set(msg.playerId, session);
+      }
+      send(session, { type: 'welcome', you: { id: session.playerId, name: session.name } });
+      send(session, lobbyMsgFor(session));
+      // Rejoin a running match after reconnect.
+      const room = rooms.roomOf(session.playerId);
+      if (room?.match && !room.match.finished) {
+        const view = room.match.viewFor(session.playerId);
+        if (view) send(session, { type: 'game', view });
+      }
+      return;
+    }
+    try {
+      handleMsg(session, msg);
+    } catch (err) {
+      console.error('error handling message', msg, err);
+    }
+  });
+
+  ws.on('close', () => {
+    if (!session) return;
+    if (session.ws === ws) session.ws = null;
+    const room = rooms.roomOf(session.playerId);
+    if (room) {
+      if (room.match && !room.match.finished) {
+        // Bots take over while disconnected; the seat is kept for reconnect.
+        room.match.broadcast();
+        room.match.nudge();
+      } else {
+        rooms.leave(session.playerId);
+      }
+    }
+    broadcastLobby();
+  });
+});
+
+server.listen(PORT, () => {
+  console.log(`zjmj server listening on http://localhost:${PORT}`);
+});

@@ -1,0 +1,122 @@
+import express from 'express';
+import { matchToTxt } from '../../shared/src/records';
+import { PATTERN_IDS } from '../../shared/src/scoring';
+import { Db } from './db';
+
+export interface StatsResponse {
+  patternCounts: Record<string, number>;
+  matches: {
+    played: Record<'1' | '2' | '4', number>;
+    won: Record<'1' | '2' | '4', number>;
+    drawn: Record<'1' | '2' | '4', number>;
+  };
+  games: {
+    total: number;
+    pointsWon: number;
+    pointsLost: number;
+    draws: number;
+    selfDrawWins: number;
+    wins: number;
+    discarderCount: number;
+    winValuesSelf: number[];
+    winValuesDiscard: number[];
+    dealInValues: number[];
+  };
+}
+
+export function computeStats(db: Db, playerId: string): StatsResponse {
+  const patternCounts: Record<string, number> = {};
+  for (const id of PATTERN_IDS) patternCounts[id] = 0;
+  const played = { '1': 0, '2': 0, '4': 0 };
+  const won = { '1': 0, '2': 0, '4': 0 };
+  const drawn = { '1': 0, '2': 0, '4': 0 };
+  const g = {
+    total: 0,
+    pointsWon: 0,
+    pointsLost: 0,
+    draws: 0,
+    selfDrawWins: 0,
+    wins: 0,
+    discarderCount: 0,
+    winValuesSelf: [] as number[],
+    winValuesDiscard: [] as number[],
+    dealInValues: [] as number[],
+  };
+
+  for (const { record, startSeat, result } of db.matchesForStats(playerId)) {
+    const key = String(record.matchLength) as '1' | '2' | '4';
+    played[key]++;
+    if (result === 'WIN') won[key]++;
+    if (result === 'DRAW') drawn[key]++;
+
+    record.games.forEach((game, gi) => {
+      const mySeat = (startSeat - gi + 4 * record.games.length) % 4;
+      g.total++;
+      const delta = game.result.deltas[mySeat] ?? 0;
+      if (delta > 0) g.pointsWon += delta;
+      if (delta < 0) g.pointsLost += -delta;
+      if (game.result.winnerSeat === null) {
+        g.draws++;
+        return;
+      }
+      if (game.result.winnerSeat === mySeat) {
+        g.wins++;
+        if (game.result.winBy === 'self') {
+          g.selfDrawWins++;
+          g.winValuesSelf.push(game.result.value ?? 0);
+        } else {
+          g.winValuesDiscard.push(game.result.value ?? 0);
+        }
+        for (const p of game.result.patterns ?? []) {
+          if (patternCounts[p.id] !== undefined) patternCounts[p.id]++;
+        }
+      } else if (game.result.responsibleSeat === mySeat) {
+        g.discarderCount++;
+        g.dealInValues.push(game.result.value ?? 0);
+      }
+    });
+  }
+
+  return { patternCounts, matches: { played, won, drawn }, games: g };
+}
+
+export function makeApi(db: Db): express.Router {
+  const router = express.Router();
+
+  router.get('/health', (_req, res) => {
+    res.json({ ok: true });
+  });
+
+  router.get('/stats/:playerId', (req, res) => {
+    res.json(computeStats(db, req.params.playerId));
+  });
+
+  router.get('/records/:playerId', (req, res) => {
+    res.json(db.listMatches(req.params.playerId));
+  });
+
+  router.get('/record/:matchId', (req, res) => {
+    const rec = db.getMatch(Number(req.params.matchId));
+    if (!rec) {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
+    res.json(rec);
+  });
+
+  router.get('/record/:matchId/txt', (req, res) => {
+    const rec = db.getMatch(Number(req.params.matchId));
+    if (!rec) {
+      res.status(404).send('not found');
+      return;
+    }
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="zjmj-match-${rec.matchId}.txt"`,
+    );
+    res.send(matchToTxt(rec));
+  });
+
+  return router;
+}
