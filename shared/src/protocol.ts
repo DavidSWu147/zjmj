@@ -88,8 +88,10 @@ export interface GameResultView {
   total?: number;
   limit?: 'none' | 'compound' | 'listed';
   deltas: number[];
-  /** Seconds until the next game starts / match ends. */
-  nextIn: number;
+  /** Epoch ms when the next game starts (or the match ends). */
+  nextAt: number;
+  /** True if this was the final game: the match ends next, not another game. */
+  lastGame: boolean;
 }
 
 export interface MatchResultView {
@@ -111,8 +113,12 @@ export interface GameView {
   deadline: number | null; // epoch ms when the phase times out
   phaseDuration: number | null; // ms
   lastDiscard: { seat: number; tile: Tile } | null;
-  /** Keywords currently shown, color-coded per spec. */
-  claims: { seat: number; kind: 'chow' | 'pung' | 'kong' | 'mahjong' }[];
+  /**
+   * Keywords currently shown, color-coded per spec. Claim keywords stay for
+   * the whole claim phase; announcements (kong declarations, wins) carry an
+   * `expires` epoch-ms timestamp.
+   */
+  claims: { seat: number; kind: 'chow' | 'pung' | 'kong' | 'mahjong' | 'selfdraw'; expires?: number }[];
   myOptions: MyOptions;
   /** My provisional chow/pung meld awaiting a discard choice. */
   pendingClaim: { kind: 'chow' | 'pung'; tiles: Tile[] } | null;

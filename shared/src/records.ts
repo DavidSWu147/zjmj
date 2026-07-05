@@ -99,10 +99,23 @@ export function moveToTxt(m: MoveRecord): string {
   return head;
 }
 
+/** Chicken Hand setting as an int: 1 = scores 1, 0 = scores 0, -1 = not allowed. */
+export function chickenHandInt(v: RoomSettings['chickenHand']): number {
+  return v === 'one' ? 1 : v === 'zero' ? 0 : -1;
+}
+
+/** Par Score as an int: 25, 30, or -30 for "30 unless exact then 25". */
+export function parScoreInt(v: RoomSettings['par']): number {
+  return v === '30/25' ? -30 : v;
+}
+
 export function matchToTxt(m: MatchRecord): string {
   const lines: string[] = [];
   lines.push(`Match ID: ${m.matchId}`);
   lines.push(`Match Length: ${m.matchLength}`);
+  lines.push(`Thinking Time: ${m.settings.thinkingTime}`);
+  lines.push(`Chicken Hand: ${chickenHandInt(m.settings.chickenHand)}`);
+  lines.push(`Par Score: ${parScoreInt(m.settings.par)}`);
   for (let s = 0; s < 4; s++) {
     lines.push(`Starting ${SEAT_LABELS[s]} Username: ${m.players[s].name}`);
   }

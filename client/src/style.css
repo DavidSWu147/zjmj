@@ -301,10 +301,6 @@ dialog::backdrop {
   background: #e3d3ae; /* simple beige tile back */
   border-color: #c4b58f;
 }
-.tile-rot {
-  transform: rotate(90deg);
-  margin: 0 calc(var(--tw) * 0.165);
-}
 .tile-selected {
   transform: translateY(calc(var(--tw) * -0.28));
   box-shadow: 0 6px 10px #000a;
@@ -316,15 +312,76 @@ dialog::backdrop {
   outline: 2px solid var(--kw-mahjong);
   outline-offset: 1px;
 }
-.tile-stacked {
-  position: absolute;
-  top: calc(var(--tw) * -0.75);
-  left: 0;
-}
 .tile-row {
   display: flex;
   gap: 2px;
   align-items: flex-end;
+}
+
+/* Orientation wrapper: the layout box matches the tile's visual rotation. */
+.tor {
+  position: relative;
+  width: var(--tw);
+  height: calc(var(--tw) * 4 / 3);
+  flex-shrink: 0;
+}
+.tor-90,
+.tor-270 {
+  width: calc(var(--tw) * 4 / 3);
+  height: var(--tw);
+}
+.tor > .tile {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+}
+.tor-0 > .tile {
+  transform: translate(-50%, -50%);
+}
+.tor-90 > .tile {
+  transform: translate(-50%, -50%) rotate(90deg);
+}
+.tor-180 > .tile {
+  transform: translate(-50%, -50%) rotate(180deg);
+}
+.tor-270 > .tile {
+  transform: translate(-50%, -50%) rotate(270deg);
+}
+
+/* Melds: upright tiles and the rotated claimed tile align on the OUTER edge. */
+.meld {
+  display: flex;
+  gap: 1px;
+  flex-shrink: 0;
+}
+.meld-r0 {
+  flex-direction: row;
+  align-items: flex-end;
+}
+.meld-r1 {
+  flex-direction: column;
+  align-items: flex-end;
+}
+.meld-r2 {
+  flex-direction: row;
+  align-items: flex-start;
+}
+.meld-r3 {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.kong-pocket {
+  display: flex;
+  gap: 1px;
+  flex-shrink: 0;
+}
+.kong-pocket-r0,
+.kong-pocket-r2 {
+  flex-direction: column;
+}
+.kong-pocket-r1,
+.kong-pocket-r3 {
+  flex-direction: row;
 }
 
 /* ── Game board ───────────────────────────────────────────────────── */
@@ -456,9 +513,8 @@ dialog::backdrop {
 .discard-zone {
   position: absolute;
 }
-.discard-zone .tile {
+.discard-zone .tor {
   position: absolute;
-  box-shadow: 0 1px 2px #0007;
 }
 .discard-new {
   animation: discard-in 0.28s ease-out;
@@ -468,11 +524,11 @@ dialog::backdrop {
 }
 @keyframes discard-in {
   0% {
-    transform: scale(1.6) var(--rot, rotate(0deg));
+    transform: scale(1.6);
     opacity: 0.2;
   }
   100% {
-    transform: scale(1) var(--rot, rotate(0deg));
+    transform: scale(1);
     opacity: 1;
   }
 }
@@ -485,26 +541,17 @@ dialog::backdrop {
 }
 .hand-area .drawn-gap {
   width: calc(var(--tw) * 0.45);
+  flex-shrink: 0;
 }
 .hand-area .meld-gap {
   width: calc(var(--tw) * 0.6);
+  flex-shrink: 0;
 }
 .hand-tile {
   cursor: pointer;
-  transition: transform 0.1s;
 }
-.hand-tile:hover {
+.hand-tile:not(.tile-selected):hover {
   transform: translateY(calc(var(--tw) * -0.1));
-}
-.hand-tile.tile-selected:hover {
-  transform: translateY(calc(var(--tw) * -0.28));
-}
-
-.meld {
-  display: flex;
-  gap: 1px;
-  align-items: flex-end;
-  margin-right: 4px;
 }
 
 .opp-hand {
@@ -515,6 +562,11 @@ dialog::backdrop {
 .opp-hand.vertical {
   flex-direction: column;
 }
+.opp-hand .strip-gap {
+  width: calc(var(--tw) * 0.5);
+  height: calc(var(--tw) * 0.5);
+  flex-shrink: 0;
+}
 
 .claim-word {
   position: absolute;
@@ -523,8 +575,10 @@ dialog::backdrop {
   letter-spacing: 0.08em;
   text-shadow: 0 2px 6px #000c;
   z-index: 6;
-  animation: claim-pop 0.3s ease-out;
   pointer-events: none;
+}
+.claim-word.pop {
+  animation: claim-pop 0.3s ease-out;
 }
 @keyframes claim-pop {
   0% {

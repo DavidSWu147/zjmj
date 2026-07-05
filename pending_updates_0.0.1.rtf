@@ -1,0 +1,19 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2868
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 1. Hand Records should be updated to show the parameters of the room other than Match Length, i.e. Thinking Time: float, Chicken Hand: int, and Par Score: int\
+Chicken Hand not allowed can simply be represented as -1\
+2. Tiles of opponents to the left and right should be lined up long edge touching long edge, not short edge touching short edge. Also, the third row of the opposite opponent\'92s tiles clashes with the opposite opponent\'92s hand tiles, when the screen width is greater than height as in landscape orientation. This suggests that the central control panel is too big, and after making the central control panel smaller, the rectangles of discarded tiles can be offset so as to form more of a windmill shape than a square shape\
+3. In an exposed meld, the OUTER (long) edge rotated 90 degrees tile should be inline with the OUTER (short) edges of the upright tiles. This applies to both the player and the opponent\'92s tiles, so OUTER refers to whichever edge is closest to the border of the screen\
+4. In a Small Exposed Kong, what is meant by \'93on top\'94 of the rotated 90 degrees tile, is the 4th tile should be rotated 90 degrees and placed in the \'93pocket\'94 formed by the other three tiles, thus positioning the 4th tile closer to the center. Current behavior is stacking it so it covers up the rotated 90 degrees tile, which looks very strange. \
+5. Current behavior during a hand requires the player to click THREE times to discard a tile, because after drawing a tile the first click does nothing. This is way too cumbersome. The first click after drawing a tile should immediately select and offset that tile to indicate it is about to be discarded\
+6. Similarly, after calling a \'93Chow\'94 or \'93Pung\'94, current behavior when clicking between different tiles to select a discard results in \'93Chow\'94 or \'93Pung\'94 popping up multiple times, which is annoying. Intended behavior should be to keep the \'93Chow\'94 or \'93Pung\'94 text static\
+7. On the other hand, current behavior for after calling a \'93Kong\'94 or \'93Mahjong\'94 is that the text for \'93Kong\'94 or \'93Mahjong\'94 does not show up for the player or for the opponents, and in the case of \'93Mahjong\'94 the scoring screen directly pops up. The game should show \'93Kong\'94 in red text or \'93Mahjong\'94/\'93Self Draw\'94 in gold text, and in the case of the latter, pause for a brief moment so all players have a chance to take in what happened\
+8. For some reason, only on Safari but not on Chrome, current behavior is: when a tile in the second half of the player\'92s hand is clicked to select for a discard, a tile from the first half of the hand also jumps up and down for a brief moment, specifically the one with index congruent mod 7, which is disconcerting. Possibly linked to the same bug detailed in #5\
+9. Between the transition when it is the player\'92s turn and when it is not the player\'92s turn, the tiles in hand should not shift back and forth just because of the existence of a 14th drawn tile\
+10. When the player has a choice of whether to \'93Chow\'94 or \'93Pung\'94 the tile, and no higher priority claims are present, since it is already allowed to change \'93Chow\'94 or \'93Pung\'94 to \'93PASS\'94, update to allow changing between \'93Chow\'94 and \'93Pung\'94 before discarding a tile\
+11. When an opponent has made multiple melds, current behavior is from the player\'92s perspective those melds will overlap with each other causing some tiles to be hidden. Adequate space for meld area has to be allocated for all players in the display}

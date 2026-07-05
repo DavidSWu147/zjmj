@@ -1,23 +1,27 @@
-import { GameAction, GameView, MeldView } from '../../../shared/src/protocol';
+import { GameAction, GameView } from '../../../shared/src/protocol';
 import { Tile } from '../../../shared/src/tiles';
 import { net } from '../net';
-import { tileEl } from '../tileui';
+import { meldEl, orientedTile, tileEl, Deg } from '../tileui';
 import { escapeHtml } from './play';
 
 /** Seat colors by current seat wind (spec: E green, S vermilion, W cream, N blue). */
 const SEAT_COLORS = ['var(--seat-e)', 'var(--seat-s)', 'var(--seat-w)', 'var(--seat-n)'];
 const SEAT_LETTERS = ['E', 'S', 'W', 'N'];
 const SEAT_ZH = ['東', '南', '西', '北'];
+const BASE_DEG: Deg[] = [0, 270, 180, 90]; // tile orientation by relative seat
 const KW_LABEL: Record<string, { en: string; zh: string; cls: string }> = {
   chow: { en: 'CHOW', zh: '吃', cls: 'chow' },
   pung: { en: 'PUNG', zh: '碰', cls: 'pung' },
   kong: { en: 'KONG', zh: '槓', cls: 'kong' },
   mahjong: { en: 'MAHJONG', zh: '和', cls: 'mahjong' },
+  selfdraw: { en: 'SELF-DRAW', zh: '自摸', cls: 'mahjong' },
 };
 
 let selKey: string | null = null;
+let lastTurnKey = '';
 let lastDiscardTotals: number[] = [0, 0, 0, 0];
 let lastGameNumber = '';
+let shownKW = new Set<string>();
 let resizeHooked = false;
 
 function act(action: GameAction): void {
@@ -35,25 +39,50 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   if (view.gameNumber !== lastGameNumber) {
     lastGameNumber = view.gameNumber;
     lastDiscardTotals = [0, 0, 0, 0];
+    shownKW = new Set();
+    selKey = null;
+    lastTurnKey = '';
+  }
+  // Reset the local tile selection only when the situation actually changes,
+  // not on every server broadcast (a select echo must not clear it).
+  const turnKey = [
+    view.gameNumber,
+    view.turnSeat,
+    view.phase,
+    view.myDrawn ?? '-',
+    view.remaining,
+    view.pendingClaim ? 'pc' : '-',
+  ].join(':');
+  if (turnKey !== lastTurnKey) {
+    lastTurnKey = turnKey;
     selKey = null;
   }
-  if (view.selected === null && view.pendingClaim === null) selKey = null;
 
   el.innerHTML = '';
   const board = document.createElement('div');
   board.className = 'board';
   el.appendChild(board);
 
+  // ── geometry ──────────────────────────────────────────────────────
   const W = el.clientWidth || window.innerWidth;
   const H = el.clientHeight || window.innerHeight;
-  const cx = W / 2;
-  const cy = H * 0.46;
-  const P = Math.min(W, H) * 0.335;
   const tw = Math.min(W / 21, H * 0.075); // own hand tile width
   const th = (tw * 4) / 3;
-  const dt = P / 5.6; // discard tile width (6 per row, slight windmill overhang)
-  const dh = (dt * 4) / 3;
-  const gap = Math.max(5, P * 0.03);
+  const otw = Math.max(13, tw * 0.5); // opponent tile short side
+  const oth = (otw * 4) / 3; // opponent tile long side
+
+  const topReserve = oth + 32; // top opponent strip + name tag
+  const bottomReserve = th + 30;
+  const availV = H - topReserve - bottomReserve - 28;
+  const availH = W / 2 - (oth + 44);
+  // Central area: panel P = 4.5·dt plus 4 discard rows on each side.
+  let dh = availV / 11.6; // 8·dh + 3.375·dh + gaps
+  dh = Math.min(dh, availH / 5.8);
+  const dt = dh * 0.75;
+  const P = 4.5 * dt;
+  const gap = Math.max(4, dh * 0.12);
+  const cx = W / 2;
+  const cy = topReserve + 10 + 4 * dh + gap + P / 2;
 
   board.style.setProperty('--tw', `${tw}px`);
 
@@ -64,34 +93,32 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   panel.style.top = `${cy - P / 2}px`;
   panel.style.width = `${P}px`;
   panel.style.height = `${P}px`;
-  // Quadrants: rel 0 bottom, 1 right, 2 top, 3 left (diagonal split).
   const QUAD_CLIP = [
     'polygon(0% 100%, 50% 50%, 100% 100%)',
     'polygon(100% 0%, 50% 50%, 100% 100%)',
     'polygon(0% 0%, 50% 50%, 100% 0%)',
     'polygon(0% 0%, 50% 50%, 0% 100%)',
   ];
-  const LABEL_POS: [string, string][] = [
-    ['left: 50%; bottom: 4%; transform: translateX(-50%)', ''],
-    ['right: 3%; top: 50%; transform: translateY(-50%)', ''],
-    ['left: 50%; top: 4%; transform: translateX(-50%)', ''],
-    ['left: 3%; top: 50%; transform: translateY(-50%)', ''],
+  const LABEL_POS = [
+    'left: 50%; bottom: 3%; transform: translateX(-50%)',
+    'right: 3%; top: 50%; transform: translateY(-50%)',
+    'left: 50%; top: 3%; transform: translateX(-50%)',
+    'left: 3%; top: 50%; transform: translateY(-50%)',
   ];
   for (let rel = 0; rel < 4; rel++) {
     const seat = (view.mySeat + rel) % 4;
     const quad = document.createElement('div');
-    quad.className = 'quad' + (view.turnSeat === seat && !view.gameResult ? ' active' : '');
+    quad.className = 'quad' + (view.turnSeat === seat && !view.gameResult && view.phase !== 'gameEnd' ? ' active' : '');
     quad.style.background = SEAT_COLORS[seat];
     quad.style.clipPath = QUAD_CLIP[rel];
     panel.appendChild(quad);
     const label = document.createElement('div');
     label.className = 'quad-label';
-    label.style.cssText = LABEL_POS[rel][0];
+    label.style.cssText = LABEL_POS[rel];
     label.innerHTML = `<span class="seat-letter">${SEAT_LETTERS[seat]}</span><span class="seat-score">${view.seats[seat].score}</span>`;
     label.title = `${SEAT_ZH[seat]} · ${escapeHtml(view.seats[seat].name)}`;
     panel.appendChild(label);
   }
-  // Center circle: game number + tiles remaining, or dice while dealing.
   const circle = document.createElement('div');
   circle.className = 'ccircle';
   if (view.phase === 'dealing' && view.dice) {
@@ -102,7 +129,6 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       die.className = 'die';
       die.textContent = String(d);
       grid.appendChild(die);
-      // Top two dice land first, then the bottom two (spec).
       setTimeout(() => die.classList.add('shown'), i < 2 ? 350 : 1500);
     });
     circle.appendChild(grid);
@@ -114,7 +140,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   board.appendChild(panel);
 
   // ── timer bar ─────────────────────────────────────────────────────
-  if (view.deadline && view.phaseDuration && !view.gameResult) {
+  if (view.deadline && view.phaseDuration && !view.gameResult && view.phase !== 'gameEnd') {
     const bar = document.createElement('div');
     bar.className = 'timerbar';
     bar.style.left = `${cx - P / 2}px`;
@@ -132,7 +158,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     });
   }
 
-  // ── discard zones (windmill) ──────────────────────────────────────
+  // ── discard zones (windmill, right edge aligned with the panel) ───
   const rot = (x: number, y: number, k: number): [number, number] => {
     let px = x;
     let py = y;
@@ -152,18 +178,17 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     const discards = view.seats[seat].discards;
     const grew = discards.length > lastDiscardTotals[seat];
     lastDiscardTotals[seat] = discards.length;
+    const wrapW = rel % 2 === 0 ? dt : dh;
+    const wrapH = rel % 2 === 0 ? dh : dt;
     discards.forEach((d, i) => {
       const row = Math.min(3, Math.floor(i / 6));
       const col = row < 3 ? i % 6 : i - 18;
-      // Bottom-zone coordinates: right edge aligns with the panel's right edge.
       const x0 = cx + P / 2 - 6 * dt + col * dt;
       const y0 = cy + P / 2 + gap + row * dh;
       const [x, y] = rot(x0 + dt / 2, y0 + dh / 2, rel);
-      const t = tileEl(d.tile, { dimmed: !d.fromDraw ? false : true });
-      t.style.left = `${x - dt / 2}px`;
-      t.style.top = `${y - dh / 2}px`;
-      t.style.setProperty('--rot', `rotate(${-90 * rel}deg)`);
-      t.style.transform = `rotate(${-90 * rel}deg)`;
+      const t = orientedTile(d.tile, BASE_DEG[rel], { dimmed: d.fromDraw });
+      t.style.left = `${x - wrapW / 2}px`;
+      t.style.top = `${y - wrapH / 2}px`;
       const isNewest =
         i === discards.length - 1 &&
         grew &&
@@ -177,57 +202,57 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   }
 
   // ── opponent hands + melds ────────────────────────────────────────
-  const oppTw = tw * 0.6;
   for (let rel = 1; rel < 4; rel++) {
     const seat = (view.mySeat + rel) % 4;
     const sv = view.seats[seat];
     const wrap = document.createElement('div');
     wrap.className = 'opp-hand' + (rel !== 2 ? ' vertical' : '');
-    wrap.style.setProperty('--tw', `${oppTw}px`);
+    wrap.style.setProperty('--tw', `${otw}px`);
+
+    // Owner's left-to-right order: melds (earliest farthest left), gap, hand.
     const pieces: HTMLElement[] = [];
-    // Melds go to the player's relative left of their hand tiles.
-    for (const m of sv.melds) {
-      pieces.push(meldEl(m, -90 * rel));
-    }
-    if (pieces.length > 0) {
-      const gapEl = document.createElement('div');
-      gapEl.style.width = gapEl.style.height = `${oppTw * 0.5}px`;
-      pieces.push(gapEl);
-    }
+    sv.melds.forEach((m, i) => {
+      pieces.push(meldEl(m, rel as 1 | 2 | 3));
+      if (i < sv.melds.length - 1 || sv.handCount > 0) {
+        const g = document.createElement('div');
+        g.className = 'strip-gap';
+        g.style.width = g.style.height = `${otw * 0.35}px`;
+        pieces.push(g);
+      }
+    });
     for (let i = 0; i < sv.handCount; i++) {
-      pieces.push(tileEl(null, { back: true }));
+      pieces.push(orientedTile(null, BASE_DEG[rel], { back: true }));
     }
     if (sv.hasDrawn) {
       const g = document.createElement('div');
-      g.style.width = g.style.height = `${oppTw * 0.4}px`;
+      g.className = 'strip-gap';
+      g.style.width = g.style.height = `${otw * 0.4}px`;
       pieces.push(g);
-      pieces.push(tileEl(null, { back: true }));
+      pieces.push(orientedTile(null, BASE_DEG[rel], { back: true }));
     }
-    // Order along the strip: for the right player their left is our bottom,
-    // so reverse so melds end up on their relative left.
-    const ordered = rel === 1 ? pieces.reverse() : pieces;
+    // Map owner's left-to-right onto the screen: right seat runs bottom-to-top
+    // and top seat runs right-to-left, so those two reverse.
+    const ordered = rel === 1 || rel === 2 ? pieces.reverse() : pieces;
     for (const p of ordered) wrap.appendChild(p);
 
-    const oth = (oppTw * 4) / 3;
     if (rel === 2) {
-      wrap.style.top = `${Math.max(6, cy - P / 2 - gap - 4 * dh - oth - 14)}px`;
+      wrap.style.top = '8px';
       wrap.style.left = '50%';
       wrap.style.transform = 'translateX(-50%)';
     } else if (rel === 1) {
       wrap.style.right = '8px';
-      wrap.style.top = '50%';
+      wrap.style.top = `${cy}px`;
       wrap.style.transform = 'translateY(-50%)';
     } else {
       wrap.style.left = '8px';
-      wrap.style.top = '50%';
+      wrap.style.top = `${cy}px`;
       wrap.style.transform = 'translateY(-50%)';
     }
-    // Name tag
     const tag = document.createElement('div');
     tag.textContent = `${sv.name}${sv.connected ? '' : ' (away)'}`;
     tag.style.cssText =
       'position:absolute;font-size:11px;color:#dfe7e2;text-shadow:0 1px 2px #000;white-space:nowrap;';
-    if (rel === 2) tag.style.cssText += 'left:50%;transform:translateX(-50%);bottom:-16px;';
+    if (rel === 2) tag.style.cssText += 'left:50%;transform:translateX(-50%);bottom:-17px;';
     else if (rel === 1) tag.style.cssText += 'right:2px;top:-18px;';
     else tag.style.cssText += 'left:2px;top:-18px;';
     wrap.appendChild(tag);
@@ -239,18 +264,18 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   const handWrap = document.createElement('div');
   handWrap.className = 'hand-area';
   handWrap.style.bottom = '10px';
-  handWrap.style.left = '50%';
 
   const canDiscard = !!view.myOptions.discard;
-  const clickTile = (key: string, tile: Tile, fromDrawn: boolean) => {
+  const clickTile = (key: string, tile: Tile, fromDrawn: boolean, node: HTMLElement) => {
     if (!canDiscard) return;
     if (selKey === key) {
-      act({ kind: 'discard', tile, fromDrawn });
       selKey = null;
+      act({ kind: 'discard', tile, fromDrawn });
     } else {
       selKey = key;
+      handWrap.querySelectorAll('.tile-selected').forEach((n) => n.classList.remove('tile-selected'));
+      node.classList.add('tile-selected');
       act({ kind: 'select', tile, fromDrawn });
-      renderGame(el, view);
     }
   };
 
@@ -264,51 +289,64 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     const key = `h${i}`;
     const tile = tileEl(t, { selected: selKey === key });
     tile.classList.add('hand-tile');
-    tile.addEventListener('click', () => clickTile(key, t, false));
+    tile.addEventListener('click', () => clickTile(key, t, false, tile));
     handWrap.appendChild(tile);
   });
+  let drawnExtra = 0;
   if (view.myDrawn !== null) {
     const g = document.createElement('div');
     g.className = 'drawn-gap';
     handWrap.appendChild(g);
     const tile = tileEl(view.myDrawn, { selected: selKey === 'drawn' });
     tile.classList.add('hand-tile');
-    tile.addEventListener('click', () => clickTile('drawn', view.myDrawn!, true));
+    tile.addEventListener('click', () => clickTile('drawn', view.myDrawn!, true, tile));
     handWrap.appendChild(tile);
+    drawnExtra = tw * 0.45 + tw + 4;
   }
   board.appendChild(handWrap);
-  // Center the hand strip.
+  // Center on the 13-tile hand + melds so the strip does not shift when the
+  // 14th drawn tile comes and goes.
   requestAnimationFrame(() => {
-    handWrap.style.left = `${Math.max(8, (W - handWrap.offsetWidth) / 2)}px`;
+    const baseWidth = handWrap.offsetWidth - drawnExtra;
+    handWrap.style.left = `${Math.max(8, (W - baseWidth) / 2)}px`;
   });
 
-  // ── claim keywords ────────────────────────────────────────────────
+  // ── claim keywords (animate only when they first appear) ──────────
+  const D = P / 2 + gap + 2 * dh;
   const KW_POS: [number, number][] = [
-    [cx + P / 2 + dh, cy + P / 2 + gap + 1.2 * dh],
-    [cx + P / 2 + gap + 1.2 * dh, cy - P / 2 - dh],
-    [cx - P / 2 - dh, cy - P / 2 - gap - 1.2 * dh],
-    [cx - P / 2 - gap - 1.2 * dh, cy + P / 2 + dh],
+    [cx, cy + D],
+    [cx + D, cy],
+    [cx, cy - D],
+    [cx - D, cy],
   ];
+  const shownNow = new Set<string>();
   for (const c of view.claims) {
+    if (c.expires && c.expires <= Date.now()) continue;
+    const kwKey = `${c.seat}:${c.kind}`;
+    shownNow.add(kwKey);
     const rel = (c.seat - view.mySeat + 4) % 4;
     const kw = KW_LABEL[c.kind];
     const w = document.createElement('div');
-    w.className = 'claim-word';
+    w.className = 'claim-word' + (shownKW.has(kwKey) ? '' : ' pop');
     w.style.color = `var(--kw-${kw.cls})`;
     w.textContent = `${kw.en} ${kw.zh}`;
     const [x, y] = KW_POS[rel];
     w.style.left = `${x}px`;
     w.style.top = `${y}px`;
     w.style.transform = 'translate(-50%,-50%)';
+    if (c.expires) {
+      setTimeout(() => w.remove(), Math.max(0, c.expires - Date.now()));
+    }
     board.appendChild(w);
   }
+  shownKW = shownNow;
 
   // ── pending claim preview ─────────────────────────────────────────
   if (view.pendingClaim) {
     const pv = document.createElement('div');
     pv.className = 'variant-bar';
     pv.style.right = '18px';
-    pv.style.bottom = `${th + 84}px`;
+    pv.style.bottom = `${th + 88}px`;
     pv.style.setProperty('--tw', `${tw * 0.7}px`);
     const lbl = document.createElement('span');
     lbl.textContent = 'Claiming:';
@@ -326,7 +364,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   const bar = document.createElement('div');
   bar.className = 'action-bar';
   bar.style.right = '18px';
-  bar.style.bottom = `${th + 30}px`;
+  bar.style.bottom = `${th + 34}px`;
   const btn = (cls: string, en: string, zh: string, fn: () => void) => {
     const b = document.createElement('button');
     b.className = `action-btn ${cls}`;
@@ -337,13 +375,11 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   };
   const o = view.myOptions;
 
-  const showVariants = (
-    items: { label: HTMLElement; fn: () => void }[],
-  ): void => {
+  const showVariants = (items: { label: HTMLElement; fn: () => void }[]): void => {
     const vb = document.createElement('div');
     vb.className = 'variant-bar';
     vb.style.right = '18px';
-    vb.style.bottom = `${th + 92}px`;
+    vb.style.bottom = `${th + 96}px`;
     vb.style.setProperty('--tw', `${tw * 0.72}px`);
     for (const it of items) {
       const opt = document.createElement('div');
@@ -439,32 +475,13 @@ function kongPreview(tile: Tile, variant: 'concealed' | 'small'): HTMLElement {
   return row;
 }
 
-function meldEl(m: MeldView, rotDeg: number): HTMLElement {
-  const wrap = document.createElement('div');
-  wrap.className = 'meld';
-  if (rotDeg !== 0) wrap.style.transform = `rotate(${rotDeg}deg)`;
-  m.tiles.forEach((t, i) => {
-    if (m.stacked && i === m.tiles.length - 1) return; // rendered stacked below
-    const isBack = m.faceDown.includes(i);
-    const isRot = m.rotated === i;
-    const opts = {
-      back: isBack,
-      rotated: isRot,
-      stackedExtra: m.stacked && isRot ? m.tiles[m.tiles.length - 1] : null,
-    };
-    wrap.appendChild(tileEl(t, opts));
-  });
-  return wrap;
-}
-
-function deltaCell(view: GameView, seat: number, delta: number, extraTag = ''): string {
+function deltaCell(view: GameView, seat: number, delta: number): string {
   const name = escapeHtml(view.seats[seat].name);
   const cls = delta > 0 ? 'win-gold' : delta < 0 ? 'lose-gray' : '';
   const sign = delta > 0 ? '+' : '';
   return `<div class="delta-cell">
     <div class="nm">${SEAT_LETTERS[seat]} · ${name}</div>
     <div class="dv ${cls}">${sign}${delta}</div>
-    ${extraTag}
   </div>`;
 }
 
@@ -477,8 +494,8 @@ function gameResultOverlay(view: GameView): HTMLElement {
 
   if (r.draw) {
     card.innerHTML = `<h2 class="draw-green">Drawn Game 流局</h2>
-      <p style="color:var(--text-dim)">The live wall is exhausted. Nobody scores.</p>
-      <div class="result-next">Next game in ${r.nextIn}s…</div>`;
+      <p style="color:var(--text-dim)">The live wall is exhausted. Nobody scores.</p>`;
+    card.appendChild(countdownEl(r.nextAt, r.lastGame));
     overlay.appendChild(card);
     return overlay;
   }
@@ -537,13 +554,30 @@ function gameResultOverlay(view: GameView): HTMLElement {
   deltas.innerHTML = [0, 1, 2, 3].map((s) => deltaCell(view, s, r.deltas[s])).join('');
   card.appendChild(deltas);
 
-  const next = document.createElement('div');
-  next.className = 'result-next';
-  next.textContent = `Next game in ${r.nextIn}s…`;
-  card.appendChild(next);
+  card.appendChild(countdownEl(r.nextAt, r.lastGame));
 
   overlay.appendChild(card);
   return overlay;
+}
+
+/** A live "next game / match ends in Ns…" countdown line. */
+function countdownEl(nextAt: number, lastGame: boolean): HTMLElement {
+  const next = document.createElement('div');
+  next.className = 'result-next';
+  const label = lastGame ? 'Match ends in' : 'Next game in';
+  const update = () => {
+    const secs = Math.max(0, Math.ceil((nextAt - Date.now()) / 1000));
+    next.textContent = `${label} ${secs}s…`;
+  };
+  update();
+  const timer = window.setInterval(() => {
+    if (!next.isConnected) {
+      clearInterval(timer);
+      return;
+    }
+    update();
+  }, 250);
+  return next;
 }
 
 function matchResultOverlay(view: GameView): HTMLElement {

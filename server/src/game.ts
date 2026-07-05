@@ -72,6 +72,12 @@ interface ClaimSlot {
   discardSelFromDrawn: boolean;
   discardConfirmed: boolean;
   kongAfter: { tile: Tile; variant: 'concealed' | 'small' } | null;
+  /**
+   * Claim kinds this seat has already made visible in this phase. The phase
+   * timer resets only on first-time announcements, so cycling a claim on and
+   * off cannot farm unlimited thinking time.
+   */
+  announcedKinds: Set<ClaimKind>;
 }
 
 interface ClaimPhase {
@@ -118,6 +124,8 @@ export class Game {
 
   private moves: MoveRecord[] = [];
   private currentMove: { seat: number; part1: MovePart1 } | null = null;
+  /** Transient keyword announcements (kong declarations, wins). */
+  private announcements: { seat: number; kind: 'kong' | 'mahjong' | 'selfdraw'; expires: number }[] = [];
 
   result: GameResultRecord | null = null;
   resultScore: ScoreResult | null = null;
@@ -181,6 +189,12 @@ export class Game {
   private recordMove(m: MoveRecord): void {
     this.flushMove();
     this.moves.push(m);
+  }
+
+  private announce(seat: number, kind: 'kong' | 'mahjong' | 'selfdraw', ms = 1600): void {
+    const now = Date.now();
+    this.announcements = this.announcements.filter((a) => a.expires > now);
+    this.announcements.push({ seat, kind, expires: now + ms });
   }
 
   // ── turn flow ─────────────────────────────────────────────────────────────
@@ -298,6 +312,7 @@ export class Game {
           discardSelFromDrawn: false,
           discardConfirmed: false,
           kongAfter: null,
+          announcedKinds: new Set(),
         });
       }
     }
@@ -345,14 +360,25 @@ export class Game {
         if (slot.avail.chows.includes(low)) choice = { kind: 'chow', low };
       }
       if (!choice) return;
-      const wasVisible = slot.choice && slot.choice.kind !== 'pass';
+      // A pung/chow claim can only be withdrawn (PASS), not switched to
+      // another claim: switching would re-trigger timer resets endlessly.
+      if (
+        slot.choice &&
+        (slot.choice.kind === 'pung' || slot.choice.kind === 'chow') &&
+        choice.kind !== 'pass' &&
+        choice.kind !== slot.choice.kind
+      ) {
+        if (choice.kind !== 'mahjong') return; // amending up to mahjong stays legal
+      }
       slot.choice = choice;
       slot.discardSel = null;
       slot.discardConfirmed = false;
       slot.kongAfter = null;
-      // Any newly visible claim resets the phase timer so higher-priority
-      // holders can amend (spec).
-      if (choice.kind !== 'pass' || wasVisible) {
+      // A newly visible claim resets the phase timer so higher-priority
+      // holders can amend (spec) — but only the first time this seat shows
+      // this claim kind, so on/off cycling cannot farm thinking time.
+      if (choice.kind !== 'pass' && !slot.announcedKinds.has(choice.kind as ClaimKind)) {
+        slot.announcedKinds.add(choice.kind as ClaimKind);
         this.schedule(this.claimMs(), () => this.resolveClaims(true));
       }
       this.checkClaimResolution();
@@ -620,6 +646,7 @@ export class Game {
     });
     this.turnSeat = seat;
     this.recordMove({ seat, part1: { t: 'bigKong', tile } });
+    this.announce(seat, 'kong');
     this.beginTurn(seat, 'dead');
   }
 
@@ -639,6 +666,7 @@ export class Game {
       this.hands[seat] = sortTiles(this.hands[seat]);
       this.drawn[seat] = null;
     }
+    this.announce(seat, 'kong');
 
     if (variant === 'concealed') {
       for (let k = 0; k < 4; k++) {
@@ -861,7 +889,8 @@ export class Game {
       responsibleSeat: null,
       par: this.host.settings.par,
     });
-    this.finishGame(
+    this.announce(seat, 'selfdraw');
+    this.finishWithPause(
       {
         winnerSeat: seat,
         winBy: 'self',
@@ -871,7 +900,6 @@ export class Game {
         deltas,
       },
       score,
-      winTile,
     );
   }
 
@@ -893,7 +921,8 @@ export class Game {
       par: this.host.settings.par,
     });
     this.drawn[seat] = tile;
-    this.finishGame(
+    this.announce(seat, 'mahjong');
+    this.finishWithPause(
       {
         winnerSeat: seat,
         winBy: 'discard',
@@ -903,17 +932,36 @@ export class Game {
         deltas,
       },
       score,
-      tile,
     );
   }
 
   private endInDraw(): void {
     this.flushMove();
-    this.finishGame({ winnerSeat: null, deltas: [0, 0, 0, 0] }, null, null);
+    this.finishGame({ winnerSeat: null, deltas: [0, 0, 0, 0] });
   }
 
-  private finishGame(result: GameResultRecord, score: ScoreResult | null, winTile: Tile | null): void {
-    void winTile;
+  /**
+   * Shows the winning keyword on the board for a moment before the scoring
+   * screen appears, so all players can take in what happened.
+   */
+  private finishWithPause(result: GameResultRecord, score: ScoreResult): void {
+    this.ended = true;
+    this.phase = 'gameEnd';
+    this.claim = null;
+    this.rob = null;
+    this.deadline = null;
+    this.phaseDuration = null;
+    if (this.timer) clearTimeout(this.timer);
+    if (this.botTimer) clearTimeout(this.botTimer);
+    this.botTimer = null;
+    this.host.onChange();
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      this.finishGame(result, score);
+    }, 1600);
+  }
+
+  private finishGame(result: GameResultRecord, score: ScoreResult | null = null): void {
     this.ended = true;
     this.phase = 'gameEnd';
     this.deadline = null;
@@ -1049,7 +1097,9 @@ export class Game {
           myOptions.claim = co;
         } else if (slot.choice.kind === 'pung' || slot.choice.kind === 'chow') {
           myOptions.discard = true;
-          myOptions.claim = {}; // still allowed to pass / change
+          // A made claim can only be withdrawn (PASS) — or upgraded straight
+          // to mahjong if available (spec's amendment rule).
+          myOptions.claim = slot.avail.mahjong ? { mahjong: true } : {};
           const low = slot.choice.kind === 'chow' ? (slot.choice as { low: number }).low : null;
           const tiles =
             slot.choice.kind === 'pung'
@@ -1084,6 +1134,14 @@ export class Game {
       if (this.rob.slots.get(viewer) === 'undecided') {
         myOptions.claim = { mahjong: true };
       }
+    }
+    // Transient announcements (kong declarations, wins), deduped against
+    // claim keywords already shown for the same seat.
+    const now = Date.now();
+    for (const a of this.announcements) {
+      if (a.expires <= now) continue;
+      if (claims.some((c) => c.seat === a.seat && c.kind === a.kind)) continue;
+      claims.push({ seat: a.seat, kind: a.kind, expires: a.expires });
     }
 
     // Pending pung/chow claimants see their provisional hand.

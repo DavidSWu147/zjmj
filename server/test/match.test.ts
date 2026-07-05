@@ -77,6 +77,9 @@ describe('match simulation', () => {
     expect(rec.finalScores).toEqual([0, 0, 0, 0]);
     const txt = matchToTxt(rec);
     expect(txt).toContain('Match ID:');
+    expect(txt).toContain('Thinking Time: 15');
+    expect(txt).toContain('Chicken Hand: 1');
+    expect(txt).toContain('Par Score: 25');
     expect(txt.match(/ENDGAME/g)).toHaveLength(4);
     match.dispose();
   }, 30000);

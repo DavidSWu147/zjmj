@@ -154,7 +154,8 @@ export class Match {
       total: r.value,
       limit: this.game?.resultScore?.limit,
       deltas,
-      nextIn: Math.round(this.timing.resultMs / 1000),
+      nextAt: Date.now() + this.timing.resultMs,
+      lastGame: this.gameIndex + 1 >= this.totalGames,
     };
     this.broadcast();
     this.timer = setTimeout(() => {

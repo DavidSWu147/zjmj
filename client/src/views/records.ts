@@ -1,7 +1,6 @@
 import { MatchRecord, ReplayStep, replayGame } from '../../../shared/src/records';
-import { MeldView } from '../../../shared/src/protocol';
 import { playerId } from '../identity';
-import { tileEl } from '../tileui';
+import { meldEl, tileEl } from '../tileui';
 import { escapeHtml } from './play';
 
 interface MatchListEntry {
@@ -157,7 +156,7 @@ function buildViewer(body: HTMLElement, rec: MatchRecord): void {
       handLine.className = 'hand-line';
       const meldRow = document.createElement('div');
       meldRow.className = 'tile-row';
-      for (const m of step.melds[seat]) meldRow.appendChild(meldElLite(m));
+      for (const m of step.melds[seat]) meldRow.appendChild(meldEl(m, 0));
       if (step.melds[seat].length > 0) handLine.appendChild(meldRow);
       const handRow = document.createElement('div');
       handRow.className = 'tile-row';
@@ -223,18 +222,3 @@ function gameSummary(rec: MatchRecord, gi: number): string {
   return `${winner.name} +${r.value} (${r.winBy === 'self' ? '自摸' : '和'})`;
 }
 
-function meldElLite(m: MeldView): HTMLElement {
-  const wrap = document.createElement('div');
-  wrap.className = 'meld';
-  m.tiles.forEach((t, i) => {
-    if (m.stacked && i === m.tiles.length - 1) return;
-    wrap.appendChild(
-      tileEl(t, {
-        back: m.faceDown.includes(i),
-        rotated: m.rotated === i,
-        stackedExtra: m.stacked && m.rotated === i ? m.tiles[m.tiles.length - 1] : null,
-      }),
-    );
-  });
-  return wrap;
-}
