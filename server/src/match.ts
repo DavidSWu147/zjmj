@@ -12,6 +12,7 @@ export interface MatchPlayer {
 export interface MatchTiming {
   dealMs: number;
   botDelayMs: number;
+  claimGapMs: number;
   resultMs: number;
   matchEndMs: number;
 }
@@ -19,6 +20,7 @@ export interface MatchTiming {
 export const DEFAULT_TIMING: MatchTiming = {
   dealMs: 4500,
   botDelayMs: 700,
+  claimGapMs: 1500,
   resultMs: 10000,
   matchEndMs: 20000,
 };
@@ -121,7 +123,11 @@ export class Match {
       onChange: () => this.broadcast(),
       onGameEnd: (record, deltas) => this.handleGameEnd(record, deltas),
       rng: this.rng,
-      timing: { dealMs: this.timing.dealMs, botDelayMs: this.timing.botDelayMs },
+      timing: {
+        dealMs: this.timing.dealMs,
+        botDelayMs: this.timing.botDelayMs,
+        claimGapMs: this.timing.claimGapMs,
+      },
     };
   }
 

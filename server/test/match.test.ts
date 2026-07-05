@@ -9,7 +9,7 @@ import { Match } from '../src/match';
 import { Db } from '../src/db';
 import { computeStats } from '../src/api';
 
-const FAST = { dealMs: 1, botDelayMs: 0, resultMs: 1, matchEndMs: 1 };
+const FAST = { dealMs: 1, botDelayMs: 0, claimGapMs: 1, resultMs: 1, matchEndMs: 1 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -174,6 +174,8 @@ describe('match simulation', () => {
 
     const txt = matchToTxt(rec);
     expect(txt.match(/ENDGAME/g)).toHaveLength(8);
+    // Winning games list their patterns and score before ENDGAME.
+    expect(txt.match(/^SCORE: \d+$/gm)?.length).toBe(wins);
     match.dispose();
 
     // Persistence + stats round-trip on the finished match.

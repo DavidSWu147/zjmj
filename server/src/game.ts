@@ -32,6 +32,12 @@ import { GameRecord, GameResultRecord, MoveRecord, MovePart1 } from '../../share
 export interface GameTiming {
   dealMs: number;
   botDelayMs: number;
+  /**
+   * Minimum time a discard sits on the table before the next turn starts,
+   * whether or not any claims are possible — instant advancement would leak
+   * that nobody could claim. Matches the client's discard-slide animation.
+   */
+  claimGapMs: number;
 }
 
 export interface GameHost {
@@ -119,6 +125,8 @@ export class Game {
 
   private claim: ClaimPhase | null = null;
   private rob: RobPhase | null = null;
+  /** When the current discard hit the table (uniform-window pacing). */
+  private claimWindowStart = 0;
   /** Tile just claimed by pung within the still-open claim turn (small-kong restriction). */
   private justPunged: Tile | null = null;
 
@@ -162,6 +170,17 @@ export class Game {
     if (this.timer) clearTimeout(this.timer);
     this.deadline = Date.now() + ms;
     this.phaseDuration = ms;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      fn();
+    }, ms);
+  }
+
+  /** Schedule without a visible countdown (uniform pacing windows). */
+  private scheduleSilent(ms: number, fn: () => void): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.deadline = null;
+    this.phaseDuration = null;
     this.timer = setTimeout(() => {
       this.timer = null;
       fn();
@@ -316,14 +335,35 @@ export class Game {
         });
       }
     }
+    this.claimWindowStart = Date.now();
     if (slots.size === 0) {
-      this.afterUnclaimedDiscard(discarder, riverbed);
+      // Nobody can claim, but pause for the uniform window anyway so the
+      // pacing never reveals whether a claim was possible.
+      this.phase = 'postDiscard';
+      this.claim = null;
+      this.scheduleSilent(this.host.timing.claimGapMs, () =>
+        this.afterUnclaimedDiscard(discarder, riverbed),
+      );
+      this.host.onChange();
       return;
     }
     this.phase = 'postDiscard';
     this.claim = { discarder, tile, riverbed, slots };
     this.schedule(this.claimMs(), () => this.resolveClaims(true));
     this.host.onChange();
+  }
+
+  /** All-passed: advance, but never before the uniform window has elapsed. */
+  private advanceAfterGap(discarder: number, riverbed: boolean): void {
+    this.claim = null;
+    const wait = this.claimWindowStart + this.host.timing.claimGapMs - Date.now();
+    if (wait > 10) {
+      this.phase = 'postDiscard';
+      this.scheduleSilent(wait, () => this.afterUnclaimedDiscard(discarder, riverbed));
+      this.host.onChange();
+    } else {
+      this.afterUnclaimedDiscard(discarder, riverbed);
+    }
   }
 
   private afterUnclaimedDiscard(discarder: number, riverbed: boolean): void {
@@ -496,8 +536,7 @@ export class Game {
     const best = this.bestSelection(false);
     if (!best) {
       // Everyone passed.
-      this.claim = null;
-      this.afterUnclaimedDiscard(c.discarder, c.riverbed);
+      this.advanceAfterGap(c.discarder, c.riverbed);
       return;
     }
     const [bestSeat, bestKind] = best;
@@ -556,8 +595,7 @@ export class Game {
     if (!c || this.phase !== 'postDiscard' || this.ended) return;
     const best = this.bestSelection(timedOut);
     if (!best) {
-      this.claim = null;
-      this.afterUnclaimedDiscard(c.discarder, c.riverbed);
+      this.advanceAfterGap(c.discarder, c.riverbed);
       return;
     }
     const [seat, kind] = best;
@@ -1098,8 +1136,11 @@ export class Game {
         } else if (slot.choice.kind === 'pung' || slot.choice.kind === 'chow') {
           myOptions.discard = true;
           // A made claim can only be withdrawn (PASS) — or upgraded straight
-          // to mahjong if available (spec's amendment rule).
-          myOptions.claim = slot.avail.mahjong ? { mahjong: true } : {};
+          // to mahjong if available (spec's amendment rule). Once the discard
+          // is confirmed and no mahjong upgrade exists, the claim is fully
+          // locked: no buttons remain, signalling "waiting on other players".
+          const locked = slot.discardConfirmed || slot.kongAfter !== null;
+          myOptions.claim = slot.avail.mahjong ? { mahjong: true } : locked ? undefined : {};
           const low = slot.choice.kind === 'chow' ? (slot.choice as { low: number }).low : null;
           const tiles =
             slot.choice.kind === 'pung'
@@ -1154,6 +1195,7 @@ export class Game {
     const lastLog = this.discardLog[this.discardLog.length - 1] ?? null;
     return {
       phase: this.phase,
+      now: Date.now(),
       gameNumber: g.latin,
       gameNumberZh: g.zh,
       remaining: this.wall.remaining,

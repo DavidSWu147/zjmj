@@ -126,6 +126,14 @@ export function matchToTxt(m: MatchRecord): string {
       lines.push(`${SEAT_LABELS[s]} player's starting hand: ${g.startingHands[s].join(', ')}`);
     }
     for (const mv of g.moves) lines.push(moveToTxt(mv));
+    // Winning games list the achieved patterns (or CHICKEN HAND) and the
+    // hand's score before ENDGAME.
+    if (g.result.winnerSeat !== null) {
+      const pats = g.result.patterns ?? [];
+      const chicken = pats.length === 0 || pats.every((p) => p.id === 'chicken');
+      lines.push(chicken ? 'CHICKEN HAND' : pats.map((p) => p.name.toUpperCase()).join(', '));
+      lines.push(`SCORE: ${g.result.value ?? 0}`);
+    }
     lines.push('ENDGAME');
   }
   return lines.join('\n') + '\n';

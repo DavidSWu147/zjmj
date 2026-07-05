@@ -45,6 +45,7 @@ export function renderStats(root: HTMLElement): void {
     .then((s: StatsResponse) => {
       const body = el.querySelector('#body')!;
       const N = s.games.total;
+      const highScore = Math.max(0, ...s.games.winValuesSelf, ...s.games.winValuesDiscard);
       const card = (k: string, v: string) =>
         `<div class="stat-card"><div class="k">${k}</div><div class="v">${v}</div></div>`;
 
@@ -79,6 +80,7 @@ export function renderStats(root: HTMLElement): void {
 
         <h2 style="margin:22px 0 10px;font-size:16px">Games (N = ${N})</h2>
         <div class="stat-grid">
+          ${card('High Score 最高和牌', `${highScore || '—'} <span style="font-size:13px;color:var(--text-dim)">(max 480)</span>`)}
           ${card('Total points won', `${s.games.pointsWon} <span style="font-size:13px;color:var(--text-dim)">(avg ${N ? fmt(s.games.pointsWon / N) : '—'})</span>`)}
           ${card('Total points lost', `${s.games.pointsLost} <span style="font-size:13px;color:var(--text-dim)">(avg ${N ? fmt(s.games.pointsLost / N) : '—'})</span>`)}
           ${card('Games drawn', `${s.games.draws} <span style="font-size:13px;color:var(--text-dim)">(${pct(s.games.draws, N)})</span>`)}

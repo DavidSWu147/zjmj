@@ -392,6 +392,9 @@ dialog::backdrop {
   height: 100%;
   background: radial-gradient(ellipse at center, #245c43 0%, var(--felt) 55%, #163a2a 100%);
   overflow: hidden;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .board .abs {
   position: absolute;
@@ -431,10 +434,20 @@ dialog::backdrop {
   text-shadow: 0 1px 2px #000a;
 }
 .quad-label .seat-letter {
-  font-size: 20px;
+  font-size: calc(var(--ps, 240px) * 0.083);
+}
+.quad-label .seat-zh {
+  font-size: calc(var(--ps, 240px) * 0.075);
+  opacity: 0.92;
 }
 .quad-label .seat-score {
-  font-size: 15px;
+  font-size: calc(var(--ps, 240px) * 0.062);
+}
+/* Mobile: no room for the Chinese wind characters (spec issue #9). */
+@media (max-width: 760px), (max-height: 520px) {
+  .quad-label .seat-zh {
+    display: none;
+  }
 }
 .ccircle {
   position: absolute;
@@ -454,32 +467,48 @@ dialog::backdrop {
   z-index: 3;
 }
 .ccircle .gnum {
-  font-size: 22px;
+  font-size: calc(var(--ps, 240px) * 0.095);
   font-weight: 700;
   letter-spacing: 0.05em;
 }
 .ccircle .rem {
-  font-size: 18px;
+  font-size: calc(var(--ps, 240px) * 0.075);
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
 .dice-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  gap: calc(var(--ps, 240px) * 0.03);
 }
 .die {
-  width: 26px;
-  height: 26px;
+  width: calc(var(--ps, 240px) * 0.115);
+  height: calc(var(--ps, 240px) * 0.115);
   background: #f7f3e8;
-  color: #17211c;
-  border-radius: 6px;
+  border-radius: 18%;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  padding: 12%;
+  opacity: 0;
+}
+.die-cell {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 800;
-  font-size: 17px;
-  opacity: 0;
+}
+.die .pip {
+  width: 72%;
+  height: 72%;
+  border-radius: 50%;
+  background: #232a56; /* dark blue-black pips */
+}
+.die.red .pip {
+  background: #c1272d; /* traditional red 1 and 4 */
+}
+.die .pip.big {
+  width: 170%;
+  height: 170%;
 }
 .die.shown {
   opacity: 1;
@@ -516,21 +545,18 @@ dialog::backdrop {
 .discard-zone .tor {
   position: absolute;
 }
-.discard-new {
-  animation: discard-in 0.28s ease-out;
+.discard-last {
   outline: 2px solid #fff8;
   outline-offset: 1px;
   z-index: 2;
 }
-@keyframes discard-in {
-  0% {
-    transform: scale(1.6);
-    opacity: 0.2;
-  }
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
+
+/* Floating tile clone travelling between board positions. */
+.flight {
+  position: absolute;
+  z-index: 15;
+  pointer-events: none;
+  will-change: transform;
 }
 
 .hand-area {
@@ -549,9 +575,14 @@ dialog::backdrop {
 }
 .hand-tile {
   cursor: pointer;
+  touch-action: manipulation;
 }
-.hand-tile:not(.tile-selected):hover {
-  transform: translateY(calc(var(--tw) * -0.1));
+/* Hover lift only for real pointers: on touch screens the hover state eats
+   the first tap (the Windows/mobile "triple click" bug). */
+@media (hover: hover) and (pointer: fine) {
+  .hand-tile:not(.tile-selected):hover {
+    transform: translateY(calc(var(--tw) * -0.1));
+  }
 }
 
 .opp-hand {

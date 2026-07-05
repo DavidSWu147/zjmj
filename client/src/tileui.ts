@@ -82,7 +82,9 @@ export function meldEl(m: MeldView, rel: 0 | 1 | 2 | 3): HTMLElement {
     const isRot = m.rotated === i;
     const opts: TileOpts = { back: m.faceDown.includes(i) };
     if (!isRot) {
-      pieces.push(orientedTile(t, baseDeg, opts));
+      const el = orientedTile(t, baseDeg, opts);
+      el.dataset.mt = String(i);
+      pieces.push(el);
       return;
     }
     if (m.stacked) {
@@ -90,7 +92,10 @@ export function meldEl(m: MeldView, rel: 0 | 1 | 2 | 3): HTMLElement {
       const stack = document.createElement('div');
       stack.className = `kong-pocket kong-pocket-r${rel}`;
       const claimed = orientedTile(t, rotDeg, opts);
+      claimed.dataset.mt = String(i);
+      claimed.dataset.claimed = '1';
       const pocket = orientedTile(m.tiles[m.tiles.length - 1], rotDeg, {});
+      pocket.dataset.pocket = '1';
       // The pocket tile sits on the board-center side of the claimed tile:
       // bottom seat: center is up (column, pocket first); right seat: center
       // is left (row, pocket first); top/left seats: the reverse.
@@ -98,7 +103,10 @@ export function meldEl(m: MeldView, rel: 0 | 1 | 2 | 3): HTMLElement {
       else stack.append(claimed, pocket);
       pieces.push(stack);
     } else {
-      pieces.push(orientedTile(t, rotDeg, opts));
+      const el = orientedTile(t, rotDeg, opts);
+      el.dataset.mt = String(i);
+      el.dataset.claimed = '1';
+      pieces.push(el);
     }
   });
   // Owner's left-to-right maps to: bottom -> screen left-to-right,

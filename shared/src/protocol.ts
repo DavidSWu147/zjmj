@@ -100,6 +100,12 @@ export interface MatchResultView {
 
 export interface GameView {
   phase: GamePhase;
+  /**
+   * Server clock (epoch ms) when this view was built. All timestamps in the
+   * view (deadline, claim expires, nextAt) are on this clock; clients must
+   * offset against their own clock instead of trusting Date.now().
+   */
+  now: number;
   gameNumber: string; // e.g. "E1"
   gameNumberZh: string; // e.g. "東一"
   remaining: number;
