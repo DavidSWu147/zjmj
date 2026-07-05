@@ -80,6 +80,17 @@ describe('hand decomposition', () => {
     expect(isThirteenTerminalsShape(countsFrom(tiles))).toBe(true);
   });
 
+  it('rejects terminal/honor hands missing some of the 13 types', () => {
+    // Within the 13 types and 14 tiles, but missing B1 and C9 (three pairs).
+    const missing = ['B9', 'B9', 'C1', 'D1', 'D9', 'E ', 'E ', 'S ', 'W ', 'N ', 'R ', 'G ', 'O ', 'O '];
+    expect(isThirteenTerminalsShape(countsFrom(missing))).toBe(false);
+    expect(canWinShape(countsFrom(missing), 0)).toBe(false);
+    // Two pairs, twelve types (the exact bug found in playtesting).
+    const twoPair = ['B9', 'B9', 'C1', 'C9', 'D1', 'D9', 'E ', 'S ', 'W ', 'N ', 'R ', 'G ', 'O ', 'O '];
+    expect(isThirteenTerminalsShape(countsFrom(twoPair))).toBe(false);
+    expect(canWinShape(countsFrom(twoPair), 0)).toBe(false);
+  });
+
   it('one-of-each thirteen terminals is a thirteen-way wait', () => {
     const tiles = ['B1', 'B9', 'C1', 'C9', 'D1', 'D9', 'E ', 'S ', 'W ', 'N ', 'R ', 'G ', 'O '];
     const waits = winningTileIndices(countsFrom(tiles), 0);

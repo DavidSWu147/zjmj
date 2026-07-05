@@ -81,18 +81,22 @@ export function isSevenPairsShape(counts: number[]): boolean {
 
 const THIRTEEN_IDX = [0, 8, 9, 17, 18, 26, 27, 28, 29, 30, 31, 32, 33];
 
-/** Thirteen Terminals: one of each of the 13 terminal/honor types plus one duplicate. */
+/**
+ * Thirteen Terminals: one of EACH of the 13 terminal/honor types, plus one
+ * duplicate of any of them (exactly one pair). A hand that stays within the
+ * 13 types but is missing some of them (e.g. two pairs) is NOT a winning hand.
+ */
 export function isThirteenTerminalsShape(counts: number[]): boolean {
-  let total = 0;
-  let pairFound = false;
+  let pairs = 0;
   for (let i = 0; i < 34; i++) {
-    if (counts[i] === 0) continue;
-    if (!THIRTEEN_IDX.includes(i)) return false;
-    if (counts[i] === 2) pairFound = true;
-    else if (counts[i] !== 1) return false;
-    total += counts[i];
+    if (THIRTEEN_IDX.includes(i)) {
+      if (counts[i] < 1 || counts[i] > 2) return false;
+      if (counts[i] === 2) pairs++;
+    } else if (counts[i] > 0) {
+      return false;
+    }
   }
-  return total === 14 && pairFound;
+  return pairs === 1;
 }
 
 /**
