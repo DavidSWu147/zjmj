@@ -118,7 +118,9 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   dh = Math.min(dh, availH / 5.8);
   const dt = dh * 0.75;
   const P = 4.5 * dt;
-  const gap = Math.max(4, dh * 0.12);
+  // The gutter between panel and discards hosts the timer bar (4px + margin),
+  // so it must never collapse below that.
+  const gap = Math.max(9, dh * 0.12);
   const cx = W / 2;
   const cy = topReserve + 10 + 4 * dh + gap + P / 2;
 
@@ -188,12 +190,12 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   panel.appendChild(circle);
   board.appendChild(panel);
 
-  // ── timer bar (inside the panel's bottom edge: never covers discards) ──
+  // ── timer bar (in the gutter between panel and discards) ──────────
   if (view.deadline && view.phaseDuration && !view.gameResult && view.phase !== 'gameEnd') {
     const bar = document.createElement('div');
     bar.className = 'timerbar';
     bar.style.left = `${cx - P / 2}px`;
-    bar.style.top = `${cy + P / 2 - 6}px`;
+    bar.style.top = `${cy + P / 2 + 2}px`;
     bar.style.width = `${P}px`;
     const fill = document.createElement('div');
     fill.className = 'fill';

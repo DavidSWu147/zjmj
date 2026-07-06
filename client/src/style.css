@@ -611,7 +611,7 @@ dialog::backdrop {
 
 .timerbar {
   position: absolute;
-  height: 5px;
+  height: 4px;
   background: #0a0a0a88;
   border-radius: 3px;
   overflow: hidden;
