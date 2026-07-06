@@ -1,5 +1,6 @@
 import './style.css';
 import { net } from './net';
+import { installTileHighlight } from './tileui';
 import { renderHome } from './views/home';
 import { renderPlay } from './views/play';
 import { renderStats } from './views/stats';
@@ -24,6 +25,7 @@ function route(): void {
 }
 
 window.addEventListener('hashchange', route);
+installTileHighlight();
 net.connect();
 net.onUpdate(() => {
   // Global toast display.

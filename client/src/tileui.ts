@@ -27,6 +27,7 @@ export function tileEl(t: Tile | null, opts: TileOpts = {}): HTMLElement {
   if (opts.back || t === null) {
     el.classList.add('tile-back');
   } else {
+    el.dataset.t = t; // face-up tiles participate in same-tile highlighting
     const img = document.createElement('img');
     img.src = tileSrc(t);
     img.alt = t.trim();
@@ -44,6 +45,31 @@ export function tileRow(tiles: (Tile | null)[], opts: TileOpts = {}): HTMLElemen
   row.className = 'tile-row';
   for (const t of tiles) row.appendChild(tileEl(t, opts));
   return row;
+}
+
+/**
+ * Hovering any face-up tile highlights every visible identical tile
+ * (including itself) in gold. Installed once, document-wide, so it works on
+ * the game board, result screens, and the records viewer alike.
+ */
+export function installTileHighlight(): void {
+  let lit: HTMLElement[] = [];
+  const clear = () => {
+    for (const el of lit) el.classList.remove('tile-same');
+    lit = [];
+  };
+  document.addEventListener('pointerover', (e) => {
+    const target = e.target as HTMLElement | null;
+    const tile = target?.closest?.<HTMLElement>('.tile[data-t]') ?? null;
+    clear();
+    if (!tile) return;
+    const code = tile.dataset.t!;
+    document.querySelectorAll<HTMLElement>(`.tile[data-t="${CSS.escape(code)}"]`).forEach((el) => {
+      el.classList.add('tile-same');
+      lit.push(el);
+    });
+  });
+  document.addEventListener('pointerleave', clear);
 }
 
 export type Deg = 0 | 90 | 180 | 270;

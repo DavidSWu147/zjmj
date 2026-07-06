@@ -510,17 +510,21 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   if (bar.children.length > 0) board.appendChild(bar);
 
   // ── leave button ──────────────────────────────────────────────────
-  const leave = document.createElement('button');
-  leave.textContent = 'Leave';
-  leave.style.cssText = 'position:absolute;top:10px;left:10px;z-index:9;opacity:.75;';
-  leave.addEventListener('click', () => {
-    if (confirm('Leave the match? A bot will take your seat.')) {
-      net.send({ type: 'leaveMatch' });
-      net.state.gameView = null;
-      location.hash = '#/play';
-    }
-  });
-  board.appendChild(leave);
+  // Stays above the scoring overlay so players can leave between games;
+  // hidden on the match-over screen (the match is already finished).
+  if (!view.matchResult) {
+    const leave = document.createElement('button');
+    leave.textContent = 'Leave';
+    leave.style.cssText = 'position:absolute;top:10px;left:10px;z-index:25;opacity:.75;';
+    leave.addEventListener('click', () => {
+      if (confirm('Leave the match? A bot will take your seat.')) {
+        net.send({ type: 'leaveMatch' });
+        net.state.gameView = null;
+        location.hash = '#/play';
+      }
+    });
+    board.appendChild(leave);
+  }
 
   // ── result overlays ───────────────────────────────────────────────
   if (view.matchResult) {

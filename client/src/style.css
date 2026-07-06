@@ -312,6 +312,13 @@ dialog::backdrop {
   outline: 2px solid var(--kw-mahjong);
   outline-offset: 1px;
 }
+/* Same-tile hover highlight: golden glow on every identical visible tile. */
+.tile-same {
+  box-shadow:
+    0 0 0 3px var(--kw-mahjong),
+    0 0 12px 2px #e8b93eaa;
+  z-index: 3;
+}
 .tile-row {
   display: flex;
   gap: 2px;
