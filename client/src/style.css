@@ -84,7 +84,7 @@ button:disabled {
 .home-top {
   display: flex;
   justify-content: space-between;
-  height: 56px;
+  min-height: 56px; /* grows with the two-line title instead of overflowing */
 }
 .home-corner {
   width: 120px; /* reserved for future help/settings buttons */
@@ -212,6 +212,8 @@ button:disabled {
   border-radius: 10px;
   padding: 8px 14px;
   font-size: 13.5px;
+  margin-top: 8px;
+  flex-shrink: 0;
 }
 @media (orientation: portrait) and (max-width: 900px) {
   .portrait-note {
