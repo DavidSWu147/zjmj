@@ -167,38 +167,51 @@ button:disabled {
   border-color: var(--accent);
 }
 
-/* Compact home panels on small screens. */
-@media (max-width: 760px) {
+/* Compact home panels on small screens — phones in either orientation
+   (landscape phones are wide but short, so height matters too). */
+@media (max-width: 760px), (max-height: 560px) {
+  .home {
+    padding: 10px;
+  }
   .home-main {
     gap: 12px;
   }
   .home-panel {
     width: 130px;
-    height: 180px;
+    height: 170px;
     font-size: 16px;
     border-radius: 12px;
   }
   .home-panel.side {
-    width: 118px;
-    height: 156px;
-    margin-top: 24px;
+    width: 116px;
+    height: 146px;
+    margin-top: 20px;
     font-size: 14px;
   }
   .home-panel.play {
-    width: 150px;
-    height: 200px;
+    width: 148px;
+    height: 186px;
     font-size: 19px;
   }
   .home-panel .zh {
     font-size: 12px;
   }
+  .home-col {
+    gap: 10px;
+  }
   .welcome-bar {
-    width: 150px;
+    width: 148px;
     font-size: 13px;
-    padding: 8px 0;
+    padding: 7px 0;
   }
   .home-title {
-    font-size: 19px;
+    font-size: 17px;
+  }
+  .home-title small {
+    font-size: 11px;
+  }
+  .home-corner {
+    width: 40px;
   }
 }
 
