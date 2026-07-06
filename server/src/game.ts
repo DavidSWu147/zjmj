@@ -84,6 +84,13 @@ interface ClaimSlot {
    * off cannot farm unlimited thinking time.
    */
   announcedKinds: Set<ClaimKind>;
+  /**
+   * Set when another player makes a visible claim after this seat has acted:
+   * the seat may amend. Sticky — a quick claim-then-cancel by the other
+   * player must not snatch the reopened options away; only this seat acting
+   * again (or resolution) closes them.
+   */
+  reopened: boolean;
 }
 
 interface ClaimPhase {
@@ -342,6 +349,7 @@ export class Game {
           discardConfirmed: false,
           kongAfter: null,
           announcedKinds: new Set(),
+          reopened: false,
         });
       }
     }
@@ -411,12 +419,11 @@ export class Game {
       // Amendments after acting are only reopened by ANOTHER player's visible
       // claim (spec's reactivation rule): a seat that passed may claim again,
       // and a pung/chow claimant may upgrade to mahjong, only in that case.
-      const reopened = this.othersHaveVisibleClaim(seat);
       if (slot.choice && choice.kind !== 'pass') {
-        if (slot.choice.kind === 'pass' && !reopened) return;
+        if (slot.choice.kind === 'pass' && !slot.reopened) return;
         if (slot.choice.kind === 'pung' || slot.choice.kind === 'chow') {
           // Only a mahjong upgrade is allowed, and only when reopened.
-          if (choice.kind !== 'mahjong' || !reopened) return;
+          if (choice.kind !== 'mahjong' || !slot.reopened) return;
         }
       }
       const wasPungChow = slot.choice && (slot.choice.kind === 'pung' || slot.choice.kind === 'chow');
@@ -426,6 +433,14 @@ export class Game {
         this.announce(seat, 'cancel', 1400);
       }
       slot.choice = choice;
+      // Acting consumes this seat's reopening; a visible claim reopens the
+      // options of every other seat that has already acted.
+      slot.reopened = false;
+      if (choice.kind !== 'pass') {
+        for (const [s2, sl2] of c.slots) {
+          if (s2 !== seat && sl2.choice !== null) sl2.reopened = true;
+        }
+      }
       slot.discardSel = null;
       slot.discardConfirmed = false;
       slot.kongAfter = null;
@@ -576,15 +591,6 @@ export class Game {
       if (!s.discardConfirmed && !s.kongAfter) return; // wait for their discard
     }
     this.resolveClaims(false);
-  }
-
-  /** Does any other slot currently show a visible (non-pass) claim? */
-  private othersHaveVisibleClaim(seat: number): boolean {
-    if (!this.claim) return false;
-    for (const [s, sl] of this.claim.slots) {
-      if (s !== seat && sl.choice && sl.choice.kind !== 'pass') return true;
-    }
-    return false;
   }
 
   /**
@@ -1168,9 +1174,9 @@ export class Game {
       }
       const slot = this.claim.slots.get(viewer);
       if (slot) {
-        // Amendments after acting reopen only while another player shows a
-        // visible claim (spec's reactivation rule).
-        const reopened = this.othersHaveVisibleClaim(viewer);
+        // Amendments after acting reopen when another player makes a visible
+        // claim, and stay open until this seat acts again (sticky).
+        const reopened = slot.reopened;
         if (!slot.choice) {
           const co: ClaimOptions = {};
           if (slot.avail.mahjong) co.mahjong = true;
