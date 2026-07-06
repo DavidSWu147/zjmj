@@ -22,7 +22,7 @@ export const DEFAULT_TIMING: MatchTiming = {
   botDelayMs: 700,
   claimGapMs: 1500,
   resultMs: 10000,
-  matchEndMs: 20000,
+  matchEndMs: 10000, // final standings screen duration
 };
 
 export interface MatchDelegate {
@@ -187,12 +187,18 @@ export class Match {
     this.game?.dispose();
     if (this.timer) clearTimeout(this.timer);
     this.matchResultView = {
-      standings: this.players.map((p, seat) => ({
-        name: p.name,
-        isBot: p.isBot,
-        score: this.scores[seat],
-        result: this.scores[seat] > 0 ? 'WIN' : this.scores[seat] < 0 ? 'LOSE' : 'DRAW',
-      })),
+      standings: this.players
+        .map((p, seat) => ({
+          name: p.name,
+          isBot: p.isBot,
+          score: this.scores[seat],
+          result: (this.scores[seat] > 0 ? 'WIN' : this.scores[seat] < 0 ? 'LOSE' : 'DRAW') as
+            | 'WIN'
+            | 'LOSE'
+            | 'DRAW',
+        }))
+        .sort((a, b) => b.score - a.score),
+      endsAt: Date.now() + this.timing.matchEndMs,
     };
     this.broadcast();
     const record: MatchRecord = {

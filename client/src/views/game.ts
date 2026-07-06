@@ -25,6 +25,7 @@ const KW_LABEL: Record<string, { en: string; zh: string; cls: string }> = {
   kong: { en: 'KONG', zh: '槓', cls: 'kong' },
   mahjong: { en: 'MAHJONG', zh: '和', cls: 'mahjong' },
   selfdraw: { en: 'SELF-DRAW', zh: '自摸', cls: 'mahjong' },
+  cancel: { en: 'CANCEL', zh: '取消', cls: 'discarder' },
 };
 
 let selKey: string | null = null;
@@ -187,12 +188,12 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   panel.appendChild(circle);
   board.appendChild(panel);
 
-  // ── timer bar ─────────────────────────────────────────────────────
+  // ── timer bar (inside the panel's bottom edge: never covers discards) ──
   if (view.deadline && view.phaseDuration && !view.gameResult && view.phase !== 'gameEnd') {
     const bar = document.createElement('div');
     bar.className = 'timerbar';
     bar.style.left = `${cx - P / 2}px`;
-    bar.style.top = `${cy + P / 2 + 2}px`;
+    bar.style.top = `${cy + P / 2 - 6}px`;
     bar.style.width = `${P}px`;
     const fill = document.createElement('div');
     fill.className = 'fill';
@@ -279,7 +280,9 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       }
     } else {
       for (let i = 0; i < sv.handCount; i++) {
-        pieces.push(orientedTile(null, BASE_DEG[rel], { back: true }));
+        const back = orientedTile(null, BASE_DEG[rel], { back: true });
+        back.dataset.hb = String(seat); // hand-back: discard flights start here
+        pieces.push(back);
       }
     }
     if (sv.hasDrawn) {
@@ -505,7 +508,9 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     if (c.pung) btn('pung', 'PUNG', '碰', () => act({ kind: 'claim', claim: 'pung' }));
     if (c.kong) btn('kong', 'KONG', '槓', () => act({ kind: 'claim', claim: 'kong' }));
     if (c.mahjong) btn('mahjong', 'MAHJONG', '和', () => act({ kind: 'claim', claim: 'mahjong' }));
-    btn('pass', 'PASS', '過', () => act({ kind: 'claim', claim: 'pass' }));
+    // A pending chow/pung is withdrawn ("Cancel"), not passed.
+    if (view.pendingClaim) btn('pass', 'CANCEL', '取消', () => act({ kind: 'claim', claim: 'pass' }));
+    else btn('pass', 'PASS', '過', () => act({ kind: 'claim', claim: 'pass' }));
   }
   if (bar.children.length > 0) board.appendChild(bar);
 
@@ -699,9 +704,10 @@ function matchResultOverlay(view: GameView): HTMLElement {
   const card = document.createElement('div');
   card.className = 'result-card';
   const rows = view
-    .matchResult!.standings.map((s) => {
+    .matchResult!.standings.map((s, i) => {
       const cls = s.result === 'WIN' ? 'win-gold' : s.result === 'LOSE' ? 'lose-gray' : 'draw-green';
       return `<tr>
+        <td style="color:var(--text-dim)">${i + 1}.</td>
         <td>${escapeHtml(s.name)}${s.isBot ? ' 🤖' : ''}</td>
         <td class="pts">${s.score > 0 ? '+' : ''}${s.score}</td>
         <td class="pts ${cls}" style="font-weight:800">${s.result}</td>
@@ -711,13 +717,33 @@ function matchResultOverlay(view: GameView): HTMLElement {
   card.innerHTML = `<h2>Match Over 終局</h2>
     <table class="pattern-list">${rows}</table>
     <div class="dialog-btns"><button id="tolobby">Back to Lobby</button></div>`;
-  card.querySelector('#tolobby')!.addEventListener('click', () => {
+  const exit = () => {
     net.send({ type: 'leaveMatch' });
     net.state.gameView = null;
     net.state.inMatch = false;
     location.hash = '#/play';
     location.reload();
-  });
+  };
+  card.querySelector('#tolobby')!.addEventListener('click', exit);
+  // The standings screen closes itself after the server's window.
+  const msRemaining = Math.max(0, view.matchResult!.endsAt - view.now);
+  const note = document.createElement('div');
+  note.className = 'result-next';
+  const localDeadline = Date.now() + msRemaining;
+  const tick = () => {
+    const secs = Math.max(0, Math.ceil((localDeadline - Date.now()) / 1000));
+    note.textContent = `Returning to lobby in ${secs}s…`;
+    if (secs <= 0 && note.isConnected) exit();
+  };
+  tick();
+  const timer = window.setInterval(() => {
+    if (!note.isConnected) {
+      clearInterval(timer);
+      return;
+    }
+    tick();
+  }, 250);
+  card.appendChild(note);
   overlay.appendChild(card);
   return overlay;
 }

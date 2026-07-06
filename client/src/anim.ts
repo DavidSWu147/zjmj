@@ -32,6 +32,8 @@ export interface BoardSnapshot {
   lastDiscardRect: (Rect | null)[];
   stripRect: (Rect | null)[];
   drawnRect: (Rect | null)[];
+  /** Bounding box of the seat's concealed hand tiles only (no melds/drawn). */
+  handRect: (Rect | null)[];
 }
 
 interface Flight {
@@ -88,11 +90,32 @@ export function takeSnapshot(board: HTMLElement, view: GameView): BoardSnapshot 
   const lastDiscardRect: (Rect | null)[] = [];
   const stripRect: (Rect | null)[] = [];
   const drawnRect: (Rect | null)[] = [];
+  const handRect: (Rect | null)[] = [];
   for (let s = 0; s < 4; s++) {
     const n = view.seats[s].discards.length;
     lastDiscardRect.push(rectOf(board.querySelector(`[data-ds="${s}-${n - 1}"]`), board));
     stripRect.push(rectOf(board.querySelector(`[data-strip="${s}"]`), board));
     drawnRect.push(rectOf(board.querySelector(drawnSel(s, view.mySeat)), board));
+    // Union of the seat's concealed hand tiles (opponent backs, or the local
+    // player's clickable tiles), so discard flights start at the true hand
+    // center regardless of how many melds sit beside it.
+    const sel = s === view.mySeat ? `[data-strip="${s}"] .hand-tile:not([data-drawn])` : `[data-hb="${s}"]`;
+    const tiles = board.querySelectorAll(sel);
+    let u: Rect | null = null;
+    tiles.forEach((t) => {
+      const r = rectOf(t, board);
+      if (!r) return;
+      if (!u) u = { ...r };
+      else {
+        const x2 = Math.max(u.x + u.w, r.x + r.w);
+        const y2 = Math.max(u.y + u.h, r.y + r.h);
+        u.x = Math.min(u.x, r.x);
+        u.y = Math.min(u.y, r.y);
+        u.w = x2 - u.x;
+        u.h = y2 - u.y;
+      }
+    });
+    handRect.push(u);
   }
   return {
     gameNumber: view.gameNumber,
@@ -104,6 +127,7 @@ export function takeSnapshot(board: HTMLElement, view: GameView): BoardSnapshot 
     lastDiscardRect,
     stripRect,
     drawnRect,
+    handRect,
   };
 }
 
@@ -232,6 +256,7 @@ export function animateTransition(
       const from =
         (d.fromDraw ? prev.drawnRect[s] : null) ??
         (isMe ? ownClickRect : null) ??
+        prev.handRect[s] ??
         prev.stripRect[s];
       if (from) {
         fly(board, d.tile, from, `[data-ds="${s}-${n - 1}"]`, discardMs, degOfSeat(s, view.mySeat));

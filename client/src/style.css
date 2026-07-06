@@ -167,6 +167,58 @@ button:disabled {
   border-color: var(--accent);
 }
 
+/* Compact home panels on small screens. */
+@media (max-width: 760px) {
+  .home-main {
+    gap: 12px;
+  }
+  .home-panel {
+    width: 130px;
+    height: 180px;
+    font-size: 16px;
+    border-radius: 12px;
+  }
+  .home-panel.side {
+    width: 118px;
+    height: 156px;
+    margin-top: 24px;
+    font-size: 14px;
+  }
+  .home-panel.play {
+    width: 150px;
+    height: 200px;
+    font-size: 19px;
+  }
+  .home-panel .zh {
+    font-size: 12px;
+  }
+  .welcome-bar {
+    width: 150px;
+    font-size: 13px;
+    padding: 8px 0;
+  }
+  .home-title {
+    font-size: 19px;
+  }
+}
+
+/* Landscape recommendation, shown on the home and lobby pages only. */
+.portrait-note {
+  display: none;
+  text-align: center;
+  background: #3a2f10;
+  border: 1px solid var(--kw-mahjong);
+  color: var(--kw-mahjong);
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 13.5px;
+}
+@media (orientation: portrait) and (max-width: 900px) {
+  .portrait-note {
+    display: block;
+  }
+}
+
 /* ── Generic page (lobby/stats/records) ───────────────────────────── */
 
 .page {
@@ -634,13 +686,15 @@ dialog::backdrop {
 .claim-word.pop {
   animation: claim-pop 0.3s ease-out;
 }
+/* The centering translate must be part of the keyframes, otherwise the text
+   jumps diagonally when the animation ends and the inline transform kicks in. */
 @keyframes claim-pop {
   0% {
-    transform: scale(2.4);
+    transform: translate(-50%, -50%) scale(2.4);
     opacity: 0;
   }
   100% {
-    transform: scale(1);
+    transform: translate(-50%, -50%) scale(1);
     opacity: 1;
   }
 }

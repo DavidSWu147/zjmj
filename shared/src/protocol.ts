@@ -95,7 +95,10 @@ export interface GameResultView {
 }
 
 export interface MatchResultView {
+  /** Sorted by final score, highest first. */
   standings: { name: string; isBot: boolean; score: number; result: 'WIN' | 'LOSE' | 'DRAW' }[];
+  /** Epoch ms (server clock) when the match screen closes. */
+  endsAt: number;
 }
 
 export interface GameView {
@@ -128,7 +131,11 @@ export interface GameView {
    * the whole claim phase; announcements (kong declarations, wins) carry an
    * `expires` epoch-ms timestamp.
    */
-  claims: { seat: number; kind: 'chow' | 'pung' | 'kong' | 'mahjong' | 'selfdraw'; expires?: number }[];
+  claims: {
+    seat: number;
+    kind: 'chow' | 'pung' | 'kong' | 'mahjong' | 'selfdraw' | 'cancel';
+    expires?: number;
+  }[];
   myOptions: MyOptions;
   /** My provisional chow/pung meld awaiting a discard choice. */
   pendingClaim: { kind: 'chow' | 'pung'; tiles: Tile[] } | null;

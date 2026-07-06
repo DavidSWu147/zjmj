@@ -10,6 +10,7 @@ export function renderHome(root: HTMLElement): void {
       <div class="home-title">ZUNG JUNG MAHJONG<small>中庸麻將</small></div>
       <div class="home-corner"></div>
     </div>
+    <div class="portrait-note">For the best experience, rotate your device to landscape 🔄 請將裝置轉為橫向</div>
     <div class="home-main">
       <div class="home-panel side" data-go="stats">Statistics<span class="zh">統計</span></div>
       <div class="home-col">

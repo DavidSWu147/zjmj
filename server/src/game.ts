@@ -132,8 +132,12 @@ export class Game {
 
   private moves: MoveRecord[] = [];
   private currentMove: { seat: number; part1: MovePart1 } | null = null;
-  /** Transient keyword announcements (kong declarations, wins). */
-  private announcements: { seat: number; kind: 'kong' | 'mahjong' | 'selfdraw'; expires: number }[] = [];
+  /** Transient keyword announcements (kong declarations, wins, cancels). */
+  private announcements: {
+    seat: number;
+    kind: 'kong' | 'mahjong' | 'selfdraw' | 'cancel';
+    expires: number;
+  }[] = [];
 
   result: GameResultRecord | null = null;
   resultScore: ScoreResult | null = null;
@@ -216,7 +220,7 @@ export class Game {
     this.moves.push(m);
   }
 
-  private announce(seat: number, kind: 'kong' | 'mahjong' | 'selfdraw', ms = 1600): void {
+  private announce(seat: number, kind: 'kong' | 'mahjong' | 'selfdraw' | 'cancel', ms = 1600): void {
     const now = Date.now();
     this.announcements = this.announcements.filter((a) => a.expires > now);
     this.announcements.push({ seat, kind, expires: now + ms });
@@ -404,15 +408,22 @@ export class Game {
         if (slot.avail.chows.includes(low)) choice = { kind: 'chow', low };
       }
       if (!choice) return;
-      // A pung/chow claim can only be withdrawn (PASS), not switched to
-      // another claim: switching would re-trigger timer resets endlessly.
-      if (
-        slot.choice &&
-        (slot.choice.kind === 'pung' || slot.choice.kind === 'chow') &&
-        choice.kind !== 'pass' &&
-        choice.kind !== slot.choice.kind
-      ) {
-        if (choice.kind !== 'mahjong') return; // amending up to mahjong stays legal
+      // Amendments after acting are only reopened by ANOTHER player's visible
+      // claim (spec's reactivation rule): a seat that passed may claim again,
+      // and a pung/chow claimant may upgrade to mahjong, only in that case.
+      const reopened = this.othersHaveVisibleClaim(seat);
+      if (slot.choice && choice.kind !== 'pass') {
+        if (slot.choice.kind === 'pass' && !reopened) return;
+        if (slot.choice.kind === 'pung' || slot.choice.kind === 'chow') {
+          // Only a mahjong upgrade is allowed, and only when reopened.
+          if (choice.kind !== 'mahjong' || !reopened) return;
+        }
+      }
+      const wasPungChow = slot.choice && (slot.choice.kind === 'pung' || slot.choice.kind === 'chow');
+      if (wasPungChow && choice.kind === 'pass') {
+        // Withdrawn claim: everyone sees CANCEL so the vanished keyword is
+        // not mistaken for a frozen screen.
+        this.announce(seat, 'cancel', 1400);
       }
       slot.choice = choice;
       slot.discardSel = null;
@@ -567,6 +578,15 @@ export class Game {
     this.resolveClaims(false);
   }
 
+  /** Does any other slot currently show a visible (non-pass) claim? */
+  private othersHaveVisibleClaim(seat: number): boolean {
+    if (!this.claim) return false;
+    for (const [s, sl] of this.claim.slots) {
+      if (s !== seat && sl.choice && sl.choice.kind !== 'pass') return true;
+    }
+    return false;
+  }
+
   /**
    * Best claim among current selections. On timeout, pung/chow claims survive
    * only if a discard tile was at least selected (spec).
@@ -597,6 +617,21 @@ export class Game {
   private resolveClaims(timedOut: boolean): void {
     const c = this.claim;
     if (!c || this.phase !== 'postDiscard' || this.ended) return;
+    if (timedOut) {
+      // Pung/chow claims that never got a discard selected fail now: show
+      // CANCEL so other players understand why the keyword vanished.
+      for (const [seat, slot] of c.slots) {
+        if (
+          slot.choice &&
+          (slot.choice.kind === 'pung' || slot.choice.kind === 'chow') &&
+          !slot.discardConfirmed &&
+          !slot.kongAfter &&
+          slot.discardSel === null
+        ) {
+          this.announce(seat, 'cancel', 1400);
+        }
+      }
+    }
     const best = this.bestSelection(timedOut);
     if (!best) {
       this.advanceAfterGap(c.discarder, c.riverbed);
@@ -1133,21 +1168,33 @@ export class Game {
       }
       const slot = this.claim.slots.get(viewer);
       if (slot) {
-        if (!slot.choice || slot.choice.kind === 'pass') {
+        // Amendments after acting reopen only while another player shows a
+        // visible claim (spec's reactivation rule).
+        const reopened = this.othersHaveVisibleClaim(viewer);
+        if (!slot.choice) {
           const co: ClaimOptions = {};
           if (slot.avail.mahjong) co.mahjong = true;
           if (slot.avail.kong) co.kong = true;
           if (slot.avail.pung) co.pung = true;
           if (slot.avail.chows.length) co.chows = slot.avail.chows.map(tileFromIndex);
           myOptions.claim = co;
+        } else if (slot.choice.kind === 'pass') {
+          // Buttons disappear after passing; they return if someone claims.
+          if (reopened) {
+            const co: ClaimOptions = {};
+            if (slot.avail.mahjong) co.mahjong = true;
+            if (slot.avail.kong) co.kong = true;
+            if (slot.avail.pung) co.pung = true;
+            if (slot.avail.chows.length) co.chows = slot.avail.chows.map(tileFromIndex);
+            myOptions.claim = co;
+          }
         } else if (slot.choice.kind === 'pung' || slot.choice.kind === 'chow') {
           myOptions.discard = true;
-          // A made claim can only be withdrawn (PASS) — or upgraded straight
-          // to mahjong if available (spec's amendment rule). Once the discard
-          // is confirmed and no mahjong upgrade exists, the claim is fully
-          // locked: no buttons remain, signalling "waiting on other players".
+          // A made claim can be withdrawn (Cancel); a mahjong upgrade is
+          // offered only while another player's claim has reopened the phase.
           const locked = slot.discardConfirmed || slot.kongAfter !== null;
-          myOptions.claim = slot.avail.mahjong ? { mahjong: true } : locked ? undefined : {};
+          myOptions.claim =
+            slot.avail.mahjong && reopened ? { mahjong: true } : locked && !reopened ? undefined : {};
           const low = slot.choice.kind === 'chow' ? (slot.choice as { low: number }).low : null;
           const tiles =
             slot.choice.kind === 'pung'

@@ -25,7 +25,7 @@ const PARS: { v: RoomSettings['par']; label: string }[] = [
 ];
 
 function settingsSummary(s: RoomSettings): string {
-  const len = LENGTHS.find((l) => l.v === s.rounds)!.label;
+  const len = `${s.rounds} round${s.rounds === 1 ? '' : 's'}`;
   const chick = CHICKENS.find((c) => c.v === s.chickenHand)!.label;
   const par = PARS.find((p) => p.v === s.par)!.label;
   return `${len} · ${s.thinkingTime}s · Chicken: ${chick} · Par: ${par}`;
@@ -63,6 +63,7 @@ function renderLobby(el: HTMLElement): void {
         <span style="color: var(--text-dim)">${playerName()}${net.state.connected ? '' : ' · reconnecting…'}</span>
         <button id="create" ${myRoom !== null ? 'disabled' : ''}>Create Room</button>
       </div>
+      <div class="portrait-note">For the best experience, rotate your device to landscape 🔄 請將裝置轉為橫向</div>
       <div class="page-body" id="rooms"></div>
     </div>
   `;
