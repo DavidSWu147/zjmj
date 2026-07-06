@@ -253,28 +253,40 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   }
 
   // ── opponent hands + melds ────────────────────────────────────────
+  // Each strip is anchored at the fixed boundary between melds and hand, so
+  // the hand tiles stay put while the drawn tile comes and goes at the free
+  // end and melds grow toward the other side.
+  const handW13 = 13 * otw + 12 * 2; // width of a full 13-tile hand
   for (let rel = 1; rel < 4; rel++) {
     const seat = (view.mySeat + rel) % 4;
     const sv = view.seats[seat];
     const wrap = document.createElement('div');
     wrap.className = 'opp-hand' + (rel !== 2 ? ' vertical' : '');
     wrap.style.setProperty('--tw', `${otw}px`);
-
     wrap.dataset.strip = String(seat);
 
-    // Owner's left-to-right order: melds (earliest farthest left), gap, hand.
+    // Owner's left-to-right order: melds (earliest farthest left), anchor, hand.
     const pieces: HTMLElement[] = [];
     sv.melds.forEach((m, i) => {
       const me = meldEl(m, rel as 1 | 2 | 3);
       me.dataset.meld = `${seat}-${i}`;
       pieces.push(me);
-      if (i < sv.melds.length - 1 || sv.handCount > 0) {
+      if (i < sv.melds.length - 1) {
         const g = document.createElement('div');
         g.className = 'strip-gap';
         g.style.width = g.style.height = `${otw * 0.35}px`;
         pieces.push(g);
       }
     });
+    if (sv.melds.length > 0) {
+      const g = document.createElement('div');
+      g.className = 'strip-gap';
+      g.style.width = g.style.height = `${otw * 0.35}px`;
+      pieces.push(g);
+    }
+    const marker = document.createElement('div');
+    marker.style.cssText = 'width:0;height:0;flex-shrink:0;';
+    pieces.push(marker);
     // After a win the winner's concealed hand is revealed to everyone.
     const revealed = view.reveal && view.reveal.seat === seat ? view.reveal : null;
     if (revealed) {
@@ -308,26 +320,45 @@ export function renderGame(el: HTMLElement, view: GameView): void {
 
     if (rel === 2) {
       wrap.style.top = '8px';
-      wrap.style.left = '50%';
-      wrap.style.transform = 'translateX(-50%)';
+      wrap.style.left = '0px';
     } else if (rel === 1) {
       wrap.style.right = '8px';
-      wrap.style.top = `${cy}px`;
-      wrap.style.transform = 'translateY(-50%)';
+      wrap.style.top = '0px';
     } else {
       wrap.style.left = '8px';
-      wrap.style.top = `${cy}px`;
-      wrap.style.transform = 'translateY(-50%)';
+      wrap.style.top = '0px';
     }
+    board.appendChild(wrap);
+    // Shift the strip so the meld/hand boundary lands on its fixed anchor:
+    // hand center when meldless, hand tiles never move on draw/discard.
+    const mR = marker.getBoundingClientRect();
+    const wR = wrap.getBoundingClientRect();
+    if (rel === 2) {
+      wrap.style.left = `${cx + handW13 / 2 - (mR.left - wR.left)}px`;
+    } else if (rel === 1) {
+      wrap.style.top = `${cy + handW13 / 2 - (mR.top - wR.top)}px`;
+    } else {
+      wrap.style.top = `${cy - handW13 / 2 - (mR.top - wR.top)}px`;
+    }
+
+    // Names sit at fixed board positions, past the hand's maximum extent.
     const tag = document.createElement('div');
     tag.textContent = `${sv.name}${sv.connected ? '' : ' (away)'}`;
     tag.style.cssText =
-      'position:absolute;font-size:11px;color:#dfe7e2;text-shadow:0 1px 2px #000;white-space:nowrap;';
-    if (rel === 2) tag.style.cssText += 'left:50%;transform:translateX(-50%);bottom:-17px;';
-    else if (rel === 1) tag.style.cssText += 'right:2px;top:-18px;';
-    else tag.style.cssText += 'left:2px;top:-18px;';
-    wrap.appendChild(tag);
-    board.appendChild(wrap);
+      'position:absolute;font-size:11px;color:#dfe7e2;text-shadow:0 1px 2px #000;white-space:nowrap;z-index:5;';
+    const drawnExtent = handW13 / 2 + otw * 1.7;
+    if (rel === 2) {
+      tag.style.left = `${cx}px`;
+      tag.style.transform = 'translateX(-50%)';
+      tag.style.top = `${8 + oth + 6}px`;
+    } else if (rel === 1) {
+      tag.style.right = '8px';
+      tag.style.top = `${cy - drawnExtent - 16}px`;
+    } else {
+      tag.style.left = '8px';
+      tag.style.top = `${cy + drawnExtent + 4}px`;
+    }
+    board.appendChild(tag);
   }
 
   // ── own hand ──────────────────────────────────────────────────────
