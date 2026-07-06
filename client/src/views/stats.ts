@@ -60,9 +60,11 @@ export function renderStats(root: HTMLElement): void {
         )
         .join('');
 
-      const patternRows = PATTERN_IDS.map((id) => {
+      // Chicken Hand leads the table as 0.0 (issue: it is the non-pattern).
+      const orderedIds = ['chicken', ...PATTERN_IDS.filter((id) => id !== 'chicken')];
+      const patternRows = orderedIds.map((id) => {
         const p = PATTERNS[id];
-        const label = id === 'chicken' ? '—' : id.replace(/^(\d+)\.(.+)$/, '$1.$2');
+        const label = id === 'chicken' ? '0.0' : id;
         return `<tr>
           <td style="color:var(--text-dim)">${label}</td>
           <td>${p.name}</td>

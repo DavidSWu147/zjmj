@@ -119,6 +119,10 @@ export interface GameView {
   deadline: number | null; // epoch ms when the phase times out
   phaseDuration: number | null; // ms
   lastDiscard: { seat: number; tile: Tile } | null;
+  /** Length of the uniform post-discard window (drives the discard slide). */
+  claimGapMs: number;
+  /** After a win: the winner's concealed hand, revealed to everyone. */
+  reveal: { seat: number; hand: Tile[]; drawn: Tile | null } | null;
   /**
    * Keywords currently shown, color-coded per spec. Claim keywords stay for
    * the whole claim phase; announcements (kong declarations, wins) carry an

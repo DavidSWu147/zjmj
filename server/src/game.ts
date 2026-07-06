@@ -196,6 +196,12 @@ export class Game {
     return Math.max(this.thinkingMs() / 2, 5000);
   }
 
+  /** Uniform window per discard: 1s at 7.5s/10s thinking time, 1.5s at 15s. */
+  private gapMs(): number {
+    const base = this.host.timing.claimGapMs;
+    return this.host.settings.thinkingTime === 15 ? base : Math.min(base, 1000);
+  }
+
   // ── move recording ────────────────────────────────────────────────────────
 
   private flushMove(): void {
@@ -341,9 +347,7 @@ export class Game {
       // pacing never reveals whether a claim was possible.
       this.phase = 'postDiscard';
       this.claim = null;
-      this.scheduleSilent(this.host.timing.claimGapMs, () =>
-        this.afterUnclaimedDiscard(discarder, riverbed),
-      );
+      this.scheduleSilent(this.gapMs(), () => this.afterUnclaimedDiscard(discarder, riverbed));
       this.host.onChange();
       return;
     }
@@ -356,7 +360,7 @@ export class Game {
   /** All-passed: advance, but never before the uniform window has elapsed. */
   private advanceAfterGap(discarder: number, riverbed: boolean): void {
     this.claim = null;
-    const wait = this.claimWindowStart + this.host.timing.claimGapMs - Date.now();
+    const wait = this.claimWindowStart + this.gapMs() - Date.now();
     if (wait > 10) {
       this.phase = 'postDiscard';
       this.scheduleSilent(wait, () => this.afterUnclaimedDiscard(discarder, riverbed));
@@ -985,6 +989,9 @@ export class Game {
   private finishWithPause(result: GameResultRecord, score: ScoreResult): void {
     this.ended = true;
     this.phase = 'gameEnd';
+    // Result is set now so the winner's hand is revealed during the pause.
+    this.result = result;
+    this.resultScore = score;
     this.claim = null;
     this.rob = null;
     this.deadline = null;
@@ -1193,9 +1200,16 @@ export class Game {
     }
 
     const lastLog = this.discardLog[this.discardLog.length - 1] ?? null;
+    const winnerSeat = this.result?.winnerSeat;
+    const reveal =
+      this.phase === 'gameEnd' && winnerSeat !== null && winnerSeat !== undefined
+        ? { seat: winnerSeat, hand: [...this.hands[winnerSeat]], drawn: this.drawn[winnerSeat] }
+        : null;
     return {
       phase: this.phase,
       now: Date.now(),
+      claimGapMs: this.gapMs(),
+      reveal,
       gameNumber: g.latin,
       gameNumberZh: g.zh,
       remaining: this.wall.remaining,

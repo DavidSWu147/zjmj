@@ -443,11 +443,19 @@ dialog::backdrop {
 .quad-label .seat-score {
   font-size: calc(var(--ps, 240px) * 0.062);
 }
-/* Mobile: no room for the Chinese wind characters (spec issue #9). */
-@media (max-width: 760px), (max-height: 520px) {
-  .quad-label .seat-zh {
-    display: none;
-  }
+/* Side seats: wind letters on one line, score on the next. */
+.quad-label.side {
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  line-height: 1.15;
+  text-align: center;
+}
+.quad-label.side .wind-line {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  justify-content: center;
 }
 .ccircle {
   position: absolute;
@@ -467,12 +475,13 @@ dialog::backdrop {
   z-index: 3;
 }
 .ccircle .gnum {
-  font-size: calc(var(--ps, 240px) * 0.095);
+  font-size: calc(var(--ps, 240px) * 0.125);
   font-weight: 700;
   letter-spacing: 0.05em;
+  white-space: nowrap;
 }
 .ccircle .rem {
-  font-size: calc(var(--ps, 240px) * 0.075);
+  font-size: calc(var(--ps, 240px) * 0.1);
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
@@ -499,16 +508,17 @@ dialog::backdrop {
 }
 .die .pip {
   width: 72%;
-  height: 72%;
+  aspect-ratio: 1; /* always a true circle */
+  height: auto;
   border-radius: 50%;
   background: #232a56; /* dark blue-black pips */
+  flex-shrink: 0;
 }
 .die.red .pip {
   background: #c1272d; /* traditional red 1 and 4 */
 }
 .die .pip.big {
-  width: 170%;
-  height: 170%;
+  width: 175%;
 }
 .die.shown {
   opacity: 1;
@@ -551,10 +561,16 @@ dialog::backdrop {
   z-index: 2;
 }
 
-/* Floating tile clone travelling between board positions. */
+/* Overlay for floating tile clones: survives board re-renders. */
+.flight-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 15;
+  overflow: hidden;
+}
 .flight {
   position: absolute;
-  z-index: 15;
   pointer-events: none;
   will-change: transform;
 }

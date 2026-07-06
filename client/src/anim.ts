@@ -3,18 +3,17 @@ import { Tile } from '../../shared/src/tiles';
 import { Deg, orientedTile } from './tileui';
 
 /**
- * Tile flight animations between board states. The board fully re-renders on
- * every server update, so movement is animated FLIP-style: rects of interest
- * are captured after each render, and when the next state shows a tile that
- * moved (hand → discard pile, pile → meld, pile → winner), a floating clone
- * travels from the old rect to the new element while the destination is
- * hidden.
+ * Tile flight animations between board states.
+ *
+ * The board re-renders on every server update, so flights live in a separate
+ * overlay layer that is never wiped. Each flight remembers a CSS selector for
+ * its destination; after every re-render the destinations are re-hidden in
+ * the fresh DOM so a broadcast mid-flight (someone passing, selecting a tile,
+ * a keyword change) no longer snaps tiles to their final position.
  */
 
-/** Discard slide spans the uniform claim window (spec: 1.5 seconds). */
-export const DISCARD_MS = 1500;
-/** Meld/win movements are speedy but not instantaneous. */
 export const MELD_MS = 380;
+export const DRAW_MS = 300;
 
 export interface Rect {
   x: number;
@@ -25,11 +24,53 @@ export interface Rect {
 
 export interface BoardSnapshot {
   gameNumber: string;
+  remaining: number;
   discardCounts: number[];
   meldCounts: number[];
   meldTileLens: number[][];
+  drawnFlags: boolean[];
   lastDiscardRect: (Rect | null)[];
   stripRect: (Rect | null)[];
+  drawnRect: (Rect | null)[];
+}
+
+interface Flight {
+  clone: HTMLElement;
+  destSel: string;
+  endsAt: number;
+}
+
+let overlay: HTMLElement | null = null;
+let curBoard: HTMLElement | null = null;
+let flights: Flight[] = [];
+
+export function setFlightLayer(layer: HTMLElement): void {
+  overlay = layer;
+}
+
+export function clearFlights(): void {
+  for (const f of flights) f.clone.remove();
+  flights = [];
+}
+
+/** After each re-render: re-hide destinations of live flights in the new DOM. */
+export function reapplyFlights(board: HTMLElement): void {
+  curBoard = board;
+  const now = Date.now();
+  flights = flights.filter((f) => {
+    if (now >= f.endsAt) {
+      f.clone.remove();
+      return false;
+    }
+    const dest = board.querySelector<HTMLElement>(f.destSel);
+    if (!dest) {
+      // The tile moved on (e.g. the flying discard got claimed): snap.
+      f.clone.remove();
+      return false;
+    }
+    dest.style.visibility = 'hidden';
+    return true;
+  });
 }
 
 export function rectOf(el: Element | null, board: HTMLElement): Rect | null {
@@ -39,21 +80,30 @@ export function rectOf(el: Element | null, board: HTMLElement): Rect | null {
   return { x: r.left - b.left, y: r.top - b.top, w: r.width, h: r.height };
 }
 
+function drawnSel(seat: number, mySeat: number): string {
+  return seat === mySeat ? '[data-drawn]' : `[data-odrawn="${seat}"]`;
+}
+
 export function takeSnapshot(board: HTMLElement, view: GameView): BoardSnapshot {
   const lastDiscardRect: (Rect | null)[] = [];
   const stripRect: (Rect | null)[] = [];
+  const drawnRect: (Rect | null)[] = [];
   for (let s = 0; s < 4; s++) {
     const n = view.seats[s].discards.length;
     lastDiscardRect.push(rectOf(board.querySelector(`[data-ds="${s}-${n - 1}"]`), board));
     stripRect.push(rectOf(board.querySelector(`[data-strip="${s}"]`), board));
+    drawnRect.push(rectOf(board.querySelector(drawnSel(s, view.mySeat)), board));
   }
   return {
     gameNumber: view.gameNumber,
+    remaining: view.remaining,
     discardCounts: view.seats.map((sv) => sv.discards.length),
     meldCounts: view.seats.map((sv) => sv.melds.length),
     meldTileLens: view.seats.map((sv) => sv.melds.map((m) => m.tiles.length)),
+    drawnFlags: view.seats.map((sv, s) => (s === view.mySeat ? view.myDrawn !== null : sv.hasDrawn)),
     lastDiscardRect,
     stripRect,
+    drawnRect,
   };
 }
 
@@ -71,15 +121,17 @@ function fly(
   board: HTMLElement,
   tile: Tile | null,
   from: Rect,
-  dest: Element,
+  destSel: string,
   ms: number,
   fromDeg: Deg,
 ): void {
+  if (!overlay) return;
+  const dest = board.querySelector<HTMLElement>(destSel);
+  if (!dest) return;
   const to = rectOf(dest, board);
   if (!to || to.w === 0) return;
   const toDeg = degOfEl(dest);
-  const d = dest as HTMLElement;
-  d.style.visibility = 'hidden';
+  dest.style.visibility = 'hidden';
 
   const clone = document.createElement('div');
   clone.className = 'flight';
@@ -98,33 +150,55 @@ function fly(
   if (dr < -180) dr += 360;
   const sc = Math.max(0.4, Math.min(2.5, Math.min(from.w, from.h) / shortSide || 1));
   clone.style.transform = `translate(${dx}px, ${dy}px) rotate(${dr}deg) scale(${sc})`;
-  board.appendChild(clone);
+  overlay.appendChild(clone);
+
+  const rec: Flight = { clone, destSel, endsAt: Date.now() + ms + 150 };
+  flights.push(rec);
 
   requestAnimationFrame(() => {
     clone.style.transition = `transform ${ms}ms cubic-bezier(0.3, 0.7, 0.3, 1)`;
     clone.style.transform = 'translate(0px, 0px) rotate(0deg) scale(1)';
   });
-  let done = false;
   const finish = () => {
-    if (done) return;
-    done = true;
-    d.style.visibility = '';
+    const i = flights.indexOf(rec);
+    if (i >= 0) flights.splice(i, 1);
     clone.remove();
+    curBoard?.querySelector<HTMLElement>(destSel)?.style.removeProperty('visibility');
   };
   clone.addEventListener('transitionend', finish);
   setTimeout(finish, ms + 150);
 }
 
+/** Point rect at the midpoint of the control panel edge facing a seat. */
+function panelEdge(board: HTMLElement, seat: number, mySeat: number, size: Rect): Rect | null {
+  const panel = rectOf(board.querySelector('.cpanel'), board);
+  if (!panel) return null;
+  const rel = (seat - mySeat + 4) % 4;
+  const cx = panel.x + panel.w / 2;
+  const cy = panel.y + panel.h / 2;
+  const pts: [number, number][] = [
+    [cx, panel.y + panel.h],
+    [panel.x + panel.w, cy],
+    [cx, panel.y],
+    [panel.x, cy],
+  ];
+  const [mx, my] = pts[rel];
+  return { x: mx - size.w / 2, y: my - size.h / 2, w: size.w, h: size.h };
+}
+
 /**
  * Diffs the previous state against the new one and launches flights.
- * `ownClickRect` is the rect of the tile the local player clicked to discard.
+ * `discardMs` matches the server's uniform claim window; `ownClickRect` is
+ * where the local player's clicked tile was.
  */
 export function animateTransition(
   board: HTMLElement,
   prev: BoardSnapshot | null,
   view: GameView,
   ownClickRect: Rect | null,
+  discardMs: number,
 ): void {
+  curBoard = board;
   if (!prev || prev.gameNumber !== view.gameNumber) return;
 
   // A pile that shrank means its newest tile was claimed or won.
@@ -135,61 +209,83 @@ export function animateTransition(
 
   let meldGrew = false;
   for (let s = 0; s < 4; s++) {
-    // New discard: slide from the hand to the pile over the claim window.
-    const n = view.seats[s].discards.length;
+    const sv = view.seats[s];
+    const isMe = s === view.mySeat;
+    const hasDrawnNow = isMe ? view.myDrawn !== null : sv.hasDrawn;
+
+    // Fresh draw: a quick slide from the wall (control panel edge for now).
+    if (hasDrawnNow && !prev.drawnFlags[s] && view.remaining < prev.remaining) {
+      const sel = drawnSel(s, view.mySeat);
+      const dest = board.querySelector<HTMLElement>(sel);
+      const size = dest ? rectOf(dest, board) : null;
+      if (size) {
+        const from = panelEdge(board, s, view.mySeat, size);
+        if (from) fly(board, isMe ? view.myDrawn : null, from, sel, DRAW_MS, degOfSeat(s, view.mySeat));
+      }
+    }
+
+    // New discard: slide from the hand (or the drawn slot for a tsumogiri)
+    // to the pile over the claim window.
+    const n = sv.discards.length;
     if (n === prev.discardCounts[s] + 1) {
-      const dest = board.querySelector(`[data-ds="${s}-${n - 1}"]`);
-      const from = (s === view.mySeat ? ownClickRect : null) ?? prev.stripRect[s];
-      if (dest && from) {
-        fly(board, view.seats[s].discards[n - 1].tile, from, dest, DISCARD_MS, degOfSeat(s, view.mySeat));
+      const d = sv.discards[n - 1];
+      const from =
+        (d.fromDraw ? prev.drawnRect[s] : null) ??
+        (isMe ? ownClickRect : null) ??
+        prev.stripRect[s];
+      if (from) {
+        fly(board, d.tile, from, `[data-ds="${s}-${n - 1}"]`, discardMs, degOfSeat(s, view.mySeat));
       }
     }
 
     // New meld: claimed tile from the pile, the others from the owner's hand.
-    if (view.seats[s].melds.length === prev.meldCounts[s] + 1) {
+    if (sv.melds.length === prev.meldCounts[s] + 1) {
       meldGrew = true;
-      const mi = view.seats[s].melds.length - 1;
-      const meld = view.seats[s].melds[mi];
+      const mi = sv.melds.length - 1;
+      const meld = sv.melds[mi];
       const root = board.querySelector(`[data-meld="${s}-${mi}"]`);
-      root?.querySelectorAll('[data-mt]').forEach((tor) => {
-        const ti = Number((tor as HTMLElement).dataset.mt);
-        const isClaimed = (tor as HTMLElement).dataset.claimed === '1' && claimedFrom >= 0;
+      root?.querySelectorAll<HTMLElement>('[data-mt]').forEach((tor) => {
+        const ti = Number(tor.dataset.mt);
+        const isClaimed = tor.dataset.claimed === '1' && claimedFrom >= 0;
         const from = isClaimed ? prev.lastDiscardRect[claimedFrom] : prev.stripRect[s];
         const fromDeg = degOfSeat(isClaimed ? claimedFrom : s, view.mySeat);
         const face = meld.faceDown.includes(ti) ? null : meld.tiles[ti];
-        if (from) fly(board, face, from, tor, MELD_MS, fromDeg);
+        if (from) {
+          fly(board, face, from, `[data-meld="${s}-${mi}"] [data-mt="${ti}"]`, MELD_MS, fromDeg);
+        }
       });
-    } else if (view.seats[s].melds.length === prev.meldCounts[s]) {
+    } else if (sv.melds.length === prev.meldCounts[s]) {
       // Small exposed kong: the 4th tile flies into the pocket.
-      view.seats[s].melds.forEach((m, mi) => {
+      sv.melds.forEach((m, mi) => {
         const before = prev.meldTileLens[s][mi] ?? m.tiles.length;
         if (m.tiles.length > before) {
           meldGrew = true;
-          const pocket = board.querySelector(`[data-meld="${s}-${mi}"] [data-pocket]`);
           const from = prev.stripRect[s];
-          if (pocket && from) {
-            fly(board, m.tiles[m.tiles.length - 1], from, pocket, MELD_MS, degOfSeat(s, view.mySeat));
+          if (from) {
+            fly(
+              board,
+              m.tiles[m.tiles.length - 1],
+              from,
+              `[data-meld="${s}-${mi}"] [data-pocket]`,
+              MELD_MS,
+              degOfSeat(s, view.mySeat),
+            );
           }
         }
       });
     }
   }
 
-  // Win on discard / robbed kong: a pile lost its tile without a meld
-  // growing — it travels to the winner.
+  // Win on discard: a pile lost its tile without a meld growing — it travels
+  // to the winner (whose hand is being revealed).
   if (claimedFrom >= 0 && !meldGrew && view.phase === 'gameEnd') {
-    const winClaim = view.claims.find((c) => c.kind === 'mahjong');
+    const winner = view.reveal?.seat ?? view.claims.find((c) => c.kind === 'mahjong')?.seat ?? -1;
     const from = prev.lastDiscardRect[claimedFrom];
-    if (winClaim && from) {
-      const winner = winClaim.seat;
-      const dest =
-        winner === view.mySeat
-          ? board.querySelector('[data-drawn]')
-          : board.querySelector(`[data-strip="${winner}"] .tor:last-of-type`) ??
-            board.querySelector(`[data-strip="${winner}"]`);
-      if (dest) {
-        const face = winner === view.mySeat ? view.myDrawn : null;
-        fly(board, face, from, dest, MELD_MS, degOfSeat(claimedFrom, view.mySeat));
+    if (winner >= 0 && from) {
+      const sel = drawnSel(winner, view.mySeat);
+      const face = winner === view.mySeat ? view.myDrawn : (view.reveal?.drawn ?? null);
+      if (board.querySelector(sel)) {
+        fly(board, face, from, sel, MELD_MS, degOfSeat(claimedFrom, view.mySeat));
       }
     }
   }

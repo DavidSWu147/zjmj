@@ -1,6 +1,15 @@
 import { GameAction, GameView } from '../../../shared/src/protocol';
 import { Tile } from '../../../shared/src/tiles';
-import { animateTransition, BoardSnapshot, Rect, rectOf, takeSnapshot } from '../anim';
+import {
+  animateTransition,
+  BoardSnapshot,
+  clearFlights,
+  Rect,
+  reapplyFlights,
+  rectOf,
+  setFlightLayer,
+  takeSnapshot,
+} from '../anim';
 import { net } from '../net';
 import { meldEl, orientedTile, tileEl, Deg } from '../tileui';
 import { escapeHtml } from './play';
@@ -25,6 +34,8 @@ let shownKW = new Set<string>();
 let resizeHooked = false;
 let prevSnap: BoardSnapshot | null = null;
 let ownClickRect: Rect | null = null;
+let lastViewKey = '';
+let showZhNumber = false;
 
 function act(action: GameAction): void {
   net.send({ type: 'action', action });
@@ -35,7 +46,12 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     resizeHooked = true;
     window.addEventListener('resize', () => {
       const v = net.state.gameView;
-      if (v && location.hash.includes('play')) renderGame(el, v);
+      if (v && location.hash.includes('play')) {
+        // Layout moves: in-flight rects are invalid and a re-render is forced.
+        clearFlights();
+        lastViewKey = '';
+        renderGame(el, v);
+      }
     });
   }
   if (view.gameNumber !== lastGameNumber) {
@@ -45,6 +61,8 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     lastTurnKey = '';
     prevSnap = null;
     ownClickRect = null;
+    lastViewKey = '';
+    clearFlights();
   }
   // Reset the local tile selection only when the situation actually changes,
   // not on every server broadcast (a select echo must not clear it).
@@ -61,10 +79,26 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     selKey = null;
   }
 
-  el.innerHTML = '';
-  const board = document.createElement('div');
-  board.className = 'board';
-  el.appendChild(board);
+  // The board's content is rebuilt per state; the flight layer persists so
+  // animations survive re-renders. Identical states are skipped entirely.
+  let board = el.querySelector<HTMLElement>(':scope > .board');
+  let flightLayer = el.querySelector<HTMLElement>(':scope > .flight-layer');
+  const viewKey = JSON.stringify({ ...view, now: 0 });
+  if (board && flightLayer && viewKey === lastViewKey) return;
+  lastViewKey = viewKey;
+  if (!board || !flightLayer) {
+    el.innerHTML = '';
+    el.style.position = 'relative';
+    el.style.height = '100%';
+    board = document.createElement('div');
+    board.className = 'board';
+    flightLayer = document.createElement('div');
+    flightLayer.className = 'flight-layer';
+    el.append(board, flightLayer);
+  } else {
+    board.innerHTML = '';
+  }
+  setFlightLayer(flightLayer);
 
   // ── geometry ──────────────────────────────────────────────────────
   const W = el.clientWidth || window.innerWidth;
@@ -117,10 +151,15 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     quad.style.clipPath = QUAD_CLIP[rel];
     panel.appendChild(quad);
     const label = document.createElement('div');
-    label.className = 'quad-label';
+    // Side seats put the score on its own line so 東南西北 fits (issue #7).
+    const side = rel === 1 || rel === 3;
+    label.className = 'quad-label' + (side ? ' side' : '');
     label.style.cssText = LABEL_POS[rel];
-    label.innerHTML = `<span class="seat-letter">${SEAT_LETTERS[seat]}</span><span class="seat-zh">${SEAT_ZH[seat]}</span><span class="seat-score">${view.seats[seat].score}</span>`;
-    label.title = `${SEAT_ZH[seat]} · ${escapeHtml(view.seats[seat].name)}`;
+    const windLine = `<span class="seat-letter">${SEAT_LETTERS[seat]}</span><span class="seat-zh">${SEAT_ZH[seat]}</span>`;
+    label.innerHTML = side
+      ? `<span class="wind-line">${windLine}</span><span class="seat-score">${view.seats[seat].score}</span>`
+      : `${windLine}<span class="seat-score">${view.seats[seat].score}</span>`;
+    label.title = escapeHtml(view.seats[seat].name);
     panel.appendChild(label);
   }
   const circle = document.createElement('div');
@@ -135,8 +174,15 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     });
     circle.appendChild(grid);
   } else {
-    circle.innerHTML = `<div class="gnum">${view.gameNumber}</div><div class="rem">${String(view.remaining).padStart(2, '0')}</div>`;
-    circle.title = view.gameNumberZh;
+    // Click toggles between E1..N4 and 東一..北四 (issue #10).
+    circle.innerHTML = `<div class="gnum">${showZhNumber ? view.gameNumberZh : view.gameNumber}</div><div class="rem">${String(view.remaining).padStart(2, '0')}</div>`;
+    circle.style.cursor = 'pointer';
+    circle.addEventListener('pointerdown', () => {
+      showZhNumber = !showZhNumber;
+      const gnum = circle.querySelector('.gnum');
+      const v = net.state.gameView;
+      if (gnum && v) gnum.textContent = showZhNumber ? v.gameNumberZh : v.gameNumber;
+    });
   }
   panel.appendChild(circle);
   board.appendChild(panel);
@@ -225,15 +271,29 @@ export function renderGame(el: HTMLElement, view: GameView): void {
         pieces.push(g);
       }
     });
-    for (let i = 0; i < sv.handCount; i++) {
-      pieces.push(orientedTile(null, BASE_DEG[rel], { back: true }));
+    // After a win the winner's concealed hand is revealed to everyone.
+    const revealed = view.reveal && view.reveal.seat === seat ? view.reveal : null;
+    if (revealed) {
+      for (const t of revealed.hand) {
+        pieces.push(orientedTile(t, BASE_DEG[rel]));
+      }
+    } else {
+      for (let i = 0; i < sv.handCount; i++) {
+        pieces.push(orientedTile(null, BASE_DEG[rel], { back: true }));
+      }
     }
     if (sv.hasDrawn) {
       const g = document.createElement('div');
       g.className = 'strip-gap';
       g.style.width = g.style.height = `${otw * 0.4}px`;
       pieces.push(g);
-      pieces.push(orientedTile(null, BASE_DEG[rel], { back: true }));
+      const drawnTile = orientedTile(
+        revealed ? revealed.drawn : null,
+        BASE_DEG[rel],
+        revealed && revealed.drawn ? { highlight: true } : { back: true },
+      );
+      drawnTile.dataset.odrawn = String(seat);
+      pieces.push(drawnTile);
     }
     // Map owner's left-to-right onto the screen: right seat runs bottom-to-top
     // and top seat runs right-to-left, so those two reverse.
@@ -470,7 +530,8 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   }
 
   // ── tile flight animations (diff against the previous state) ──────
-  animateTransition(board, prevSnap, view, ownClickRect);
+  animateTransition(board, prevSnap, view, ownClickRect, view.claimGapMs || 1500);
+  reapplyFlights(board);
   if (prevSnap && view.seats[view.mySeat].discards.length > prevSnap.discardCounts[view.mySeat]) {
     ownClickRect = null; // consumed by this render's discard flight
   }

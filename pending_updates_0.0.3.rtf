@@ -1,0 +1,13 @@
+1. Add a slight fluid animation for when a tile is drawn, coming from the midpoint of the closest side of the central control panel for that player for now since there are no physical tile walls. This should be very fast, no more than half a second
+2. Now that there are animations for discarding a tile, it is important that when the tile discarded is the same tile drawn from the wall, the animation reflects that. So update the tile to show movement from the drawn tile area 
+3. Current behavior is that there is no fluid animation for the melded tiles or the discarded tile after a claim or receiving a discarded tile for Mahjong off of a discard. It might be invisible because of tiles in Chow and Pung claims not being moved immediately after the claim is called but before it is locked in, or just because the board always "snaps to truth"
+4. In addition, after a Mahjong, before displaying the scoring screen, reveal the tiles in hand of the winning player to all players' displays
+5. Sometimes, fluid animations disappear completely. This can happen on any platform, and I'm not sure why, but it could have to do with the context window always updating, since animations always snap to truth when the browser's display is resized
+6. Currently the red 1 pip looks like an oval that is too tall instead of a circle. It should be a circle with same height as width
+7. The added 東南西北 are fine for the top and bottom players but overflow for the left and right opponents. To fix this, move the score to a new line below the winds and 東南西北, for the left and right opponents
+8. The text is now sufficiently small on mobile that 東南西北 can be added there too, subject to the formatting updates for the left and right players
+9. If a player has a claim but passes before the 1.5 second window is up, current behavior is the tile will jolt ahead to the discard pile, thus leaking the information anyways. Even if players pass early always wait out the entire window and have the tile move normally
+10. Current behavior is hovering over E1~N4 shows the text 東一~北四 in a separate popup. Instead, make it so clicking on the circle in the central control panel toggles between English E1~N4 and Chinese 東一~北四, starting with English E1~N4 of course
+11. The font size of the game number and number of tiles remaining inside the central control panel can be made bigger on desktop
+12. Update the buffer window from 1.5 seconds to 1 second if the thinking time is 7.5 seconds or 10 seconds
+13. In statistics, move Chicken Hand from the bottom to the top and give it a numbering of 0.0
