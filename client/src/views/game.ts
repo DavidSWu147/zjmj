@@ -118,9 +118,10 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   dh = Math.min(dh, availH / 5.8);
   const dt = dh * 0.75;
   const P = 4.5 * dt;
-  // The gutter between panel and discards hosts the timer bar (4px + margin),
-  // so it must never collapse below that.
-  const gap = Math.max(9, dh * 0.12);
+  // The gutter between panel and discards hosts the timer bar (4px), with
+  // clearance from the panel's 2px shadow ring on one side and the tiles on
+  // the other, so it must never collapse below that.
+  const gap = Math.max(12, dh * 0.15);
   const cx = W / 2;
   const cy = topReserve + 10 + 4 * dh + gap + P / 2;
 
@@ -195,7 +196,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     const bar = document.createElement('div');
     bar.className = 'timerbar';
     bar.style.left = `${cx - P / 2}px`;
-    bar.style.top = `${cy + P / 2 + 2}px`;
+    bar.style.top = `${cy + P / 2 + (gap - 4) / 2}px`; // centered in the gutter
     bar.style.width = `${P}px`;
     const fill = document.createElement('div');
     fill.className = 'fill';
