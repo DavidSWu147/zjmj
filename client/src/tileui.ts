@@ -58,13 +58,17 @@ export function installTileHighlight(): void {
     for (const el of lit) el.classList.remove('tile-same');
     lit = [];
   };
+  // Scoring screens and the claim/variant preview bars don't count as
+  // "visible tiles": they neither trigger nor receive the highlight.
+  const excluded = (el: HTMLElement) => el.closest('.result-card, .variant-bar') !== null;
   document.addEventListener('pointerover', (e) => {
     const target = e.target as HTMLElement | null;
     const tile = target?.closest?.<HTMLElement>('.tile[data-t]') ?? null;
     clear();
-    if (!tile) return;
+    if (!tile || excluded(tile)) return;
     const code = tile.dataset.t!;
     document.querySelectorAll<HTMLElement>(`.tile[data-t="${CSS.escape(code)}"]`).forEach((el) => {
+      if (excluded(el)) return;
       el.classList.add('tile-same');
       lit.push(el);
     });
