@@ -1,0 +1,20 @@
+Version 0.0.5 updates
+
+Claims logic
+
+Sticky claim reopening (9f6c66a) — when another player's visible claim reopens your options after you've passed (or opens a Mahjong upgrade on your pending Chow/Pung), they now stay open until you act or the window resolves. A quick claim-then-cancel by the other player can no longer snatch them away.
+Unbeatable claims resolve immediately (56546d4) — a confirmed Pung (or any complete claim) no longer waits for players who hold only lower-priority claims; the Chow holder's window simply closes. Claims still wait out the deadline when another seat is Mahjong-capable, per the interception rules.
+Animations
+3. Post-meld discard source fixed (56546d4) — discard flights measure the hand center from the current board state instead of the pre-meld one, so a discard right after forming a meld departs from the true middle of the remaining tiles.
+4. Opponent hands stay put, melds stay on screen (085895f + 7220938) — opponent strips are centered on melds + hand with the drawn tile excluded from the measurement: drawing never shifts their hand, discards/melds recenter in place (matching your own hand's behavior), and a maximal meld area — four Kongs included — remains fully visible.
+
+Layout & mobile
+5. Home header can't be overlapped (da4e42a) — the title area grows with its two lines, so the portrait-rotation notice no longer covers 中庸麻將.
+6. Compact home on landscape phones (0e00b65) — the compact panel layout triggers on short screens (not just narrow ones), so Statistics/Play/Records and the guest-name welcome bar all fit on a phone in landscape.
+7. Timer bar in a guaranteed gutter (f1ccbdb + 69940de) — the countdown bar sits centered in a widened panel-to-discards gutter, clear of the panel's shadow ring, the seat labels, and the discard tiles on both desktop and mobile.
+8. Opponent name positions (085895f + 7220938) — names moved to fixed board positions that never shift with hand length; both side opponents' names sit at the top of the screen alongside the top opponent's.
+
+Cosmetic
+9. "Mahjong 和" in gold (7220938) — the discard-win scoring screen colors the win type gold, matching Self-Draw.
+
+10. right opponent's name no longer overlaps with tiles after two or more melds
