@@ -560,18 +560,18 @@ export class Game {
       }
     }
 
-    // Otherwise wait until everyone has chosen.
-    if (slots.some(([, s]) => s.choice === null)) return;
-
     const best = this.bestSelection(false);
     if (!best) {
-      // Everyone passed.
+      // No claim on the table: advance only once everyone has passed.
+      if (slots.some(([, s]) => s.choice === null)) return;
       this.advanceAfterGap(c.discarder, c.riverbed);
       return;
     }
     const [bestSeat, bestKind] = best;
 
-    // Can any other seat still amend to something that beats the best claim?
+    // Can any other seat make (or amend to) something that beats the best
+    // claim? Seats holding only lower-priority claims cannot affect the
+    // outcome, so the best claim does not wait for them to act.
     const beatable = slots.some(([seat, s]) => {
       if (seat === bestSeat) return false;
       const options: ClaimKind[] = [];
