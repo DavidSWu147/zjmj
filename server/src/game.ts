@@ -593,6 +593,15 @@ export class Game {
     this.resolveClaims(false);
   }
 
+  /** Does any other slot currently show a visible (non-pass) claim? */
+  private othersHaveVisibleClaim(seat: number): boolean {
+    if (!this.claim) return false;
+    for (const [s, sl] of this.claim.slots) {
+      if (s !== seat && sl.choice && sl.choice.kind !== 'pass') return true;
+    }
+    return false;
+  }
+
   /**
    * Best claim among current selections. On timeout, pung/chow claims survive
    * only if a discard tile was at least selected (spec).

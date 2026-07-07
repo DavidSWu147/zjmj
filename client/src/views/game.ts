@@ -284,9 +284,6 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       g.style.width = g.style.height = `${otw * 0.35}px`;
       pieces.push(g);
     }
-    const marker = document.createElement('div');
-    marker.style.cssText = 'width:0;height:0;flex-shrink:0;';
-    pieces.push(marker);
     // After a win the winner's concealed hand is revealed to everyone.
     const revealed = view.reveal && view.reveal.seat === seat ? view.reveal : null;
     if (revealed) {
@@ -329,34 +326,39 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       wrap.style.top = '0px';
     }
     board.appendChild(wrap);
-    // Shift the strip so the meld/hand boundary lands on its fixed anchor:
-    // hand center when meldless, hand tiles never move on draw/discard.
-    const mR = marker.getBoundingClientRect();
-    const wR = wrap.getBoundingClientRect();
+    // Center the strip on melds + hand, EXCLUDING the drawn tile: draws then
+    // never shift the hand, discards/melds recenter it (like the own hand),
+    // and even a four-kong strip stays fully on screen.
+    const totalLen = rel === 2 ? wrap.offsetWidth : wrap.offsetHeight;
+    const drawnExtra = sv.hasDrawn ? otw * 1.4 + 4 : 0; // strip-gap + tile + flex gaps
+    const baseLen = totalLen - drawnExtra;
     if (rel === 2) {
-      wrap.style.left = `${cx + handW13 / 2 - (mR.left - wR.left)}px`;
+      // Reversed layout: the drawn tile sits at the LEFT end.
+      wrap.style.left = `${cx - baseLen / 2 - drawnExtra}px`;
     } else if (rel === 1) {
-      wrap.style.top = `${cy + handW13 / 2 - (mR.top - wR.top)}px`;
+      // Reversed layout: the drawn tile sits at the TOP end.
+      wrap.style.top = `${cy - baseLen / 2 - drawnExtra}px`;
     } else {
-      wrap.style.top = `${cy - handW13 / 2 - (mR.top - wR.top)}px`;
+      wrap.style.top = `${cy - baseLen / 2}px`;
     }
 
-    // Names sit at fixed board positions, past the hand's maximum extent.
+    // Names sit at fixed board positions: side opponents' names at the top,
+    // near the top opponent's name.
     const tag = document.createElement('div');
     tag.textContent = `${sv.name}${sv.connected ? '' : ' (away)'}`;
     tag.style.cssText =
       'position:absolute;font-size:11px;color:#dfe7e2;text-shadow:0 1px 2px #000;white-space:nowrap;z-index:5;';
-    const drawnExtent = handW13 / 2 + otw * 1.7;
+    const sideTop = cy - handW13 / 2 - otw * 1.7 - 16;
     if (rel === 2) {
       tag.style.left = `${cx}px`;
       tag.style.transform = 'translateX(-50%)';
       tag.style.top = `${8 + oth + 6}px`;
     } else if (rel === 1) {
       tag.style.right = '8px';
-      tag.style.top = `${cy - drawnExtent - 16}px`;
+      tag.style.top = `${sideTop}px`;
     } else {
       tag.style.left = '8px';
-      tag.style.top = `${cy + drawnExtent + 4}px`;
+      tag.style.top = `${sideTop}px`;
     }
     board.appendChild(tag);
   }
@@ -655,7 +657,7 @@ function gameResultOverlay(view: GameView): HTMLElement {
   const winByText =
     r.winBy === 'self'
       ? '<span class="win-gold">Self-Draw 自摸</span>'
-      : `Mahjong 和 — <span class="lose-gray">Discarder 放銃: ${
+      : `<span class="win-gold">Mahjong 和</span> — <span class="lose-gray">Discarder 放銃: ${
           r.responsibleSeat !== null && r.responsibleSeat !== undefined
             ? escapeHtml(view.seats[r.responsibleSeat].name)
             : 'nobody (same-round immunity)'
