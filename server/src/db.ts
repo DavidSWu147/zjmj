@@ -9,6 +9,22 @@ const { DatabaseSync: SqliteDatabase } = require('node:sqlite') as {
   DatabaseSync: typeof DatabaseSync;
 };
 
+export interface Session {
+  token: string;
+  playerId: string;
+  kind: 'guest' | 'account';
+  username: string | null;
+  deviceId: string | null;
+}
+
+interface SessionRow {
+  token: string;
+  player_id: string;
+  kind: string;
+  username: string | null;
+  device_id: string | null;
+}
+
 export interface MatchListEntry {
   matchId: number;
   createdAt: number;
@@ -44,7 +60,76 @@ export class Db {
         PRIMARY KEY (match_id, start_seat)
       );
       CREATE INDEX IF NOT EXISTS idx_match_players_player ON match_players(player_id);
+      CREATE TABLE IF NOT EXISTS sessions (
+        token TEXT PRIMARY KEY,
+        player_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        username TEXT,
+        device_id TEXT,
+        created_at INTEGER NOT NULL,
+        last_seen INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_sessions_player ON sessions(player_id);
     `);
+    // Prune sessions idle for half a year so the table cannot grow forever.
+    this.db
+      .prepare('DELETE FROM sessions WHERE last_seen < ?')
+      .run(Date.now() - 180 * 24 * 3600 * 1000);
+  }
+
+  createSession(s: {
+    token: string;
+    playerId: string;
+    kind: 'guest' | 'account';
+    username: string | null;
+    deviceId: string | null;
+  }): void {
+    const now = Date.now();
+    this.db
+      .prepare(
+        `INSERT INTO sessions (token, player_id, kind, username, device_id, created_at, last_seen)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(s.token, s.playerId, s.kind, s.username, s.deviceId, now, now);
+  }
+
+  getSession(token: string): Session | null {
+    const row = this.db.prepare('SELECT * FROM sessions WHERE token = ?').get(token) as
+      | SessionRow
+      | undefined;
+    if (!row) return null;
+    this.db.prepare('UPDATE sessions SET last_seen = ? WHERE token = ?').run(Date.now(), token);
+    return {
+      token: row.token,
+      playerId: row.player_id,
+      kind: row.kind as 'guest' | 'account',
+      username: row.username,
+      deviceId: row.device_id,
+    };
+  }
+
+  deleteSession(token: string): void {
+    this.db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+  }
+
+  /** Deletes every session of a player except `keepToken`; returns their tokens. */
+  deleteSessionsFor(playerId: string, keepToken: string | null = null): string[] {
+    const rows = this.db
+      .prepare('SELECT token FROM sessions WHERE player_id = ?')
+      .all(playerId) as { token: string }[];
+    const dropped = rows.map((r) => r.token).filter((t) => t !== keepToken);
+    for (const t of dropped) this.deleteSession(t);
+    return dropped;
+  }
+
+  /**
+   * Re-keys a player's data (guest→account carry-over, password-change
+   * recreation, and v0.0 guest ids meeting their PlayFab id). Idempotent.
+   */
+  migratePlayerId(from: string, to: string): void {
+    if (from === to) return;
+    this.db.prepare('UPDATE match_players SET player_id = ? WHERE player_id = ?').run(to, from);
+    this.db.prepare('UPDATE sessions SET player_id = ? WHERE player_id = ?').run(to, from);
   }
 
   saveMatch(record: MatchRecord): void {

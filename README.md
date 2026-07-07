@@ -51,12 +51,31 @@ npm start              # serves the built client and the API/WS on $PORT (defaul
 Deploy anywhere that runs Node with WebSocket support (Azure App Service with
 "Web sockets" enabled, Railway, Render, Fly.io, or a VM). Set `PORT` as needed
 and point the `zjmj.app` DNS at it; TLS comes from the platform. `ZJMJ_DB`
-overrides the SQLite file path (default `server/zjmj.db`).
+overrides the SQLite file path (default `server/zjmj.db`). Set
+`PLAYFAB_TITLE_ID` and `PLAYFAB_SECRET_KEY` (see `.env.example`; locally they
+load from the repo-root `.env`).
 
-## Notes / current scope (v0.0)
+## Accounts (v0.1)
 
-- Guest-only identity (localStorage). PlayFab/accounts come later; stats and
-  records are keyed to the per-browser guest id.
+- PlayFab is the account system; **all PlayFab calls go through the game
+  server** (the client never talks to PlayFab). Guests get a PlayFab player
+  via `Server/LoginWithServerCustomId` on their device id; accounts are
+  username+password (`Client/RegisterPlayFabUser`, no email yet).
+- The server issues its own opaque session tokens (SQLite `sessions` table,
+  sent in the WebSocket hello), so PlayFab's 24h ticket expiry never surfaces.
+  Signing in revokes the account's other sessions: one device at a time.
+- Creating an account migrates the guest's stats/records (SQLite re-key) and
+  settings (PlayFab user data copy) to the new account.
+- PlayFab has no email-less password mutation, so **change password =
+  verify old password → snapshot settings → `Admin/DeleteMasterPlayerAccount`
+  → re-register the same username** (frees in ~3s) → restore data under the
+  new PlayFabId. Plain `DeletePlayer` would keep the username reserved.
+- PlayFab usernames are 3–20 chars, strictly alphanumeric. Client player
+  creation is disabled on the title; keep it that way.
+- Player settings (tile indices, default room sliders) live in PlayFab user
+  data under the `settings` key, cached in localStorage.
+
+## Notes / current scope
 - Room #0 is always open and locked to default settings (4 rounds, 15s
   thinking time, chicken hand scores 1, par 25); up to 4 user-created rooms.
 - Missing players are filled by dummy bots that always discard the drawn tile

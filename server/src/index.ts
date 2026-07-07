@@ -6,8 +6,12 @@ import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 import { ClientMsg, GameView, ServerMsg } from '../../shared/src/protocol';
 import { makeApi } from './api';
+import { makeAuthApi } from './auth';
 import { Db } from './db';
+import { loadDotEnv, playFabEnabled } from './playfab';
 import { Rooms } from './rooms';
+
+loadDotEnv();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 8787);
@@ -16,6 +20,7 @@ const DB_PATH = process.env.ZJMJ_DB ?? path.join(__dirname, '..', 'zjmj.db');
 interface Session {
   playerId: string;
   name: string;
+  token: string;
   ws: WebSocket | null;
 }
 
@@ -56,6 +61,17 @@ function lobbyMsgFor(session: Session): ServerMsg {
 
 function broadcastLobby(): void {
   for (const s of sessions.values()) send(s, lobbyMsgFor(s));
+}
+
+/** Kicks the sockets of revoked sessions (signed in elsewhere, deletion, …). */
+function onSessionsRevoked(tokens: string[], reason: string): void {
+  const revoked = new Set(tokens);
+  for (const s of sessions.values()) {
+    if (!revoked.has(s.token)) continue;
+    send(s, { type: 'signedOut', reason });
+    s.ws?.close();
+    s.ws = null;
+  }
 }
 
 function handleMsg(session: Session, msg: ClientMsg): void {
@@ -111,6 +127,7 @@ function sessionLike(session: Session) {
 }
 
 const app = express();
+app.use('/api/auth', makeAuthApi(db, { onSessionsRevoked }));
 app.use('/api', makeApi(db));
 
 // Serve the built client in production.
@@ -134,20 +151,30 @@ wss.on('connection', (ws) => {
       return;
     }
     if (!session) {
-      if (msg.type !== 'hello' || !msg.playerId) {
+      if (msg.type !== 'hello' || !msg.token) {
         ws.close();
         return;
       }
-      const name = (msg.name || 'Guest').slice(0, 24);
-      const existing = sessions.get(msg.playerId);
+      const dbSession = db.getSession(msg.token);
+      if (!dbSession) {
+        ws.send(JSON.stringify({ type: 'signedOut', reason: 'Session expired.' } satisfies ServerMsg));
+        ws.close();
+        return;
+      }
+      const name =
+        dbSession.kind === 'account' && dbSession.username
+          ? dbSession.username
+          : (msg.name || 'Guest').slice(0, 24);
+      const existing = sessions.get(dbSession.playerId);
       if (existing) {
         existing.ws?.close();
         existing.ws = ws;
         existing.name = name;
+        existing.token = msg.token;
         session = existing;
       } else {
-        session = { playerId: msg.playerId, name, ws };
-        sessions.set(msg.playerId, session);
+        session = { playerId: dbSession.playerId, name, token: msg.token, ws };
+        sessions.set(dbSession.playerId, session);
       }
       send(session, { type: 'welcome', you: { id: session.playerId, name: session.name } });
       send(session, lobbyMsgFor(session));
@@ -184,5 +211,8 @@ wss.on('connection', (ws) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`zjmj server listening on http://localhost:${PORT}`);
+  console.log(
+    `zjmj server listening on http://localhost:${PORT} ` +
+      `(PlayFab ${playFabEnabled() ? `title ${process.env.PLAYFAB_TITLE_ID}` : 'NOT configured — guest-only fallback'})`,
+  );
 });

@@ -1,28 +1,9 @@
-import { DEFAULT_SETTINGS, RoomSettings, RoomSummary } from '../../../shared/src/protocol';
-import { playerName } from '../identity';
+import { RoomSettings, RoomSummary } from '../../../shared/src/protocol';
+import { displayName } from '../account';
+import { getSettings } from '../settings';
 import { net } from '../net';
 import { renderGame } from './game';
-
-const LENGTHS: { v: 1 | 2 | 4; label: string }[] = [
-  { v: 1, label: '1 round (東風戰)' },
-  { v: 2, label: '2 rounds (半莊戰)' },
-  { v: 4, label: '4 rounds (一莊戰)' },
-];
-const TIMES: { v: 7.5 | 10 | 15; label: string }[] = [
-  { v: 7.5, label: '7.5 seconds' },
-  { v: 10, label: '10 seconds' },
-  { v: 15, label: '15 seconds' },
-];
-const CHICKENS: { v: RoomSettings['chickenHand']; label: string }[] = [
-  { v: 'notAllowed', label: 'Not allowed' },
-  { v: 'zero', label: 'Scores 0 points' },
-  { v: 'one', label: 'Scores 1 point' },
-];
-const PARS: { v: RoomSettings['par']; label: string }[] = [
-  { v: 25, label: '25 points' },
-  { v: '30/25', label: '30 points unless exact then 25' },
-  { v: 30, label: '30 points' },
-];
+import { buildRoomSliders, CHICKENS, PARS } from './sliders';
 
 function settingsSummary(s: RoomSettings): string {
   const len = `${s.rounds} round${s.rounds === 1 ? '' : 's'}`;
@@ -60,7 +41,7 @@ function renderLobby(el: HTMLElement): void {
         <button id="back">← Home</button>
         <h1>Lobby 對局室</h1>
         <span class="spacer"></span>
-        <span style="color: var(--text-dim)">${playerName()}${net.state.connected ? '' : ' · reconnecting…'}</span>
+        <span style="color: var(--text-dim)">${escapeHtml(displayName())}${net.state.connected ? '' : ' · reconnecting…'}</span>
         <button id="create" ${myRoom !== null ? 'disabled' : ''}>Create Room</button>
       </div>
       <div class="portrait-note">For the best experience, rotate your device to landscape 🔄 請將裝置轉為橫向</div>
@@ -80,7 +61,7 @@ function roomRow(room: RoomSummary, myRoom: number | null): HTMLElement {
   const row = document.createElement('div');
   row.className = 'room-row' + (myRoom === room.id ? ' mine' : '');
   const isMine = myRoom === room.id;
-  const iAmHost = isMine && room.players.length > 0 && room.hostName === playerName();
+  const iAmHost = isMine && room.players.length > 0 && room.hostName === displayName();
 
   const players = room.players
     .map(
@@ -124,13 +105,6 @@ function roomRow(room: RoomSummary, myRoom: number | null): HTMLElement {
 
 function openSettingsDialog(): void {
   const dlg = document.createElement('dialog');
-  const groups = [
-    { key: 'rounds', label: 'Match Length', opts: LENGTHS, def: LENGTHS.findIndex((o) => o.v === DEFAULT_SETTINGS.rounds) },
-    { key: 'thinkingTime', label: 'Thinking Time', opts: TIMES, def: TIMES.findIndex((o) => o.v === DEFAULT_SETTINGS.thinkingTime) },
-    { key: 'chickenHand', label: 'Chicken Hand (雞和)', opts: CHICKENS, def: CHICKENS.findIndex((o) => o.v === DEFAULT_SETTINGS.chickenHand) },
-    { key: 'par', label: 'Par Score', opts: PARS, def: PARS.findIndex((o) => o.v === DEFAULT_SETTINGS.par) },
-  ] as const;
-
   dlg.innerHTML = `
     <h2 style="margin-bottom:6px">Create Room</h2>
     <div id="sliders"></div>
@@ -139,35 +113,14 @@ function openSettingsDialog(): void {
       <button id="ok" style="border-color: var(--accent)">Create</button>
     </div>
   `;
-  const sliders = dlg.querySelector('#sliders')!;
-  const values: Record<string, number> = {};
-  for (const grp of groups) {
-    const wrap = document.createElement('div');
-    wrap.className = 'slider-group';
-    wrap.innerHTML = `
-      <label>${grp.label}</label>
-      <input type="range" min="0" max="${grp.opts.length - 1}" step="1" value="${grp.def}" />
-      <div class="slider-value"></div>
-    `;
-    const input = wrap.querySelector<HTMLInputElement>('input')!;
-    const valEl = wrap.querySelector<HTMLElement>('.slider-value')!;
-    const show = () => {
-      values[grp.key] = Number(input.value);
-      valEl.textContent = grp.opts[Number(input.value)].label;
-    };
-    input.addEventListener('input', show);
-    show();
-    sliders.appendChild(wrap);
-  }
+  // Sliders start from the player's saved defaults (Settings page).
+  const sliders = buildRoomSliders(
+    dlg.querySelector<HTMLElement>('#sliders')!,
+    getSettings().defaultRoom,
+  );
   dlg.querySelector('#cancel')!.addEventListener('click', () => dlg.close());
   dlg.querySelector('#ok')!.addEventListener('click', () => {
-    const settings: RoomSettings = {
-      rounds: LENGTHS[values.rounds].v,
-      thinkingTime: TIMES[values.thinkingTime].v,
-      chickenHand: CHICKENS[values.chickenHand].v,
-      par: PARS[values.par].v,
-    };
-    net.send({ type: 'createRoom', settings });
+    net.send({ type: 'createRoom', settings: sliders.read() });
     dlg.close();
   });
   dlg.addEventListener('close', () => dlg.remove());

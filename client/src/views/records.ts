@@ -1,5 +1,5 @@
 import { MatchRecord, ReplayStep, replayGame } from '../../../shared/src/records';
-import { playerId } from '../identity';
+import { apiGet } from '../account';
 import { meldEl, tileEl } from '../tileui';
 import { escapeHtml } from './play';
 
@@ -29,8 +29,7 @@ export function renderRecords(root: HTMLElement): void {
   el.querySelector('#back')!.addEventListener('click', () => (location.hash = ''));
   root.appendChild(el);
 
-  fetch(`/api/records/${playerId()}`)
-    .then((r) => r.json())
+  apiGet<MatchListEntry[]>('/api/records')
     .then((list: MatchListEntry[]) => {
       const body = el.querySelector('#body')!;
       if (list.length === 0) {

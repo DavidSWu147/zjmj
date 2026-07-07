@@ -20,6 +20,28 @@ export const DEFAULT_SETTINGS: RoomSettings = {
 
 export const ROOM_CAP = 4; // user-created rooms #1..#4, not counting room #0
 
+/** Per-player preferences, cached client-side and saved to PlayFab user data. */
+export interface PlayerSettings {
+  /** Show English indices (1–9 / ESWN / R / G) in tile corners. */
+  tileIndices: boolean;
+  /** Slider defaults used when creating a new room. */
+  defaultRoom: RoomSettings;
+}
+
+export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
+  tileIndices: false,
+  defaultRoom: { ...DEFAULT_SETTINGS },
+};
+
+/** Result of any successful /api/auth call that establishes a session. */
+export interface AuthResponse {
+  token: string;
+  playerId: string;
+  kind: 'guest' | 'account';
+  /** Username for accounts; the guest display name otherwise. */
+  name: string;
+}
+
 export interface RoomSummary {
   id: number;
   settings: RoomSettings;
@@ -152,7 +174,7 @@ export type GameAction =
   | { kind: 'claim'; claim: 'chow'; chowLow: Tile };
 
 export type ClientMsg =
-  | { type: 'hello'; playerId: string; name: string }
+  | { type: 'hello'; token: string; name?: string }
   | { type: 'createRoom'; settings: RoomSettings }
   | { type: 'joinRoom'; roomId: number }
   | { type: 'leaveRoom' }
@@ -165,7 +187,9 @@ export type ServerMsg =
   | { type: 'welcome'; you: { id: string; name: string } }
   | { type: 'lobby'; rooms: RoomSummary[]; myRoom: number | null; inMatch: boolean }
   | { type: 'game'; view: GameView }
-  | { type: 'toast'; message: string };
+  | { type: 'toast'; message: string }
+  /** The session is no longer valid (signed in elsewhere, signed out, etc.). */
+  | { type: 'signedOut'; reason: string };
 
 export const ROUND_WINDS = ['E', 'S', 'W', 'N'] as const;
 export const ROUND_WINDS_ZH = ['東', '南', '西', '北'] as const;

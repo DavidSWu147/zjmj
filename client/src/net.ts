@@ -1,5 +1,7 @@
 import { ClientMsg, GameView, RoomSummary, ServerMsg } from '../../shared/src/protocol';
-import { playerId, playerName } from './identity';
+import { ensureAuth, handleSignedOut, isAccount } from './account';
+import { syncSettingsFromServer } from './settings';
+import { playerName } from './identity';
 
 export interface NetState {
   connected: boolean;
@@ -30,12 +32,20 @@ class Net {
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       return;
     }
+    // A session token must exist before the socket says hello.
+    ensureAuth().then(
+      (auth) => this.open(auth.token),
+      () => this.scheduleReconnect(),
+    );
+  }
+
+  private open(token: string): void {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}/ws`);
     this.ws = ws;
     ws.onopen = () => {
       this.state.connected = true;
-      this.sendRaw({ type: 'hello', playerId: playerId(), name: playerName() });
+      this.sendRaw({ type: 'hello', token, name: playerName() });
       this.emit();
     };
     ws.onmessage = (ev) => {
@@ -50,13 +60,16 @@ class Net {
     ws.onclose = () => {
       this.state.connected = false;
       this.emit();
-      if (this.reconnectTimer === null) {
-        this.reconnectTimer = window.setTimeout(() => {
-          this.reconnectTimer = null;
-          this.connect();
-        }, 1500);
-      }
+      this.scheduleReconnect();
     };
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer !== null) return;
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, 1500);
   }
 
   private handle(msg: ServerMsg): void {
@@ -74,16 +87,35 @@ class Net {
         this.state.inMatch = true;
         break;
       case 'toast':
-        this.state.toast = msg.message;
-        if (this.toastTimer !== null) clearTimeout(this.toastTimer);
-        this.toastTimer = window.setTimeout(() => {
-          this.state.toast = null;
-          this.toastTimer = null;
-          this.emit();
-        }, 4000);
+        this.showToast(msg.message);
+        break;
+      case 'signedOut':
+        // Only surface the reason when an account session was dropped;
+        // routine token churn for guests should be invisible.
+        if (isAccount()) this.showToast(msg.reason);
+        void handleSignedOut().then(() => {
+          void syncSettingsFromServer();
+          this.rehello();
+        });
         break;
     }
     this.emit();
+  }
+
+  /** Client-originated toast (auth flows, etc.). */
+  toast(message: string): void {
+    this.showToast(message);
+    this.emit();
+  }
+
+  private showToast(message: string): void {
+    this.state.toast = message;
+    if (this.toastTimer !== null) clearTimeout(this.toastTimer);
+    this.toastTimer = window.setTimeout(() => {
+      this.state.toast = null;
+      this.toastTimer = null;
+      this.emit();
+    }, 4000);
   }
 
   send(msg: ClientMsg): void {

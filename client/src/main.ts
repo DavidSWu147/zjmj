@@ -1,10 +1,13 @@
 import './style.css';
 import { net } from './net';
+import { syncSettingsFromServer } from './settings';
 import { installTileHighlight } from './tileui';
 import { renderHome } from './views/home';
 import { renderPlay } from './views/play';
 import { renderStats } from './views/stats';
 import { renderRecords, renderRecordViewer } from './views/records';
+import { renderSettings } from './views/settings';
+import { renderHelp } from './views/help';
 
 const app = document.getElementById('app')!;
 
@@ -19,6 +22,10 @@ function route(): void {
     renderRecords(app);
   } else if (hash.startsWith('records/')) {
     renderRecordViewer(app, Number(hash.slice('records/'.length)));
+  } else if (hash === 'settings') {
+    renderSettings(app);
+  } else if (hash === 'help') {
+    renderHelp(app);
   } else {
     renderHome(app);
   }
@@ -28,6 +35,7 @@ console.log(`zjmj client build ${__BUILD_TIME__}`);
 window.addEventListener('hashchange', route);
 installTileHighlight();
 net.connect();
+void syncSettingsFromServer();
 net.onUpdate(() => {
   // Global toast display.
   let toast = document.getElementById('toast');

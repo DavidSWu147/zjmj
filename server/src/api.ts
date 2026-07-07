@@ -1,6 +1,7 @@
 import express from 'express';
 import { matchToTxt } from '../../shared/src/records';
 import { PATTERN_IDS } from '../../shared/src/scoring';
+import { sessionFromRequest } from './auth';
 import { Db } from './db';
 
 export interface StatsResponse {
@@ -87,12 +88,23 @@ export function makeApi(db: Db): express.Router {
     res.json({ ok: true });
   });
 
-  router.get('/stats/:playerId', (req, res) => {
-    res.json(computeStats(db, req.params.playerId));
+  // Stats and record lists belong to the session owner; no more per-id URLs.
+  router.get('/stats', (req, res) => {
+    const session = sessionFromRequest(db, req);
+    if (!session) {
+      res.status(401).json({ error: 'Not signed in.' });
+      return;
+    }
+    res.json(computeStats(db, session.playerId));
   });
 
-  router.get('/records/:playerId', (req, res) => {
-    res.json(db.listMatches(req.params.playerId));
+  router.get('/records', (req, res) => {
+    const session = sessionFromRequest(db, req);
+    if (!session) {
+      res.status(401).json({ error: 'Not signed in.' });
+      return;
+    }
+    res.json(db.listMatches(session.playerId));
   });
 
   router.get('/record/:matchId', (req, res) => {

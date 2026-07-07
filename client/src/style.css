@@ -140,22 +140,22 @@ button:disabled {
   font-size: 15px;
   color: var(--text-dim);
 }
+/* Four equal side panels, two per column; the middle column stays tallest. */
 .home-panel.side {
   width: 200px;
-  height: 260px;
-  margin-top: 40px; /* slightly lowered */
-  font-size: 21px;
+  height: 170px;
+  font-size: 20px;
 }
 .home-panel.play {
   width: 240px;
-  height: 320px;
+  height: 300px;
   background: linear-gradient(160deg, #275e46, #1c3f30);
   border-color: var(--accent);
   font-size: 30px;
 }
 .welcome-bar {
   width: 240px;
-  padding: 10px 0;
+  padding: 10px 0 8px;
   text-align: center;
   background: var(--panel);
   border: 1px solid var(--line);
@@ -165,6 +165,15 @@ button:disabled {
 }
 .welcome-bar:hover {
   border-color: var(--accent);
+}
+.welcome-bar .wname {
+  font-size: 15px;
+  color: var(--text);
+}
+.welcome-bar .wsub {
+  font-size: 13px;
+  color: var(--accent);
+  margin-top: 2px;
 }
 
 /* Compact home panels on small screens — phones in either orientation
@@ -184,13 +193,13 @@ button:disabled {
   }
   .home-panel.side {
     width: 116px;
-    height: 146px;
-    margin-top: 20px;
+    height: 88px;
     font-size: 14px;
+    gap: 3px;
   }
   .home-panel.play {
     width: 148px;
-    height: 186px;
+    height: 150px;
     font-size: 19px;
   }
   .home-panel .zh {
@@ -201,8 +210,13 @@ button:disabled {
   }
   .welcome-bar {
     width: 148px;
-    font-size: 13px;
-    padding: 7px 0;
+    padding: 5px 0 4px;
+  }
+  .welcome-bar .wname {
+    font-size: 12px;
+  }
+  .welcome-bar .wsub {
+    font-size: 11px;
   }
   .home-title {
     font-size: 17px;
@@ -342,6 +356,72 @@ dialog::backdrop {
   margin-top: 18px;
 }
 
+/* ── Auth & settings forms ────────────────────────────────────────── */
+
+.auth-dialog {
+  min-width: 380px;
+  max-width: 460px;
+  max-height: 86vh;
+  overflow-y: auto;
+}
+.field {
+  display: block;
+  margin: 12px 0 4px;
+}
+.field span {
+  display: block;
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.field input {
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.field input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.form-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 2px 0 4px;
+}
+.form-error {
+  color: #e06a5a;
+  font-size: 13px;
+  min-height: 17px;
+  margin-top: 6px;
+}
+.auth-alt {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 16px;
+  font-size: 13px;
+}
+.auth-alt a {
+  color: var(--accent);
+}
+.auth-section {
+  font-size: 15px;
+  margin: 22px 0 2px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.auth-section.danger {
+  color: #e06a5a;
+}
+.danger-btn {
+  border-color: #a04437;
+  color: #e06a5a;
+}
+
 /* ── Tiles ────────────────────────────────────────────────────────── */
 
 .tile {
@@ -367,6 +447,17 @@ dialog::backdrop {
 .tile-back {
   background: #e3d3ae; /* simple beige tile back */
   border-color: #c4b58f;
+}
+/* English index in the tile's upper-left corner (settings toggle). */
+.tile-idx {
+  position: absolute;
+  top: calc(var(--tw) * 0.02);
+  left: calc(var(--tw) * 0.09);
+  font-size: calc(var(--tw) * 0.26);
+  font-weight: 700;
+  line-height: 1.2;
+  color: #000;
+  pointer-events: none;
 }
 .tile-selected {
   transform: translateY(calc(var(--tw) * -0.28));
@@ -869,6 +960,75 @@ dialog::backdrop {
 }
 .draw-green {
   color: var(--kw-chow);
+}
+
+/* ── Settings page ────────────────────────────────────────────────── */
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 420px));
+  gap: 14px;
+  align-items: start;
+}
+.settings-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 18px;
+}
+.settings-card h2 {
+  font-size: 16px;
+  margin-bottom: 10px;
+}
+.toggle-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  cursor: pointer;
+  font-size: 14.5px;
+}
+.toggle-row input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.toggle-row small {
+  color: var(--text-dim);
+}
+.toggle-row.disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+.tile-preview {
+  display: flex;
+  gap: 3px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+/* ── Help page ────────────────────────────────────────────────────── */
+
+.help-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.help-tabs button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.help-note {
+  color: var(--text-dim);
+  font-size: 13.5px;
+  margin: 10px 0 14px;
+  max-width: 760px;
+}
+td.desc {
+  color: var(--text-dim);
+  font-size: 13px;
 }
 
 /* ── Stats & records ──────────────────────────────────────────────── */

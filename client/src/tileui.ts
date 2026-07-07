@@ -1,8 +1,17 @@
 import { MeldView } from '../../shared/src/protocol';
 import { Tile } from '../../shared/src/tiles';
+import { getSettings } from './settings';
 
 const SUIT_DIR: Record<string, string> = { B: 'bamboo', C: 'character', D: 'dot' };
 const WINDS = ['E', 'S', 'W', 'N'];
+
+/** Corner index (English) for a tile; white dragon 'O ' stays unmarked. */
+function tileIndexLabel(t: Tile): string | null {
+  if (t[1] !== ' ') return t[1]; // number tiles: 1–9
+  if (WINDS.includes(t[0])) return t[0]; // winds: ESWN
+  if (t[0] === 'R' || t[0] === 'G') return t[0]; // red/green dragon
+  return null;
+}
 
 export function tileSrc(t: Tile): string {
   const suit = t[0];
@@ -33,6 +42,15 @@ export function tileEl(t: Tile | null, opts: TileOpts = {}): HTMLElement {
     img.alt = t.trim();
     img.draggable = false;
     el.appendChild(img);
+    if (getSettings().tileIndices) {
+      const label = tileIndexLabel(t);
+      if (label) {
+        const idx = document.createElement('span');
+        idx.className = 'tile-idx';
+        idx.textContent = label;
+        el.appendChild(idx);
+      }
+    }
   }
   if (opts.selected) el.classList.add('tile-selected');
   if (opts.dimmed) el.classList.add('tile-dimmed');

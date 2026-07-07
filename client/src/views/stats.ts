@@ -1,5 +1,5 @@
 import { PATTERN_IDS, PATTERNS } from '../../../shared/src/scoring';
-import { playerId } from '../identity';
+import { apiGet } from '../account';
 
 interface StatsResponse {
   patternCounts: Record<string, number>;
@@ -40,8 +40,7 @@ export function renderStats(root: HTMLElement): void {
   el.querySelector('#back')!.addEventListener('click', () => (location.hash = ''));
   root.appendChild(el);
 
-  fetch(`/api/stats/${playerId()}`)
-    .then((r) => r.json())
+  apiGet<StatsResponse>('/api/stats')
     .then((s: StatsResponse) => {
       const body = el.querySelector('#body')!;
       const N = s.games.total;
