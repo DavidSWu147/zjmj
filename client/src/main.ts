@@ -24,6 +24,7 @@ function route(): void {
   }
 }
 
+console.log(`zjmj client build ${__BUILD_TIME__}`);
 window.addEventListener('hashchange', route);
 installTileHighlight();
 net.connect();

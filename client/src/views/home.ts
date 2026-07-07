@@ -8,7 +8,7 @@ export function renderHome(root: HTMLElement): void {
     <div class="home-top">
       <div class="home-corner"></div>
       <div class="home-title">ZUNG JUNG MAHJONG<small>中庸麻將</small></div>
-      <div class="home-corner"></div>
+      <div class="home-corner" style="text-align:right;font-size:10.5px;color:var(--text-dim);opacity:.6" title="build">${__BUILD_TIME__}</div>
     </div>
     <div class="portrait-note">For the best experience, rotate your device to landscape 🔄 請將裝置轉為橫向</div>
     <div class="home-main">

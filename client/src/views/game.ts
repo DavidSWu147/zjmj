@@ -343,22 +343,27 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     }
 
     // Names sit at fixed board positions: side opponents' names at the top,
-    // near the top opponent's name.
+    // near the top opponent's name. With big meld areas the strip's top end
+    // moves up past the default spot, so the name yields to the strip's
+    // worst-case extent (drawn tile included) — it only moves on melds.
     const tag = document.createElement('div');
     tag.textContent = `${sv.name}${sv.connected ? '' : ' (away)'}`;
     tag.style.cssText =
       'position:absolute;font-size:11px;color:#dfe7e2;text-shadow:0 1px 2px #000;white-space:nowrap;z-index:5;';
     const sideTop = cy - handW13 / 2 - otw * 1.7 - 16;
+    const drawnAllowance = otw * 1.4 + 4;
     if (rel === 2) {
       tag.style.left = `${cx}px`;
       tag.style.transform = 'translateX(-50%)';
       tag.style.top = `${8 + oth + 6}px`;
     } else if (rel === 1) {
+      // Hand + drawn tile extend upward on the right side.
       tag.style.right = '8px';
-      tag.style.top = `${sideTop}px`;
+      tag.style.top = `${Math.min(sideTop, cy - baseLen / 2 - drawnAllowance - 18)}px`;
     } else {
+      // Melds extend upward on the left side.
       tag.style.left = '8px';
-      tag.style.top = `${sideTop}px`;
+      tag.style.top = `${Math.min(sideTop, cy - baseLen / 2 - 18)}px`;
     }
     board.appendChild(tag);
   }
