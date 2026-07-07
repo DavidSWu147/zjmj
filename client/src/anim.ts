@@ -251,13 +251,17 @@ export function animateTransition(
     }
 
     // New discard: slide from the hand (or the drawn slot for a tsumogiri)
-    // to the pile over the claim window.
+    // to the pile over the claim window. When a meld appeared in this same
+    // update (chow/pung + discard resolve together), the hand was re-laid
+    // out around the new meld, so any position captured earlier — including
+    // the local player's click — is stale; use the live hand center instead.
     const n = sv.discards.length;
+    const meldJustGrew = sv.melds.length > prev.meldCounts[s];
     if (n === prev.discardCounts[s] + 1) {
       const d = sv.discards[n - 1];
       const from =
         (d.fromDraw ? prev.drawnRect[s] : null) ??
-        (isMe ? ownClickRect : null) ??
+        (isMe && !meldJustGrew ? ownClickRect : null) ??
         handUnion(board, s, view.mySeat) ??
         prev.stripRect[s];
       if (from) {
