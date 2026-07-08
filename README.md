@@ -1,7 +1,7 @@
 # zjmj — Zung Jung Mahjong
 
 A web app for playing the Zung Jung (中庸) variation of Mahjong online. Four players
-to a room, Tenhou-inspired minimalist interface. Version 0.0.
+to a room, Tenhou-inspired minimalist interface. ~~Version 0.0.~~ Now moving towards Version 0.1
 
 ## Structure
 
