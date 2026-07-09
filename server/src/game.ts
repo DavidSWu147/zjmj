@@ -5,6 +5,7 @@ import {
   gameNumberOf,
   isBonusTile,
   Meld,
+  PATTERN_IDS,
   scoreBonus,
   scoreWin,
   ScoreResult,
@@ -1107,8 +1108,22 @@ export class Game {
   }
 
   /**
+   * The 125+ point pattern celebrated in big golden text: highest points
+   * first, catalogue order breaking ties (Small Four Winds over All Honors,
+   * Blessing of Heaven over Thirteen Terminals under adjusted scoring).
+   */
+  private bigPatternOf(score: ScoreResult): { name: string; zh: string } | undefined {
+    const big = score.patterns
+      .filter((p) => p.points >= 125)
+      .sort((a, b) => b.points - a.points || PATTERN_IDS.indexOf(a.id) - PATTERN_IDS.indexOf(b.id));
+    return big.length > 0 ? { name: big[0].name, zh: big[0].zh } : undefined;
+  }
+
+  /**
    * Shows the winning keyword on the board for a moment before the scoring
-   * screen appears, so all players can take in what happened.
+   * screen appears, so all players can take in what happened. Big hands get
+   * their celebration animation here; a 125+ point pattern extends the pause
+   * so its name can sink in.
    */
   private finishWithPause(result: GameResultRecord, score: ScoreResult): void {
     this.ended = true;
@@ -1124,10 +1139,11 @@ export class Game {
     if (this.botTimer) clearTimeout(this.botTimer);
     this.botTimer = null;
     this.host.onChange();
+    const pauseMs = this.bigPatternOf(score) ? 3600 : 1600;
     this.timer = setTimeout(() => {
       this.timer = null;
       this.finishGame(result, score);
-    }, 1600);
+    }, pauseMs);
   }
 
   private finishGame(result: GameResultRecord, score: ScoreResult | null = null): void {
@@ -1368,6 +1384,17 @@ export class Game {
       claims,
       myOptions,
       pendingClaim,
+      winFlash:
+        this.result !== null &&
+        this.result.winnerSeat != null &&
+        this.resultScore !== null &&
+        gameResultView === null // only during the pause, never over the scoring screen
+          ? {
+              seat: this.result.winnerSeat,
+              value: this.resultScore.total,
+              bigPattern: this.bigPatternOf(this.resultScore),
+            }
+          : null,
       gameResult: gameResultView,
       matchResult: null,
     };

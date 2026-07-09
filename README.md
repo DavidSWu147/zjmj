@@ -77,7 +77,13 @@ load from the repo-root `.env`).
 
 ## Notes / current scope
 - Room #0 is always open and locked to default settings (4 rounds, 15s
-  thinking time, chicken hand scores 1, par 25); up to 4 user-created rooms.
+  thinking time, chicken hand scores 1, par 25, original scoring, no bonus
+  tiles); up to 4 user-created rooms. Idle rooms are cleaned up: user rooms
+  are deleted after 10 minutes without a status change, room #0 ejects its
+  members after 5.
+- Room options beyond v0.0: scoring (Original / Adjusted / Adjusted with the
+  four extra patterns 缺一門, 五門齊, 全邊張, 四不像) and bonus tiles (none /
+  half / full value, category 11 scoring, 16-tile dead wall).
 - Missing players are filled by dummy bots that always discard the drawn tile
   and never claim. If a human leaves mid-match a bot takes over their seat;
   a match abandoned by all humans is discarded (not archived).

@@ -590,6 +590,53 @@ dialog::backdrop {
     filter: brightness(1.45);
   }
 }
+/* Winner celebration: a gold copy of the quadrant blinks on top of it. */
+.quad-gold {
+  background: var(--kw-mahjong);
+  opacity: 0;
+  transition: none;
+  animation: quad-gold-blink 0.8s steps(1) infinite;
+}
+@keyframes quad-gold-blink {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 0.95;
+  }
+}
+/* A 125+ point pattern's name in large golden Chinese text mid-board. */
+.big-pattern {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-size: clamp(44px, 9vw, 84px);
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  color: var(--kw-mahjong);
+  text-shadow:
+    0 0 18px #e8b93e88,
+    0 2px 8px #000d;
+  z-index: 18;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.big-pattern.pop {
+  animation: big-pattern-pop 0.9s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+@keyframes big-pattern-pop {
+  0% {
+    transform: translate(-50%, -50%) scale(2.6);
+    opacity: 0;
+  }
+  55% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+}
 .quad-label {
   position: absolute;
   font-weight: 700;

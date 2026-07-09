@@ -24,6 +24,7 @@ function seat(handCount: number, melds: MeldView[], discards: { tile: string; fr
     hasDrawn: false,
     melds,
     discards,
+    bonus: [] as string[],
   };
 }
 
@@ -53,6 +54,7 @@ function baseView(): GameView {
     claims: [{ seat: 2, kind: 'pung' }],
     myOptions: {},
     pendingClaim: null,
+    winFlash: null,
     gameResult: null,
     matchResult: null,
   };

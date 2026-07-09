@@ -37,6 +37,7 @@ let prevSnap: BoardSnapshot | null = null;
 let ownClickRect: Rect | null = null;
 let lastViewKey = '';
 let showZhNumber = false;
+let shownBigPattern = '';
 
 function act(action: GameAction): void {
   net.send({ type: 'action', action });
@@ -63,6 +64,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     prevSnap = null;
     ownClickRect = null;
     lastViewKey = '';
+    shownBigPattern = '';
     clearFlights();
   }
   // Reset the local tile selection only when the situation actually changes,
@@ -154,6 +156,14 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     quad.style.background = SEAT_COLORS[seat];
     quad.style.clipPath = QUAD_CLIP[rel];
     panel.appendChild(quad);
+    // A 30+ point win flashes the winner's quadrant gold until the scoring
+    // screen (a gold copy of the quad blinking on top).
+    if (view.winFlash && view.winFlash.seat === seat && view.winFlash.value >= 30) {
+      const gold = document.createElement('div');
+      gold.className = 'quad quad-gold';
+      gold.style.clipPath = QUAD_CLIP[rel];
+      panel.appendChild(gold);
+    }
     const label = document.createElement('div');
     // Side seats put the score on its own line so 東南西北 fits (issue #7).
     const side = rel === 1 || rel === 3;
@@ -485,6 +495,19 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     board.appendChild(w);
   }
   shownKW = shownNow;
+
+  // ── 125+ point pattern celebration: big golden Chinese text ───────
+  if (view.winFlash?.bigPattern) {
+    const bp = view.winFlash.bigPattern;
+    const key = `${view.gameNumber}:${bp.zh}`;
+    const big = document.createElement('div');
+    big.className = 'big-pattern' + (shownBigPattern === key ? '' : ' pop');
+    shownBigPattern = key;
+    big.textContent = bp.zh;
+    big.style.left = `${cx}px`;
+    big.style.top = `${cy}px`;
+    board.appendChild(big);
+  }
 
   // ── pending claim preview ─────────────────────────────────────────
   if (view.pendingClaim) {

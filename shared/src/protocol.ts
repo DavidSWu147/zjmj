@@ -169,6 +169,12 @@ export interface GameView {
   myOptions: MyOptions;
   /** My provisional chow/pung meld awaiting a discard choice. */
   pendingClaim: { kind: 'chow' | 'pung'; tiles: Tile[] } | null;
+  /**
+   * Set during the pause between a win and the scoring screen. Hands of 30+
+   * points flash the winner's quadrant gold; a pattern worth 125+ also shows
+   * its name in large golden Chinese text (the pause is longer then).
+   */
+  winFlash: { seat: number; value: number; bigPattern?: { name: string; zh: string } } | null;
   gameResult: GameResultView | null;
   matchResult: MatchResultView | null;
 }
