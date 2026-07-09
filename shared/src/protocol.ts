@@ -11,6 +11,8 @@ export interface RoomSettings {
   par: ParSetting;
   /** Absent in v0.0 records: treat as 'original'. */
   scoring?: ScoringMode;
+  /** Flowers & seasons; 'half' halves the category-11 values. Absent = none. */
+  bonusTiles?: 'none' | 'half' | 'full';
 }
 
 export const DEFAULT_SETTINGS: RoomSettings = {
@@ -19,6 +21,7 @@ export const DEFAULT_SETTINGS: RoomSettings = {
   chickenHand: 'one',
   par: 25,
   scoring: 'original',
+  bonusTiles: 'none',
 };
 
 export const ROOM_CAP = 4; // user-created rooms #1..#4, not counting room #0
@@ -74,6 +77,8 @@ export interface SeatView {
   hasDrawn: boolean;
   melds: MeldView[];
   discards: { tile: Tile; fromDraw: boolean }[];
+  /** Revealed flowers & seasons, in the order they were set aside. */
+  bonus: Tile[];
 }
 
 export type GamePhase =

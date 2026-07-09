@@ -3,7 +3,9 @@ import {
   chowOptions,
   countsFrom,
   gameNumberOf,
+  isBonusTile,
   Meld,
+  scoreBonus,
   scoreWin,
   ScoreResult,
   sortTiles,
@@ -118,6 +120,8 @@ export class Game {
   private drawn: (Tile | null)[] = [null, null, null, null];
   private drawnFromDead = false;
   private melds: Meld[][] = [[], [], [], []];
+  /** Revealed flowers & seasons per seat (bonus-tile rooms only). */
+  private bonusTiles: Tile[][] = [[], [], [], []];
   private discards: { tile: Tile; fromDraw: boolean }[][] = [[], [], [], []];
   private discardLog: { seat: number; tile: Tile }[] = [];
   private selected: (Tile | null)[] = [null, null, null, null];
@@ -153,7 +157,9 @@ export class Game {
   constructor(gameIndex: number, host: GameHost) {
     this.gameIndex = gameIndex;
     this.host = host;
-    this.wall = new Wall(host.rng);
+    this.wall = new Wall(host.rng, {
+      bonus: (host.settings.bonusTiles ?? 'none') !== 'none',
+    });
     this.hands = this.wall.hands.map((h) => sortTiles(h));
     this.startingHands = this.hands.map((h) => [...h]);
   }
@@ -164,8 +170,30 @@ export class Game {
 
   start(): void {
     this.phase = 'dealing';
+    this.settleInitialBonus();
     this.schedule(this.host.timing.dealMs, () => this.beginTurn(0, 'live'));
     this.host.onChange();
+  }
+
+  /**
+   * Starting-hand bonus tiles are revealed and replaced from the dead wall
+   * in seat order before play begins; replacements that are themselves bonus
+   * tiles are drained immediately.
+   */
+  private settleInitialBonus(): void {
+    if (!this.wall.bonus) return;
+    for (let seat = 0; seat < 4; seat++) {
+      for (;;) {
+        const i = this.hands[seat].findIndex(isBonusTile);
+        if (i < 0) break;
+        const tile = this.hands[seat][i];
+        const repl = this.wall.drawKong();
+        this.hands[seat].splice(i, 1);
+        this.bonusTiles[seat].push(tile);
+        this.hands[seat] = sortTiles([...this.hands[seat], repl]);
+        this.recordMove({ seat, part1: { t: 'bonus', tile, repl } });
+      }
+    }
   }
 
   dispose(): void {
@@ -244,7 +272,23 @@ export class Game {
     this.justPunged = null;
     this.selected[seat] = null;
 
-    const tile = source === 'live' ? this.wall.drawLive() : this.wall.drawKong();
+    // A drawn bonus tile is revealed and replaced from the dead wall until a
+    // real tile arrives. Win-on-Kong status follows the ORIGINAL source: a
+    // flower replacement chain after a kong still counts as the kong
+    // replacement tile, a chain after a live draw stays a live draw.
+    let tile = source === 'live' ? this.wall.drawLive() : this.wall.drawKong();
+    while (isBonusTile(tile)) {
+      this.bonusTiles[seat].push(tile);
+      this.recordMove({ seat, part1: { t: 'bonus', tile } });
+      if (this.wall.remaining === 0) {
+        // The final tile was a bonus tile: no replacement exists, the game
+        // ends in a draw.
+        this.host.onChange();
+        this.endInDraw();
+        return;
+      }
+      tile = this.wall.drawKong();
+    }
     this.drawn[seat] = tile;
     this.drawnFromDead = source === 'dead';
     this.currentMove = { seat, part1: { t: 'draw', tile } };
@@ -959,7 +1003,7 @@ export class Game {
     const heaven =
       winBy === 'self' && seat === 0 && this.discardLog.length === 0 && !anyMelds;
     const earth = this.isEarthWin(seat, winBy, robbing);
-    return scoreWin(
+    const hand = scoreWin(
       {
         melds: this.melds[seat],
         concealed: this.hands[seat],
@@ -976,6 +1020,22 @@ export class Game {
       chickenPoints,
       this.host.settings.scoring ?? 'original',
     );
+    const bonusSetting = this.host.settings.bonusTiles ?? 'none';
+    const myBonus = this.bonusTiles[seat];
+    if (bonusSetting === 'none' || myBonus.length === 0) return hand;
+    // Category 11 sits outside the hand's limit handling: bonus points are
+    // cumulative with no exclusions and simply add on. A hand with bonus
+    // tiles is never a chicken hand — it loses the chicken point instead —
+    // but `chicken` stays true so "Chicken Hand not allowed" still requires
+    // a real pattern from the first 10 categories to declare Mahjong.
+    const bonus = scoreBonus(myBonus, seat, bonusSetting === 'half');
+    return {
+      patterns: [...(hand.chicken ? [] : hand.patterns), ...bonus.patterns],
+      total: (hand.chicken ? 0 : hand.total) + bonus.total,
+      rawTotal: (hand.chicken ? 0 : hand.rawTotal) + bonus.total,
+      limit: hand.chicken ? 'none' : hand.limit,
+      chicken: hand.chicken,
+    };
   }
 
   private winBySelf(seat: number): void {
@@ -1165,6 +1225,7 @@ export class Game {
         hasDrawn: this.drawn[s] !== null,
         melds: this.melds[s].map((m) => this.meldView(m, s)),
         discards: this.discards[s],
+        bonus: [...this.bonusTiles[s]],
       });
     }
 

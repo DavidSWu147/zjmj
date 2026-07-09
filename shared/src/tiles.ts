@@ -74,8 +74,29 @@ export function windOfSeat(seat: number): Tile {
   return WIND_TILES[seat];
 }
 
+/**
+ * Bonus tiles (flowers & seasons), used only when the room enables them.
+ * "F1".."F4" = Plum, Orchid, Chrysanthemum, Bamboo; "S1".."S4" = Spring,
+ * Summer, Autumn, Winter. Number n is proper to seat n-1 (E,S,W,N). Bonus
+ * tiles never join a hand: they are revealed and replaced immediately, so
+ * the 34-type index machinery (tileIndex, countsFrom) never sees them.
+ */
+export const FLOWER_TILES: Tile[] = ['F1', 'F2', 'F3', 'F4'];
+export const SEASON_TILES: Tile[] = ['S1', 'S2', 'S3', 'S4'];
+export const BONUS_TILES: Tile[] = [...FLOWER_TILES, ...SEASON_TILES];
+
+export function isBonusTile(t: Tile): boolean {
+  return (t[0] === 'F' || t[0] === 'S') && t[1] !== ' ';
+}
+
+/** Sort key that tolerates bonus tiles (they sort after everything else). */
+function sortKey(t: Tile): number {
+  if (isBonusTile(t)) return 34 + (t[0] === 'F' ? 0 : 4) + (Number(t[1]) - 1);
+  return tileIndex(t);
+}
+
 export function sortTiles(ts: Tile[]): Tile[] {
-  return [...ts].sort((a, b) => tileIndex(a) - tileIndex(b));
+  return [...ts].sort((a, b) => sortKey(a) - sortKey(b));
 }
 
 /** Multiset of tiles as an array of 34 counts. */
@@ -91,10 +112,11 @@ export function tilesFromCounts(c: number[]): Tile[] {
   return out;
 }
 
-/** A full set of 136 tiles (4 of each type). */
-export function fullTileSet(): Tile[] {
+/** A full set of 136 tiles (4 of each type), plus the 8 bonus tiles if asked. */
+export function fullTileSet(bonus = false): Tile[] {
   const out: Tile[] = [];
   for (const t of ALL_TILE_TYPES) for (let k = 0; k < 4; k++) out.push(t);
+  if (bonus) out.push(...BONUS_TILES);
   return out;
 }
 

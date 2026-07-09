@@ -13,8 +13,88 @@ const FAST = { dealMs: 1, botDelayMs: 0, claimGapMs: 1, resultMs: 1, matchEndMs:
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-function settings(rounds: 1 | 2 | 4): RoomSettings {
-  return { rounds, thinkingTime: 15, chickenHand: 'one', par: 25 };
+function settings(rounds: 1 | 2 | 4, extra: Partial<RoomSettings> = {}): RoomSettings {
+  return { rounds, thinkingTime: 15, chickenHand: 'one', par: 25, ...extra };
+}
+
+/**
+ * Drives a match with four greedy players (kongs, claims, wins) until it
+ * finishes; the strategy only reads each player's own GameView.
+ */
+async function runGreedyMatch(
+  s: RoomSettings,
+  wallSeed: number,
+  choiceSeed: number,
+): Promise<MatchRecord> {
+  const rng = mulberry32(choiceSeed);
+  let record: MatchRecord | null = null;
+  const views = new Map<string, GameView>();
+  const ids = ['a', 'b', 'c', 'd'];
+
+  const match = new Match(
+    s,
+    ids.map((id) => ({ id, name: `P-${id}`, isBot: false })),
+    {
+      sendView: (pid, view) => views.set(pid, view),
+      isConnected: () => true,
+      onMatchEnd: (r) => {
+        record = r;
+      },
+      rng: mulberry32(wallSeed),
+      timing: FAST,
+    },
+  );
+  match.start();
+
+  const acted = new Set<string>();
+  const deadlineAt = Date.now() + 60000;
+  while (!record && Date.now() < deadlineAt) {
+    await sleep(2);
+    for (const pid of ids) {
+      const v = views.get(pid);
+      if (!v) continue;
+      const key = `${pid}:${v.gameNumber}:${JSON.stringify([v.phase, v.turnSeat, v.remaining, v.myOptions, v.pendingClaim, v.myHand, v.myDrawn])}`;
+      if (acted.has(key)) continue;
+      const o = v.myOptions;
+      if (v.phase === 'preDiscard' && o.discard && !v.pendingClaim) {
+        acted.add(key);
+        if (o.mahjong) {
+          match.handleAction(pid, { kind: 'mahjong' });
+        } else if (o.kongs && o.kongs.length > 0 && rng() < 0.8) {
+          match.handleAction(pid, { kind: 'kong', ...o.kongs[0] });
+        } else {
+          const tile = pickDiscard(v.myHand, v.myDrawn);
+          match.handleAction(pid, {
+            kind: 'discard',
+            tile,
+            fromDrawn: tile === v.myDrawn,
+          });
+        }
+      } else if ((v.phase === 'postDiscard' || v.phase === 'robbing') && o.claim && !v.pendingClaim) {
+        acted.add(key);
+        const c = o.claim;
+        if (c.mahjong) match.handleAction(pid, { kind: 'claim', claim: 'mahjong' });
+        else if (c.kong && rng() < 0.7) match.handleAction(pid, { kind: 'claim', claim: 'kong' });
+        else if (c.pung && rng() < 0.7) match.handleAction(pid, { kind: 'claim', claim: 'pung' });
+        else if (c.chows && c.chows.length > 0 && rng() < 0.7) {
+          match.handleAction(pid, { kind: 'claim', claim: 'chow', chowLow: c.chows[0] });
+        } else if (Object.keys(c).length > 0) {
+          match.handleAction(pid, { kind: 'claim', claim: 'pass' });
+        }
+      } else if (v.phase === 'postDiscard' && v.pendingClaim && o.discard) {
+        acted.add(key);
+        if (o.kongs && o.kongs.length > 0 && rng() < 0.5) {
+          match.handleAction(pid, { kind: 'kong', ...o.kongs[0] });
+        } else {
+          const tile = pickDiscard(v.myHand, null);
+          match.handleAction(pid, { kind: 'discard', tile, fromDrawn: false });
+        }
+      }
+    }
+  }
+  match.dispose();
+  expect(record).not.toBeNull();
+  return record!;
 }
 
 /** Discard the loneliest tile: keeps pairs/triplets and near-sequences. */
@@ -85,75 +165,7 @@ describe('match simulation', () => {
   }, 30000);
 
   it('plays a match with four greedy players (claims, kongs, wins)', async () => {
-    const rng = mulberry32(2024);
-    let record: MatchRecord | null = null;
-    const views = new Map<string, GameView>();
-    const ids = ['a', 'b', 'c', 'd'];
-
-    const match = new Match(
-      settings(2),
-      ids.map((id) => ({ id, name: `P-${id}`, isBot: false })),
-      {
-        sendView: (pid, view) => views.set(pid, view),
-        isConnected: () => true,
-        onMatchEnd: (r) => {
-          record = r;
-        },
-        rng: mulberry32(99),
-        timing: FAST,
-      },
-    );
-    match.start();
-
-    const acted = new Set<string>();
-    const deadlineAt = Date.now() + 60000;
-    while (!record && Date.now() < deadlineAt) {
-      await sleep(2);
-      for (const pid of ids) {
-        const v = views.get(pid);
-        if (!v) continue;
-        const key = `${pid}:${v.gameNumber}:${JSON.stringify([v.phase, v.turnSeat, v.remaining, v.myOptions, v.pendingClaim, v.myHand, v.myDrawn])}`;
-        if (acted.has(key)) continue;
-        const o = v.myOptions;
-        if (v.phase === 'preDiscard' && o.discard && !v.pendingClaim) {
-          acted.add(key);
-          if (o.mahjong) {
-            match.handleAction(pid, { kind: 'mahjong' });
-          } else if (o.kongs && o.kongs.length > 0 && rng() < 0.8) {
-            match.handleAction(pid, { kind: 'kong', ...o.kongs[0] });
-          } else {
-            const tile = pickDiscard(v.myHand, v.myDrawn);
-            match.handleAction(pid, {
-              kind: 'discard',
-              tile,
-              fromDrawn: tile === v.myDrawn,
-            });
-          }
-        } else if ((v.phase === 'postDiscard' || v.phase === 'robbing') && o.claim && !v.pendingClaim) {
-          acted.add(key);
-          const c = o.claim;
-          if (c.mahjong) match.handleAction(pid, { kind: 'claim', claim: 'mahjong' });
-          else if (c.kong && rng() < 0.7) match.handleAction(pid, { kind: 'claim', claim: 'kong' });
-          else if (c.pung && rng() < 0.7) match.handleAction(pid, { kind: 'claim', claim: 'pung' });
-          else if (c.chows && c.chows.length > 0 && rng() < 0.7) {
-            match.handleAction(pid, { kind: 'claim', claim: 'chow', chowLow: c.chows[0] });
-          } else if (Object.keys(c).length > 0) {
-            match.handleAction(pid, { kind: 'claim', claim: 'pass' });
-          }
-        } else if (v.phase === 'postDiscard' && v.pendingClaim && o.discard) {
-          acted.add(key);
-          if (o.kongs && o.kongs.length > 0 && rng() < 0.5) {
-            match.handleAction(pid, { kind: 'kong', ...o.kongs[0] });
-          } else {
-            const tile = pickDiscard(v.myHand, null);
-            match.handleAction(pid, { kind: 'discard', tile, fromDrawn: false });
-          }
-        }
-      }
-    }
-
-    expect(record).not.toBeNull();
-    const rec = record! as MatchRecord;
+    const rec = await runGreedyMatch(settings(2), 99, 2024);
     expect(rec.games).toHaveLength(8);
     expect(rec.finalScores.reduce((a, b) => a + b, 0)).toBe(0);
 
@@ -176,7 +188,6 @@ describe('match simulation', () => {
     expect(txt.match(/ENDGAME/g)).toHaveLength(8);
     // Winning games list their patterns and score before ENDGAME.
     expect(txt.match(/^SCORE: \d+$/gm)?.length).toBe(wins);
-    match.dispose();
 
     // Persistence + stats round-trip on the finished match.
     const db = new Db(path.join(mkdtempSync(path.join(tmpdir(), 'zjmj-')), 'test.db'));
@@ -195,5 +206,40 @@ describe('match simulation', () => {
     const played = stats.matches.played['1'] + stats.matches.played['2'] + stats.matches.played['4'];
     expect(played).toBe(1);
     db.close();
+  }, 90000);
+
+  it('plays a bonus-tile match (flowers revealed, replaced, and scored)', async () => {
+    const rec = await runGreedyMatch(
+      settings(1, { bonusTiles: 'full', scoring: 'adjustedExtra' }),
+      7,
+      31,
+    );
+    expect(rec.games).toHaveLength(4);
+    expect(rec.finalScores.reduce((a, b) => a + b, 0)).toBe(0);
+
+    let bonusMoves = 0;
+    for (const g of rec.games) {
+      bonusMoves += g.moves.filter((m) => m.part1.t === 'bonus').length;
+      // Every recorded game must replay cleanly, bonus moves included.
+      const steps = replayGame(g);
+      expect(steps).toHaveLength(g.moves.length + 1);
+      const last = steps[steps.length - 1];
+      // Replay accumulates exactly the revealed bonus tiles, all distinct.
+      const replayedBonus = last.bonus.flat();
+      expect(replayedBonus).toHaveLength(g.moves.filter((m) => m.part1.t === 'bonus').length);
+      expect(new Set(replayedBonus).size).toBe(replayedBonus.length);
+      expect(replayedBonus.every((t) => t[0] === 'F' || t[0] === 'S')).toBe(true);
+      // Bonus tiles never end up in a replayed hand.
+      for (const hand of last.hands) {
+        expect(hand.some((t) => (t[0] === 'F' || t[0] === 'S') && t[1] !== ' ')).toBe(false);
+      }
+    }
+    // 8 bonus tiles among 128 visible positions: some games must reveal them.
+    expect(bonusMoves).toBeGreaterThan(0);
+
+    const txt = matchToTxt(rec);
+    expect(txt).toContain('Bonus Tiles: 2');
+    expect(txt).toContain('Scoring: 2');
+    if (bonusMoves > 0) expect(txt).toContain('BONUS ');
   }, 90000);
 });

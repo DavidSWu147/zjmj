@@ -19,25 +19,35 @@ import { Tile, fullTileSet } from './tiles';
  * kong replacement draws take the top then bottom of column 67, then 66, etc.
  * The dead wall conceptually stays at 14 tiles, so every draw (live or dead)
  * decrements a single shared counter that starts at 70.
+ *
+ * With bonus tiles the set grows to 144 tiles in 72 columns, the dead wall
+ * to 16 tiles (columns 71 down), and the live wall to 76; flower replacement
+ * draws come from the dead wall exactly like kong replacements.
  */
 export class Wall {
   readonly dice: [number, number, number, number];
   /** Seat (0=E..3=N) whose wall was broken — cosmetic, for display. */
   readonly breakSeat: number;
   readonly hands: Tile[][];
+  readonly bonus: boolean;
   private tiles: Tile[];
   private liveNext = 52;
   private kongDrawn = 0;
   private drawnCount = 0;
+  private liveTotal: number;
+  private lastColumn: number;
 
-  constructor(rng: () => number = Math.random) {
+  constructor(rng: () => number = Math.random, opts: { bonus?: boolean } = {}) {
+    this.bonus = opts.bonus ?? false;
+    this.liveTotal = this.bonus ? 76 : 70;
+    this.lastColumn = this.bonus ? 71 : 67;
     const d = () => 1 + Math.floor(rng() * 6);
     this.dice = [d(), d(), d(), d()];
     const firstSum = this.dice[0] + this.dice[1];
     // sum % 4: 1 -> E, 2 -> S, 3 -> W, 0 -> N
     this.breakSeat = [3, 0, 1, 2][firstSum % 4];
 
-    const pool = fullTileSet();
+    const pool = fullTileSet(this.bonus);
     for (let i = pool.length - 1; i > 0; i--) {
       const j = Math.floor(rng() * (i + 1));
       [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -59,9 +69,9 @@ export class Wall {
     this.hands[3].push(this.tiles[51]);
   }
 
-  /** Tiles left to draw (live wall counter, starts at 70). */
+  /** Tiles left to draw (live wall counter: 70, or 76 with bonus tiles). */
   get remaining(): number {
-    return 70 - this.drawnCount;
+    return this.liveTotal - this.drawnCount;
   }
 
   drawLive(): Tile {
@@ -70,11 +80,11 @@ export class Wall {
     return this.tiles[this.liveNext++];
   }
 
-  /** Replacement draw from the dead wall after a kong. */
+  /** Replacement draw from the dead wall (kong or revealed bonus tile). */
   drawKong(): Tile {
     if (this.remaining <= 0) throw new Error('wall empty');
     const k = this.kongDrawn++;
-    const col = 67 - Math.floor(k / 2);
+    const col = this.lastColumn - Math.floor(k / 2);
     const idx = k % 2 === 0 ? 2 * col : 2 * col + 1;
     this.drawnCount++;
     return this.tiles[idx];

@@ -26,6 +26,11 @@ export const SCORINGS: { v: ScoringMode; label: string }[] = [
   { v: 'adjusted', label: 'Adjusted Scoring' },
   { v: 'adjustedExtra', label: 'Adjusted Scoring with Extra Patterns' },
 ];
+export const BONUSES: { v: NonNullable<RoomSettings['bonusTiles']>; label: string }[] = [
+  { v: 'none', label: 'No Bonus Tiles' },
+  { v: 'half', label: 'Bonus Tiles worth Half' },
+  { v: 'full', label: 'Bonus Tiles worth Full' },
+];
 
 /**
  * Renders the four room-setting sliders into `container`, initialized from
@@ -43,6 +48,7 @@ export function buildRoomSliders(
     { key: 'chickenHand', label: 'Chicken Hand (雞和)', opts: CHICKENS, def: CHICKENS.findIndex((o) => o.v === initial.chickenHand) },
     { key: 'par', label: 'Par Score', opts: PARS, def: PARS.findIndex((o) => o.v === initial.par) },
     { key: 'scoring', label: 'Scoring', opts: SCORINGS, def: SCORINGS.findIndex((o) => o.v === (initial.scoring ?? 'original')) },
+    { key: 'bonusTiles', label: 'Bonus Tiles (花牌)', opts: BONUSES, def: BONUSES.findIndex((o) => o.v === (initial.bonusTiles ?? 'none')) },
   ] as const;
 
   const values: Record<string, number> = {};
@@ -52,6 +58,7 @@ export function buildRoomSliders(
     chickenHand: CHICKENS[values.chickenHand].v,
     par: PARS[values.par].v,
     scoring: SCORINGS[values.scoring].v,
+    bonusTiles: BONUSES[values.bonusTiles].v,
   });
 
   for (const grp of groups) {

@@ -15,7 +15,7 @@ import {
   isThirteenTerminalsShape,
   winningTileIndices,
 } from '../src/hand';
-import { scoreWin } from '../src/scoring';
+import { scoreBonus, scoreWin } from '../src/scoring';
 import { computePayments, findResponsible } from '../src/payment';
 
 const T = (s: string) => s; // readability helper
@@ -49,6 +49,53 @@ describe('wall', () => {
     // 52 dealt + 70 drawn = 122 tiles, no type over 4 copies
     expect([...seen.values()].reduce((a, b) => a + b, 0)).toBe(122);
     expect(Math.max(...seen.values())).toBeLessThanOrEqual(4);
+  });
+});
+
+describe('wall with bonus tiles', () => {
+  it('uses 144 tiles, a 16-tile dead wall, and 76 live draws', () => {
+    const wall = new Wall(mulberry32(11), { bonus: true });
+    expect(wall.hands.every((h) => h.length === 13)).toBe(true);
+    expect(wall.remaining).toBe(76);
+    const seen = new Map<string, number>();
+    for (const h of wall.hands) for (const t of h) seen.set(t, (seen.get(t) ?? 0) + 1);
+    const drawn: string[] = [];
+    for (let i = 0; i < 40; i++) drawn.push(wall.drawLive());
+    for (let i = 0; i < 4; i++) drawn.push(wall.drawKong()); // kong/bonus replacements
+    for (let i = 0; i < 32; i++) drawn.push(wall.drawLive());
+    expect(wall.remaining).toBe(0);
+    expect(() => wall.drawLive()).toThrow();
+    for (const t of drawn) seen.set(t, (seen.get(t) ?? 0) + 1);
+    // 52 dealt + 76 drawn = 128 distinct positions of the 144-tile set.
+    expect([...seen.values()].reduce((a, b) => a + b, 0)).toBe(128);
+    for (const [t, n] of seen) {
+      expect(n).toBeLessThanOrEqual(t[0] === 'F' || (t[0] === 'S' && t[1] !== ' ') ? 1 : 4);
+    }
+  });
+});
+
+describe('bonus tile scoring (category 11)', () => {
+  it('scores proper/improper flowers and complete sets cumulatively', () => {
+    // East holding its proper flower F1 + improper S2, S3.
+    const r = scoreBonus(['F1', 'S2', 'S3'], 0, false);
+    expect(r.total).toBe(4 + 2 + 2);
+    expect(r.patterns.map((p) => p.id).sort()).toEqual(['11.1.1', '11.1.2']);
+
+    // All four flowers for West: 10 + proper F3 (4) + 3 improper (6) = 20.
+    const flowers = scoreBonus(['F1', 'F2', 'F3', 'F4'], 2, false);
+    expect(flowers.total).toBe(20);
+    expect(flowers.patterns.map((p) => p.id)).toContain('11.2.1');
+
+    // All eight bonus tiles: 10 + 10 + proper two (8) + improper six (12) = 40.
+    const all = scoreBonus(['F1', 'F2', 'F3', 'F4', 'S1', 'S2', 'S3', 'S4'], 1, false);
+    expect(all.total).toBe(40);
+  });
+
+  it('halves every value under the half setting', () => {
+    const all = scoreBonus(['F1', 'F2', 'F3', 'F4', 'S1', 'S2', 'S3', 'S4'], 1, true);
+    expect(all.total).toBe(20);
+    const one = scoreBonus(['S2'], 0, true);
+    expect(one.total).toBe(1);
   });
 });
 

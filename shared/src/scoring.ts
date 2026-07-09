@@ -1,9 +1,11 @@
 import {
   countsFrom,
+  FLOWER_TILES,
   isDragonIdx,
   isHonorIdx,
   isTerminalIdx,
   isWindIdx,
+  SEASON_TILES,
   Tile,
   tileIndex,
 } from './tiles';
@@ -115,6 +117,10 @@ export const PATTERNS: Record<string, { name: string; zh: string; points: number
   '9.4.2': { name: 'Blessing of Earth', zh: '地和', points: 155 },
   '10.1': { name: 'Thirteen Terminals', zh: '十三么九', points: 160 },
   '10.2': { name: 'Seven Pairs', zh: '七對子', points: 30 },
+  '11.1.1': { name: 'Improper Flower/Season', zh: '偏花', points: 2 },
+  '11.1.2': { name: 'Proper Flower/Season', zh: '正花', points: 4 },
+  '11.2.1': { name: 'Four Flowers', zh: '齊四花', points: 10 },
+  '11.2.2': { name: 'Four Seasons', zh: '齊四季', points: 10 },
   chicken: { name: 'Chicken Hand', zh: '雞和', points: 1 },
 };
 
@@ -405,6 +411,37 @@ function applyLimit(hits: PatternHit[], chickenPoints: number): ScoreResult {
     limit: raw >= 320 ? 'compound' : 'none',
     chicken: false,
   };
+}
+
+/**
+ * Category 11: the winner's revealed bonus tiles. All cumulative with no
+ * exclusions; per-tile hits are aggregated into one line each (×n). With
+ * `half` every listed value is halved (1/2/5 instead of 2/4/10).
+ */
+export function scoreBonus(
+  bonusTiles: Tile[],
+  seatWind: number,
+  half: boolean,
+): { patterns: PatternHit[]; total: number } {
+  const div = half ? 2 : 1;
+  const patterns: PatternHit[] = [];
+  const properNum = String(seatWind + 1);
+  const proper = bonusTiles.filter((t) => t[1] === properNum).length;
+  const improper = bonusTiles.length - proper;
+  const agg = (id: string, n: number) => {
+    if (n === 0) return;
+    const h = hit(id);
+    patterns.push({
+      ...h,
+      name: n > 1 ? `${h.name} ×${n}` : h.name,
+      points: (h.points * n) / div,
+    });
+  };
+  agg('11.1.1', improper);
+  agg('11.1.2', proper);
+  agg('11.2.1', FLOWER_TILES.every((t) => bonusTiles.includes(t)) ? 1 : 0);
+  agg('11.2.2', SEASON_TILES.every((t) => bonusTiles.includes(t)) ? 1 : 0);
+  return { patterns, total: patterns.reduce((a, p) => a + p.points, 0) };
 }
 
 /**

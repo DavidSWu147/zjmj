@@ -2,12 +2,21 @@ import { MeldView } from '../../shared/src/protocol';
 import { Tile } from '../../shared/src/tiles';
 import { getSettings } from './settings';
 
-const SUIT_DIR: Record<string, string> = { B: 'bamboo', C: 'character', D: 'dot' };
+const SUIT_DIR: Record<string, string> = {
+  B: 'bamboo',
+  C: 'character',
+  D: 'dot',
+  F: 'flower',
+  S: 'season',
+};
 const WINDS = ['E', 'S', 'W', 'N'];
 
 /** Corner index (English) for a tile; white dragon 'O ' stays unmarked. */
 function tileIndexLabel(t: Tile): string | null {
-  if (t[1] !== ' ') return t[1]; // number tiles: 1–9
+  if (t[1] !== ' ') {
+    // Number tiles 1–9; bonus tiles (F/S) carry their own numeral already.
+    return t[0] === 'F' || t[0] === 'S' ? null : t[1];
+  }
   if (WINDS.includes(t[0])) return t[0]; // winds: ESWN
   if (t[0] === 'R' || t[0] === 'G') return t[0]; // red/green dragon
   return null;

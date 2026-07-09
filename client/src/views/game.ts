@@ -252,6 +252,32 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     board.appendChild(zone);
   }
 
+  // ── bonus tiles (flowers & seasons) ───────────────────────────────
+  // Each seat's revealed bonus tiles sit in the pinwheel corner clockwise of
+  // its discard zone (for the bottom seat: left of the zone, first row), the
+  // one region the windmill never reaches.
+  for (let rel = 0; rel < 4; rel++) {
+    const seat = (view.mySeat + rel) % 4;
+    const bonus = view.seats[seat].bonus ?? [];
+    if (bonus.length === 0) continue;
+    const zone = document.createElement('div');
+    zone.className = 'discard-zone';
+    zone.style.setProperty('--tw', `${dt}px`);
+    const wrapW = rel % 2 === 0 ? dt : dh;
+    const wrapH = rel % 2 === 0 ? dh : dt;
+    bonus.forEach((t, i) => {
+      const x0 = cx + P / 2 - 6 * dt - 0.45 * dt - i * dt; // grows leftward
+      const y0 = cy + P / 2 + gap;
+      const [x, y] = rot(x0 - dt / 2, y0 + dh / 2, rel);
+      const el = orientedTile(t, BASE_DEG[rel]);
+      el.style.left = `${x - wrapW / 2}px`;
+      el.style.top = `${y - wrapH / 2}px`;
+      el.dataset.bonus = `${seat}-${i}`;
+      zone.appendChild(el);
+    });
+    board.appendChild(zone);
+  }
+
   // ── opponent hands + melds ────────────────────────────────────────
   // Each strip is anchored at the fixed boundary between melds and hand, so
   // the hand tiles stay put while the drawn tile comes and goes at the free
@@ -684,6 +710,13 @@ function gameResultOverlay(view: GameView): HTMLElement {
     g2.style.width = '14px';
     handRow.appendChild(g2);
     handRow.appendChild(tileEl(r.winningHand.winTile, { highlight: true }));
+    const winnerBonus = view.seats[r.winnerSeat!]?.bonus ?? [];
+    if (winnerBonus.length > 0) {
+      const g3 = document.createElement('div');
+      g3.style.width = '14px';
+      handRow.appendChild(g3);
+      for (const t of winnerBonus) handRow.appendChild(tileEl(t, { dimmed: true }));
+    }
     card.appendChild(handRow);
   }
 

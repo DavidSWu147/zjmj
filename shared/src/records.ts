@@ -13,7 +13,13 @@ export type MovePart1 =
   | { t: 'chow'; tile: Tile; low: Tile }
   | { t: 'pung'; tile: Tile }
   | { t: 'bigKong'; tile: Tile }
-  | { t: 'mahjongDiscard'; tile: Tile };
+  | { t: 'mahjongDiscard'; tile: Tile }
+  /**
+   * A bonus tile is revealed and set aside. `repl` is the dead-wall
+   * replacement that joins the hand — present only for starting-hand bonus
+   * tiles; a bonus drawn mid-turn is followed by its own draw move instead.
+   */
+  | { t: 'bonus'; tile: Tile; repl?: Tile };
 
 export type MovePart2 =
   | { t: 'discard'; tile: Tile }
@@ -76,6 +82,8 @@ function part1ToTxt(p: MovePart1): string {
       return `KONG ${p.tile}`;
     case 'mahjongDiscard':
       return `MAHJONG ${p.tile}`;
+    case 'bonus':
+      return p.repl ? `BONUS ${p.tile}, DRAW ${p.repl}` : `BONUS ${p.tile}`;
   }
 }
 
@@ -114,6 +122,11 @@ export function scoringInt(v: RoomSettings['scoring']): number {
   return v === 'adjustedExtra' ? 2 : v === 'adjusted' ? 1 : 0;
 }
 
+/** Bonus tiles setting as an int: 0 none, 1 half value, 2 full value. */
+export function bonusTilesInt(v: RoomSettings['bonusTiles']): number {
+  return v === 'full' ? 2 : v === 'half' ? 1 : 0;
+}
+
 export function matchToTxt(m: MatchRecord): string {
   const lines: string[] = [];
   lines.push(`Match ID: ${m.matchId}`);
@@ -122,6 +135,7 @@ export function matchToTxt(m: MatchRecord): string {
   lines.push(`Chicken Hand: ${chickenHandInt(m.settings.chickenHand)}`);
   lines.push(`Par Score: ${parScoreInt(m.settings.par)}`);
   lines.push(`Scoring: ${scoringInt(m.settings.scoring)}`);
+  lines.push(`Bonus Tiles: ${bonusTilesInt(m.settings.bonusTiles)}`);
   for (let s = 0; s < 4; s++) {
     lines.push(`Starting ${SEAT_LABELS[s]} Username: ${m.players[s].name}`);
   }
@@ -153,6 +167,8 @@ export interface ReplayStep {
   melds: MeldView[][];
   discards: { tile: Tile; fromDraw: boolean }[][];
   drawn: (Tile | null)[];
+  /** Revealed flowers & seasons per seat. */
+  bonus: Tile[][];
 }
 
 /**
@@ -165,13 +181,14 @@ export function replayGame(g: GameRecord): ReplayStep[] {
   const discards: { tile: Tile; fromDraw: boolean }[][] = [[], [], [], []];
   const discardOrder: number[][] = [[], [], [], []]; // global sequence numbers
   const drawn: (Tile | null)[] = [null, null, null, null];
+  const bonus: Tile[][] = [[], [], [], []];
   let discardSeq = 0;
   // Set when a small exposed kong is being robbed: the tile awaiting the winner.
   let robbedTile: { seat: number; tile: Tile } | null = null;
 
   const snapshot = (moveIndex: number, text: string): ReplayStep =>
     JSON.parse(
-      JSON.stringify({ moveIndex, text, hands, melds, discards, drawn }),
+      JSON.stringify({ moveIndex, text, hands, melds, discards, drawn, bonus }),
     ) as ReplayStep;
 
   const steps: ReplayStep[] = [snapshot(-1, 'Initial deal')];
@@ -278,6 +295,15 @@ export function replayGame(g: GameRecord): ReplayStep[] {
           claimLastDiscard(seat, p1.tile);
         }
         drawn[seat] = p1.tile;
+        break;
+      }
+      case 'bonus': {
+        bonus[seat].push(p1.tile);
+        if (p1.repl !== undefined) {
+          // Starting-hand bonus: swap it for the dead-wall replacement.
+          removeFromHand(seat, [p1.tile]);
+          hands[seat] = sortTiles([...hands[seat], p1.repl]);
+        }
         break;
       }
     }

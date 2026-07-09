@@ -168,6 +168,14 @@ function buildViewer(body: HTMLElement, rec: MatchRecord): void {
         drawnRow.appendChild(tileEl(step.drawn[seat], { highlight: true }));
         handLine.appendChild(drawnRow);
       }
+      const bonus = step.bonus?.[seat] ?? [];
+      if (bonus.length > 0) {
+        const bonusRow = document.createElement('div');
+        bonusRow.className = 'tile-row';
+        bonusRow.style.marginLeft = '16px';
+        for (const t of bonus) bonusRow.appendChild(tileEl(t, { dimmed: true }));
+        handLine.appendChild(bonusRow);
+      }
       rows.appendChild(handLine);
 
       const disc = document.createElement('div');
