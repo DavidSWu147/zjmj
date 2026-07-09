@@ -69,15 +69,15 @@ describe('wall with bonus tiles', () => {
     // 52 dealt + 76 drawn = 128 distinct positions of the 144-tile set.
     expect([...seen.values()].reduce((a, b) => a + b, 0)).toBe(128);
     for (const [t, n] of seen) {
-      expect(n).toBeLessThanOrEqual(t[0] === 'F' || (t[0] === 'S' && t[1] !== ' ') ? 1 : 4);
+      expect(n).toBeLessThanOrEqual(t[0] === 'F' || t[0] === 'A' ? 1 : 4);
     }
   });
 });
 
 describe('bonus tile scoring (category 11)', () => {
   it('scores proper/improper flowers and complete sets cumulatively', () => {
-    // East holding its proper flower F1 + improper S2, S3.
-    const r = scoreBonus(['F1', 'S2', 'S3'], 0, false);
+    // East holding its proper flower F1 + improper A2, A3 (seasons).
+    const r = scoreBonus(['F1', 'A2', 'A3'], 0, false);
     expect(r.total).toBe(4 + 2 + 2);
     expect(r.patterns.map((p) => p.id).sort()).toEqual(['11.1.1', '11.1.2']);
 
@@ -87,14 +87,14 @@ describe('bonus tile scoring (category 11)', () => {
     expect(flowers.patterns.map((p) => p.id)).toContain('11.2.1');
 
     // All eight bonus tiles: 10 + 10 + proper two (8) + improper six (12) = 40.
-    const all = scoreBonus(['F1', 'F2', 'F3', 'F4', 'S1', 'S2', 'S3', 'S4'], 1, false);
+    const all = scoreBonus(['F1', 'F2', 'F3', 'F4', 'A1', 'A2', 'A3', 'A4'], 1, false);
     expect(all.total).toBe(40);
   });
 
   it('halves every value under the half setting', () => {
-    const all = scoreBonus(['F1', 'F2', 'F3', 'F4', 'S1', 'S2', 'S3', 'S4'], 1, true);
+    const all = scoreBonus(['F1', 'F2', 'F3', 'F4', 'A1', 'A2', 'A3', 'A4'], 1, true);
     expect(all.total).toBe(20);
-    const one = scoreBonus(['S2'], 0, true);
+    const one = scoreBonus(['A2'], 0, true);
     expect(one.total).toBe(1);
   });
 });

@@ -232,10 +232,10 @@ describe('match simulation', () => {
       const replayedBonus = last.bonus.flat();
       expect(replayedBonus).toHaveLength(bonusCount(g));
       expect(new Set(replayedBonus).size).toBe(replayedBonus.length);
-      expect(replayedBonus.every((t) => t[0] === 'F' || t[0] === 'S')).toBe(true);
+      expect(replayedBonus.every((t) => t[0] === 'F' || t[0] === 'A')).toBe(true);
       // Bonus tiles never end up in a replayed hand.
       for (const hand of last.hands) {
-        expect(hand.some((t) => (t[0] === 'F' || t[0] === 'S') && t[1] !== ' ')).toBe(false);
+        expect(hand.some((t) => t[0] === 'F' || t[0] === 'A')).toBe(false);
       }
     }
     // 8 bonus tiles among 128 visible positions: some games must reveal them.

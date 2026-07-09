@@ -7,15 +7,15 @@ const SUIT_DIR: Record<string, string> = {
   C: 'character',
   D: 'dot',
   F: 'flower',
-  S: 'season',
+  A: 'season',
 };
 const WINDS = ['E', 'S', 'W', 'N'];
 
 /** Corner index (English) for a tile; white dragon 'O ' stays unmarked. */
 function tileIndexLabel(t: Tile): string | null {
   if (t[1] !== ' ') {
-    // Number tiles 1–9; bonus tiles (F/S) carry their own numeral already.
-    return t[0] === 'F' || t[0] === 'S' ? null : t[1];
+    // Number tiles 1–9; bonus tiles (F/A) carry their own numeral already.
+    return t[0] === 'F' || t[0] === 'A' ? null : t[1];
   }
   if (WINDS.includes(t[0])) return t[0]; // winds: ESWN
   if (t[0] === 'R' || t[0] === 'G') return t[0]; // red/green dragon

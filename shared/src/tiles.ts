@@ -7,6 +7,11 @@
  * Tile type indices 0..33:
  *   0..8 = B1..B9, 9..17 = C1..C9, 18..26 = D1..D9,
  *   27 = E, 28 = S, 29 = W, 30 = N, 31 = R, 32 = G, 33 = O
+ *
+ * Bonus tiles (optional): flowers "F1".."F4", seasons "A1".."A4"; the digit
+ * is the seat (1=E..4=N) the tile is proper to. Seasons use "A" (se*A*son)
+ * rather than "S" so the prefix never collides with the South wind "S ".
+ * Bonus tiles are outside the 0..33 index space — they never join a hand.
  */
 export type Tile = string;
 
@@ -76,17 +81,20 @@ export function windOfSeat(seat: number): Tile {
 
 /**
  * Bonus tiles (flowers & seasons), used only when the room enables them.
- * "F1".."F4" = Plum, Orchid, Chrysanthemum, Bamboo; "S1".."S4" = Spring,
- * Summer, Autumn, Winter. Number n is proper to seat n-1 (E,S,W,N). Bonus
- * tiles never join a hand: they are revealed and replaced immediately, so
- * the 34-type index machinery (tileIndex, countsFrom) never sees them.
+ * "F1".."F4" = Plum, Orchid, Chrysanthemum, Bamboo; "A1".."A4" = Spring,
+ * Summer, Autumn, Winter. Number n is proper to seat n-1 (E,S,W,N). Seasons
+ * use "A" (se*A*son) so the prefix never collides with the South wind "S ".
+ * Bonus tiles never join a hand: they are revealed and replaced immediately,
+ * so the 34-type index machinery (tileIndex, countsFrom) never sees them.
  */
 export const FLOWER_TILES: Tile[] = ['F1', 'F2', 'F3', 'F4'];
-export const SEASON_TILES: Tile[] = ['S1', 'S2', 'S3', 'S4'];
+export const SEASON_TILES: Tile[] = ['A1', 'A2', 'A3', 'A4'];
 export const BONUS_TILES: Tile[] = [...FLOWER_TILES, ...SEASON_TILES];
 
+// Neither "F" nor "A" is an honor prefix, so no trailing-space guard is
+// needed to tell bonus tiles apart from tile codes like the South wind "S ".
 export function isBonusTile(t: Tile): boolean {
-  return (t[0] === 'F' || t[0] === 'S') && t[1] !== ' ';
+  return t[0] === 'F' || t[0] === 'A';
 }
 
 /** Sort key that tolerates bonus tiles (they sort after everything else). */

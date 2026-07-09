@@ -54,9 +54,9 @@ const view: GameView = {
   mySeat: 0,
   turnSeat: 2,
   seats: [
-    seat(13, [], disc(['B1', 'C4', 'D9', 'E ']), ['F1', 'S3']),
+    seat(13, [], disc(['B1', 'C4', 'D9', 'E ']), ['F1', 'A3']),
     seat(13, [], disc(['D2', 'B7']), ['F2']),
-    seat(4, [windPung('E '), windPung('S '), windPung('W ')], disc(['B9', 'C1']), ['S1', 'S2', 'F4']),
+    seat(4, [windPung('E '), windPung('S '), windPung('W ')], disc(['B9', 'C1']), ['A1', 'A2', 'F4']),
     seat(13, [], disc(['G ', 'O ', 'B5']), ['F3']),
   ],
   myHand: ['B4', 'B5', 'B6', 'C1', 'C2', 'C3', 'D1', 'D2', 'D3', 'D7', 'D8', 'D9', 'E '],
