@@ -12,7 +12,14 @@ export interface RoomsDelegate {
   onLobbyChanged(): void;
   onMatchFinished(record: MatchRecord, aborted: boolean): void;
   isConnected(playerId: string): boolean;
+  /** Toast a message to these players (idle-room ejections). */
+  notify(playerIds: string[], message: string): void;
 }
+
+/** A user room with no status change for this long is deleted. */
+export const ROOM_IDLE_MS = 10 * 60 * 1000;
+/** Room #0 ejects its members after this long without a status change. */
+export const ROOM0_IDLE_MS = 5 * 60 * 1000;
 
 export class Room {
   readonly id: number;
@@ -20,10 +27,16 @@ export class Room {
   /** Members in join order; index 0 acts as host. */
   members: SessionLike[] = [];
   match: Match | null = null;
+  /** Last join/leave/start; idle rooms are cleaned up (anti-squatting). */
+  lastActivity = Date.now();
 
   constructor(id: number, settings: RoomSettings) {
     this.id = id;
     this.settings = settings;
+  }
+
+  touch(): void {
+    this.lastActivity = Date.now();
   }
 
   get isDefault(): boolean {
@@ -53,6 +66,39 @@ export class Rooms {
     this.delegate = delegate;
     // Room #0 is always open and locked to the default settings.
     this.rooms.set(0, new Room(0, { ...DEFAULT_SETTINGS }));
+    // Idle sweep; unref'd so it never keeps a test process alive.
+    setInterval(() => this.sweepIdle(), 30_000).unref();
+  }
+
+  /**
+   * Deletes user rooms idle for 10 minutes and ejects everyone from room #0
+   * after 5, so nobody can squat on a room without playing. A running match
+   * counts as activity.
+   */
+  private sweepIdle(now = Date.now()): void {
+    let changed = false;
+    for (const room of [...this.rooms.values()]) {
+      if (room.match && !room.match.finished) {
+        room.touch();
+        continue;
+      }
+      const idle = now - room.lastActivity;
+      const memberIds = room.members.map((m) => m.playerId);
+      if (room.isDefault) {
+        if (memberIds.length > 0 && idle > ROOM0_IDLE_MS) {
+          room.members = [];
+          room.touch();
+          this.delegate.notify(memberIds, 'Removed from Room #0 after 5 minutes of inactivity.');
+          changed = true;
+        }
+      } else if (idle > ROOM_IDLE_MS) {
+        room.match?.dispose();
+        this.rooms.delete(room.id);
+        this.delegate.notify(memberIds, `Room #${room.id} was deleted after 10 minutes of inactivity.`);
+        changed = true;
+      }
+    }
+    if (changed) this.delegate.onLobbyChanged();
   }
 
   list(): RoomSummary[] {
@@ -94,6 +140,7 @@ export class Rooms {
     if (room.match && !room.match.finished) return 'Match in progress.';
     if (room.members.length >= 4) return 'Room is full.';
     room.members.push(session);
+    room.touch();
     this.delegate.onLobbyChanged();
     return room;
   }
@@ -103,6 +150,7 @@ export class Rooms {
     const room = this.roomOf(playerId);
     if (!room) return;
     room.members = room.members.filter((m) => m.playerId !== playerId);
+    room.touch();
     if (room.match && !room.match.finished) {
       room.match.leave(playerId);
     }
@@ -149,6 +197,7 @@ export class Rooms {
           if (room.match === match) {
             room.match.dispose();
             room.match = null;
+            room.touch();
             if (!room.isDefault && room.members.length === 0) this.rooms.delete(room.id);
             this.delegate.onLobbyChanged();
           }
@@ -157,6 +206,7 @@ export class Rooms {
       },
     });
     room.match = match;
+    room.touch();
     this.delegate.onLobbyChanged();
     match.start();
     return null;

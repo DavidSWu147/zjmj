@@ -3,13 +3,14 @@ import { displayName } from '../account';
 import { getSettings } from '../settings';
 import { net } from '../net';
 import { renderGame } from './game';
-import { buildRoomSliders, CHICKENS, PARS } from './sliders';
+import { buildRoomSliders, CHICKENS, PARS, SCORINGS } from './sliders';
 
 function settingsSummary(s: RoomSettings): string {
   const len = `${s.rounds} round${s.rounds === 1 ? '' : 's'}`;
   const chick = CHICKENS.find((c) => c.v === s.chickenHand)!.label;
   const par = PARS.find((p) => p.v === s.par)!.label;
-  return `${len} · ${s.thinkingTime}s · Chicken: ${chick} · Par: ${par}`;
+  const scoring = SCORINGS.find((o) => o.v === (s.scoring ?? 'original'))!.label;
+  return `${len} · ${s.thinkingTime}s · Chicken: ${chick} · Par: ${par} · ${scoring}`;
 }
 
 export function renderPlay(root: HTMLElement): void {

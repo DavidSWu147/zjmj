@@ -111,6 +111,18 @@ export async function apiGet<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** Authenticated POST against our API. */
+export async function apiPost<T>(path: string, body: Record<string, unknown> = {}): Promise<T> {
+  const auth = await ensureAuth();
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`POST ${path} failed (${res.status})`);
+  return (await res.json()) as T;
+}
+
 /** Server revoked our session: drop it and fall back to a guest session. */
 export async function handleSignedOut(): Promise<void> {
   storeAuth(null);

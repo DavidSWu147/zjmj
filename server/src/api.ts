@@ -98,6 +98,20 @@ export function makeApi(db: Db): express.Router {
     res.json(computeStats(db, session.playerId));
   });
 
+  /**
+   * Starts a fresh statistics epoch. Matches stay in the archive (Records is
+   * unaffected); the Statistics page simply counts from this moment on.
+   */
+  router.post('/stats/reset', (req, res) => {
+    const session = sessionFromRequest(db, req);
+    if (!session) {
+      res.status(401).json({ error: 'Not signed in.' });
+      return;
+    }
+    db.resetStats(session.playerId);
+    res.json({ ok: true });
+  });
+
   router.get('/records', (req, res) => {
     const session = sessionFromRequest(db, req);
     if (!session) {

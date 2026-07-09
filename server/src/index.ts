@@ -36,6 +36,12 @@ const rooms = new Rooms({
     const s = sessions.get(playerId);
     return !!s && s.ws !== null && s.ws.readyState === WebSocket.OPEN;
   },
+  notify: (playerIds, message) => {
+    for (const pid of playerIds) {
+      const s = sessions.get(pid);
+      if (s) send(s, { type: 'toast', message });
+    }
+  },
 });
 
 function send(session: Session, msg: ServerMsg): void {

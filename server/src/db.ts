@@ -70,6 +70,10 @@ export class Db {
         last_seen INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_sessions_player ON sessions(player_id);
+      CREATE TABLE IF NOT EXISTS player_meta (
+        player_id TEXT PRIMARY KEY,
+        stats_reset_at INTEGER NOT NULL DEFAULT 0
+      );
     `);
     // Prune sessions idle for half a year so the table cannot grow forever.
     this.db
@@ -130,6 +134,26 @@ export class Db {
     if (from === to) return;
     this.db.prepare('UPDATE match_players SET player_id = ? WHERE player_id = ?').run(to, from);
     this.db.prepare('UPDATE sessions SET player_id = ? WHERE player_id = ?').run(to, from);
+    this.db
+      .prepare('UPDATE OR REPLACE player_meta SET player_id = ? WHERE player_id = ?')
+      .run(to, from);
+  }
+
+  /** Statistics count only matches finished after this epoch (0 = everything). */
+  statsResetAt(playerId: string): number {
+    const row = this.db
+      .prepare('SELECT stats_reset_at FROM player_meta WHERE player_id = ?')
+      .get(playerId) as { stats_reset_at: number } | undefined;
+    return row?.stats_reset_at ?? 0;
+  }
+
+  resetStats(playerId: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO player_meta (player_id, stats_reset_at) VALUES (?, ?)
+         ON CONFLICT(player_id) DO UPDATE SET stats_reset_at = excluded.stats_reset_at`,
+      )
+      .run(playerId, Date.now());
   }
 
   saveMatch(record: MatchRecord): void {
@@ -204,15 +228,19 @@ export class Db {
     return row ? (JSON.parse(row.record) as MatchRecord) : null;
   }
 
-  /** All non-abandoned match participations for stats. */
+  /** Non-abandoned match participations since the player's last stats reset. */
   matchesForStats(playerId: string): { record: MatchRecord; startSeat: number; result: string }[] {
     const rows = this.db
       .prepare(
         `SELECT m.record, mp.start_seat, mp.result
          FROM match_players mp JOIN matches m ON m.id = mp.match_id
-         WHERE mp.player_id = ? AND mp.abandoned = 0`,
+         WHERE mp.player_id = ? AND mp.abandoned = 0 AND m.created_at >= ?`,
       )
-      .all(playerId) as { record: string; start_seat: number; result: string }[];
+      .all(playerId, this.statsResetAt(playerId)) as {
+      record: string;
+      start_seat: number;
+      result: string;
+    }[];
     return rows.map((r) => ({
       record: JSON.parse(r.record) as MatchRecord,
       startSeat: r.start_seat,

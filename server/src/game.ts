@@ -930,6 +930,23 @@ export class Game {
 
   // ── winning and ending ────────────────────────────────────────────────────
 
+  /**
+   * Blessing of Earth: winning on East's very first discard with no melds
+   * declared. Such a hand always pays out as a self-draw (everyone pays), so
+   * East is not punished for "dealing in" with zero information.
+   */
+  private isEarthWin(seat: number, winBy: 'self' | 'discard', robbing: boolean): boolean {
+    return (
+      winBy === 'discard' &&
+      !robbing &&
+      seat !== 0 &&
+      this.discardLog.length === 1 &&
+      this.discardLog[0].seat === 0 &&
+      this.melds[0].length === 0 &&
+      this.melds[seat].length === 0
+    );
+  }
+
   private scoreFor(
     seat: number,
     winTile: Tile,
@@ -941,14 +958,7 @@ export class Game {
     const anyMelds = this.melds.some((m) => m.length > 0);
     const heaven =
       winBy === 'self' && seat === 0 && this.discardLog.length === 0 && !anyMelds;
-    const earth =
-      winBy === 'discard' &&
-      !robbing &&
-      seat !== 0 &&
-      this.discardLog.length === 1 &&
-      this.discardLog[0].seat === 0 &&
-      this.melds[0].length === 0 &&
-      this.melds[seat].length === 0;
+    const earth = this.isEarthWin(seat, winBy, robbing);
     return scoreWin(
       {
         melds: this.melds[seat],
@@ -964,6 +974,7 @@ export class Game {
         earth,
       },
       chickenPoints,
+      this.host.settings.scoring ?? 'original',
     );
   }
 
@@ -1005,11 +1016,14 @@ export class Game {
     const responsible = robbing
       ? discarder
       : findResponsible(this.discardLog, seat, tile);
+    // Blessing of Earth pays out like a self-draw (see isEarthWin), even when
+    // a listed limit hand hides the 地和 pattern from the final pattern list.
+    const earth = this.isEarthWin(seat, 'discard', robbing);
     const deltas = computePayments({
       value: score.total,
       winnerSeat: seat,
-      winBy: 'discard',
-      responsibleSeat: responsible,
+      winBy: earth ? 'self' : 'discard',
+      responsibleSeat: earth ? null : responsible,
       par: this.host.settings.par,
     });
     this.drawn[seat] = tile;

@@ -1,5 +1,5 @@
 import { Tile } from './tiles';
-import { KongType, PatternHit } from './scoring';
+import { KongType, PatternHit, ScoringMode } from './scoring';
 import { ParSetting } from './payment';
 
 export interface RoomSettings {
@@ -9,6 +9,8 @@ export interface RoomSettings {
   thinkingTime: 7.5 | 10 | 15;
   chickenHand: 'notAllowed' | 'zero' | 'one';
   par: ParSetting;
+  /** Absent in v0.0 records: treat as 'original'. */
+  scoring?: ScoringMode;
 }
 
 export const DEFAULT_SETTINGS: RoomSettings = {
@@ -16,6 +18,7 @@ export const DEFAULT_SETTINGS: RoomSettings = {
   thinkingTime: 15,
   chickenHand: 'one',
   par: 25,
+  scoring: 'original',
 };
 
 export const ROOM_CAP = 4; // user-created rooms #1..#4, not counting room #0

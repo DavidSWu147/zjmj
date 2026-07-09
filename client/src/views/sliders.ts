@@ -1,4 +1,5 @@
 import { RoomSettings } from '../../../shared/src/protocol';
+import { ScoringMode } from '../../../shared/src/scoring';
 
 export const LENGTHS: { v: 1 | 2 | 4; label: string }[] = [
   { v: 1, label: '1 round (東風戰)' },
@@ -20,6 +21,11 @@ export const PARS: { v: RoomSettings['par']; label: string }[] = [
   { v: '30/25', label: '30 points unless exact then 25' },
   { v: 30, label: '30 points' },
 ];
+export const SCORINGS: { v: ScoringMode; label: string }[] = [
+  { v: 'original', label: 'Original Scoring' },
+  { v: 'adjusted', label: 'Adjusted Scoring' },
+  { v: 'adjustedExtra', label: 'Adjusted Scoring with Extra Patterns' },
+];
 
 /**
  * Renders the four room-setting sliders into `container`, initialized from
@@ -36,6 +42,7 @@ export function buildRoomSliders(
     { key: 'thinkingTime', label: 'Thinking Time', opts: TIMES, def: TIMES.findIndex((o) => o.v === initial.thinkingTime) },
     { key: 'chickenHand', label: 'Chicken Hand (雞和)', opts: CHICKENS, def: CHICKENS.findIndex((o) => o.v === initial.chickenHand) },
     { key: 'par', label: 'Par Score', opts: PARS, def: PARS.findIndex((o) => o.v === initial.par) },
+    { key: 'scoring', label: 'Scoring', opts: SCORINGS, def: SCORINGS.findIndex((o) => o.v === (initial.scoring ?? 'original')) },
   ] as const;
 
   const values: Record<string, number> = {};
@@ -44,6 +51,7 @@ export function buildRoomSliders(
     thinkingTime: TIMES[values.thinkingTime].v,
     chickenHand: CHICKENS[values.chickenHand].v,
     par: PARS[values.par].v,
+    scoring: SCORINGS[values.scoring].v,
   });
 
   for (const grp of groups) {

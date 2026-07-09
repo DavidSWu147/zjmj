@@ -109,6 +109,11 @@ export function parScoreInt(v: RoomSettings['par']): number {
   return v === '30/25' ? -30 : v;
 }
 
+/** Scoring mode as an int: 0 original, 1 adjusted, 2 adjusted with extras. */
+export function scoringInt(v: RoomSettings['scoring']): number {
+  return v === 'adjustedExtra' ? 2 : v === 'adjusted' ? 1 : 0;
+}
+
 export function matchToTxt(m: MatchRecord): string {
   const lines: string[] = [];
   lines.push(`Match ID: ${m.matchId}`);
@@ -116,6 +121,7 @@ export function matchToTxt(m: MatchRecord): string {
   lines.push(`Thinking Time: ${m.settings.thinkingTime}`);
   lines.push(`Chicken Hand: ${chickenHandInt(m.settings.chickenHand)}`);
   lines.push(`Par Score: ${parScoreInt(m.settings.par)}`);
+  lines.push(`Scoring: ${scoringInt(m.settings.scoring)}`);
   for (let s = 0; s < 4; s++) {
     lines.push(`Starting ${SEAT_LABELS[s]} Username: ${m.players[s].name}`);
   }

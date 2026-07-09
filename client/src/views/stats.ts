@@ -1,5 +1,6 @@
 import { PATTERN_IDS, PATTERNS } from '../../../shared/src/scoring';
-import { apiGet } from '../account';
+import { apiGet, apiPost } from '../account';
+import { net } from '../net';
 
 interface StatsResponse {
   patternCounts: Record<string, number>;
@@ -34,10 +35,22 @@ export function renderStats(root: HTMLElement): void {
     <div class="page-head">
       <button id="back">← Home</button>
       <h1>Statistics 統計</h1>
+      <span class="spacer"></span>
+      <button id="reset" class="danger-btn" title="Start counting statistics from zero. Records are not affected.">Reset statistics</button>
     </div>
     <div class="page-body" id="body">Loading…</div>
   `;
   el.querySelector('#back')!.addEventListener('click', () => (location.hash = ''));
+  el.querySelector('#reset')!.addEventListener('click', () => {
+    if (!confirm('Reset statistics? Counting starts over from zero. Your match records are kept.')) return;
+    apiPost('/api/stats/reset')
+      .then(() => {
+        net.toast('Statistics reset.');
+        root.innerHTML = '';
+        renderStats(root);
+      })
+      .catch(() => net.toast('Could not reset statistics.'));
+  });
   root.appendChild(el);
 
   apiGet<StatsResponse>('/api/stats')

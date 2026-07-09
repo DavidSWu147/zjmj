@@ -1,4 +1,4 @@
-import { PATTERN_IDS, PATTERNS } from '../../../shared/src/scoring';
+import { ADJUSTED_POINTS, PATTERN_IDS, PATTERNS } from '../../../shared/src/scoring';
 
 /** The four optional patterns (playable under "Adjusted Scoring with Extra Patterns"). */
 const OPTIONAL_PATTERNS: { id: string; name: string; zh: string; points: number; desc: string }[] = [
@@ -40,15 +40,9 @@ const BONUS_PATTERNS: { id: string; name: string; zh: string; points: string; de
   },
 ];
 
-const ADJUSTED_CHANGES: { id: string; from: number; to: number }[] = [
-  { id: '2.1.2', from: 80, to: 90 },
-  { id: '4.2.2', from: 30, to: 40 },
-  { id: '5.1.2', from: 60, to: 70 },
-  { id: '6.1', from: 35, to: 30 },
-  { id: '8.1.2', from: 50, to: 60 },
-  { id: '9.4.1', from: 155, to: 160 },
-  { id: '9.4.2', from: 155, to: 160 },
-];
+const ADJUSTED_CHANGES: { id: string; from: number; to: number }[] = Object.entries(
+  ADJUSTED_POINTS,
+).map(([id, to]) => ({ id, from: PATTERNS[id].points, to }));
 
 type Tab = 'standard' | 'optional' | 'bonus';
 

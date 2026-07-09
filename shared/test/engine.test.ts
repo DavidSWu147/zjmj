@@ -300,6 +300,137 @@ describe('scoring', () => {
   });
 });
 
+describe('adjusted scoring and optional patterns', () => {
+  const base = { seatWind: 1 }; // South
+
+  // 234B 456B 678B 111B 99B — pure one-suit
+  const pureOneSuit = {
+    melds: [{ kind: 'chow' as const, tile: 'B2' }],
+    concealed: ['B4', 'B5', 'B6', 'B6', 'B7', 'B8', 'B1', 'B1', 'B1', 'B9'],
+    winTile: 'B9',
+    winBy: 'discard' as const,
+    ...base,
+  };
+
+  it('re-values Pure One-Suit 80 -> 90 under adjusted scoring', () => {
+    expect(scoreWin(pureOneSuit).patterns.find((p) => p.id === '2.1.2')!.points).toBe(80);
+    const adj = scoreWin(pureOneSuit, 1, 'adjusted');
+    expect(adj.patterns.find((p) => p.id === '2.1.2')!.points).toBe(90);
+    expect(adj.total).toBe(90);
+  });
+
+  it('re-values Blessing of Earth 155 -> 160', () => {
+    const input = {
+      melds: [],
+      concealed: ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'C3', 'C4', 'C5', 'D4', 'D5', 'D6', 'D8'],
+      winTile: 'D8',
+      winBy: 'discard' as const,
+      earth: true,
+      ...base,
+    };
+    expect(scoreWin(input).patterns.find((p) => p.id === '9.4.2')!.points).toBe(155);
+    expect(scoreWin(input, 1, 'adjusted').patterns.find((p) => p.id === '9.4.2')!.points).toBe(160);
+  });
+
+  it('1.4 Two Suits Only: two number suits, no honors, extras mode only', () => {
+    // 234B 567B 345C 666C 99C
+    const input = {
+      melds: [],
+      concealed: ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'C3', 'C4', 'C5', 'C6', 'C6', 'C6', 'C9'],
+      winTile: 'C9',
+      winBy: 'discard' as const,
+      ...base,
+    };
+    const extra = scoreWin(input, 1, 'adjustedExtra');
+    expect(extra.patterns.map((p) => p.id)).toContain('1.4');
+    expect(scoreWin(input, 1, 'adjusted').patterns.map((p) => p.id)).not.toContain('1.4');
+    expect(scoreWin(input).patterns.map((p) => p.id)).not.toContain('1.4');
+  });
+
+  it('2.3 Five Suits: three suits + winds + dragons across the five groups', () => {
+    // 123B 456C 777D EEE RR
+    const input = {
+      melds: [
+        { kind: 'chow' as const, tile: 'B1' },
+        { kind: 'pung' as const, tile: 'E ' },
+      ],
+      concealed: ['C4', 'C5', 'C6', 'D7', 'D7', 'D7', 'R '],
+      winTile: 'R ',
+      winBy: 'discard' as const,
+      ...base,
+    };
+    const extra = scoreWin(input, 1, 'adjustedExtra');
+    expect(extra.patterns.map((p) => p.id)).toContain('2.3');
+    expect(extra.total).toBe(20);
+    // Without extras this hand has no pattern at all: a chicken hand.
+    expect(scoreWin(input, 1, 'adjusted').chicken).toBe(true);
+  });
+
+  it('8.2 All Edge Tiles works with Seven Pairs', () => {
+    const input = {
+      melds: [],
+      concealed: ['B1', 'B1', 'B2', 'B2', 'C8', 'C8', 'C9', 'C9', 'D1', 'D1', 'D2', 'D2', 'D8'],
+      winTile: 'D8',
+      winBy: 'discard' as const,
+      ...base,
+    };
+    const extra = scoreWin(input, 1, 'adjustedExtra');
+    const ids = extra.patterns.map((p) => p.id);
+    expect(ids).toContain('10.2');
+    expect(ids).toContain('8.2');
+    expect(extra.total).toBe(155); // 30 + 125
+    expect(scoreWin(input).patterns.map((p) => p.id)).not.toContain('8.2');
+  });
+
+  it('8.3 Four Unlike: 1-meld, 9-meld, middle meld, wind meld, free pair', () => {
+    // 123B 789C 456D EEE RR — also Five Suits
+    const input = {
+      melds: [{ kind: 'pung' as const, tile: 'E ' }],
+      concealed: ['B1', 'B2', 'B3', 'C7', 'C8', 'C9', 'D4', 'D5', 'D6', 'R '],
+      winTile: 'R ',
+      winBy: 'discard' as const,
+      ...base,
+    };
+    const ids = scoreWin(input, 1, 'adjustedExtra').patterns.map((p) => p.id);
+    expect(ids).toContain('8.3');
+    expect(ids).toContain('2.3');
+  });
+
+  it('8.3 rejects a pair already used by a sequence meld', () => {
+    // 123B 789C 456D EEE + 22B pair: B2 sits inside 123B
+    const input = {
+      melds: [{ kind: 'pung' as const, tile: 'E ' }],
+      concealed: ['B1', 'B2', 'B3', 'C7', 'C8', 'C9', 'D4', 'D5', 'D6', 'B2'],
+      winTile: 'B2',
+      winBy: 'discard' as const,
+      ...base,
+    };
+    expect(scoreWin(input, 1, 'adjustedExtra').patterns.map((p) => p.id)).not.toContain('8.3');
+  });
+
+  it('8.3 rejects a wind pair and a missing middle meld', () => {
+    // wind pair: 123B 789C 456D RRR + EE
+    const windPair = {
+      melds: [{ kind: 'pung' as const, tile: 'R ' }],
+      concealed: ['B1', 'B2', 'B3', 'C7', 'C8', 'C9', 'D4', 'D5', 'D6', 'E '],
+      winTile: 'E ',
+      winBy: 'discard' as const,
+      ...base,
+    };
+    // no wind meld at all -> not four unlike
+    expect(scoreWin(windPair, 1, 'adjustedExtra').patterns.map((p) => p.id)).not.toContain('8.3');
+    // two 1-melds, no middle: 123B 111C 789D EEE RR
+    const noMiddle = {
+      melds: [{ kind: 'pung' as const, tile: 'E ' }],
+      concealed: ['B1', 'B2', 'B3', 'C1', 'C1', 'C1', 'D7', 'D8', 'D9', 'R '],
+      winTile: 'R ',
+      winBy: 'discard' as const,
+      ...base,
+    };
+    expect(scoreWin(noMiddle, 1, 'adjustedExtra').patterns.map((p) => p.id)).not.toContain('8.3');
+  });
+});
+
 describe('payments', () => {
   it('spec example: 70-point hand on discard pays 25/25/160', () => {
     const d = computePayments({
