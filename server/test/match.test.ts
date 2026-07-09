@@ -217,16 +217,20 @@ describe('match simulation', () => {
     expect(rec.games).toHaveLength(4);
     expect(rec.finalScores.reduce((a, b) => a + b, 0)).toBe(0);
 
+    // Starting-hand bonus: "BONUS F1, DRAW x" (part1); drawn mid-turn:
+    // "DRAW F1, BONUS F1" (part2), replacement on the next line.
+    const bonusCount = (g: (typeof rec.games)[number]) =>
+      g.moves.filter((m) => m.part1.t === 'bonus' || m.part2?.t === 'bonus').length;
     let bonusMoves = 0;
     for (const g of rec.games) {
-      bonusMoves += g.moves.filter((m) => m.part1.t === 'bonus').length;
+      bonusMoves += bonusCount(g);
       // Every recorded game must replay cleanly, bonus moves included.
       const steps = replayGame(g);
       expect(steps).toHaveLength(g.moves.length + 1);
       const last = steps[steps.length - 1];
       // Replay accumulates exactly the revealed bonus tiles, all distinct.
       const replayedBonus = last.bonus.flat();
-      expect(replayedBonus).toHaveLength(g.moves.filter((m) => m.part1.t === 'bonus').length);
+      expect(replayedBonus).toHaveLength(bonusCount(g));
       expect(new Set(replayedBonus).size).toBe(replayedBonus.length);
       expect(replayedBonus.every((t) => t[0] === 'F' || t[0] === 'S')).toBe(true);
       // Bonus tiles never end up in a replayed hand.
@@ -242,4 +246,45 @@ describe('match simulation', () => {
     expect(txt).toContain('Scoring: 2');
     if (bonusMoves > 0) expect(txt).toContain('BONUS ');
   }, 90000);
+
+  it('ends in an immediate draw when the seabed tile is a bonus tile', async () => {
+    // Wall seed 2 makes game E1's final live draw a bonus tile for dummy
+    // bots (found by simulating the wall consumption, including the match's
+    // 3-draw seat shuffle).
+    let record: MatchRecord | null = null;
+    const match = new Match(
+      settings(1, { bonusTiles: 'full' }),
+      [{ id: 'p1', name: 'Solo', isBot: false }],
+      {
+        sendView: () => {},
+        isConnected: () => false, // all seats bot-driven
+        onMatchEnd: (r) => {
+          record = r;
+        },
+        rng: mulberry32(2),
+        timing: FAST,
+      },
+    );
+    match.start();
+    for (let i = 0; i < 4000 && !record; i++) await sleep(5);
+    match.dispose();
+    expect(record).not.toBeNull();
+
+    const g = (record! as MatchRecord).games[0];
+    expect(g.result.winnerSeat).toBeNull();
+    // The game ends ON the bonus reveal: "DRAW Fx, BONUS Fx" is the final
+    // move, with no replacement draw and no chance for the drawer to act.
+    const last = g.moves[g.moves.length - 1];
+    expect(last.part2?.t).toBe('bonus');
+    // Every wall tile is accounted for: 76 live-counter consumptions across
+    // draws, starting-hand replacements, and mid-turn bonus reveals.
+    const consumptions = g.moves.filter(
+      (m) =>
+        m.part1.t === 'draw' ||
+        m.part1.t === 'drawAndDiscard' ||
+        m.part1.t === 'bonus',
+    ).length;
+    expect(consumptions).toBe(76);
+    expect(replayGame(g)).toHaveLength(g.moves.length + 1);
+  }, 30000);
 });

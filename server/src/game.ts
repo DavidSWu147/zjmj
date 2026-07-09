@@ -280,10 +280,12 @@ export class Game {
     let tile = source === 'live' ? this.wall.drawLive() : this.wall.drawKong();
     while (isBonusTile(tile)) {
       this.bonusTiles[seat].push(tile);
-      this.recordMove({ seat, part1: { t: 'bonus', tile } });
+      // Recorded like a kong declaration: "DRAW F1, BONUS F1", with the
+      // replacement draw starting the player's next line.
+      this.recordMove({ seat, part1: { t: 'draw', tile }, part2: { t: 'bonus', tile } });
       if (this.wall.remaining === 0) {
-        // The final tile was a bonus tile: no replacement exists, the game
-        // ends in a draw.
+        // The final wall tile was a bonus tile: no replacement exists, so
+        // the game ends in a draw at once — the drawer cannot win.
         this.host.onChange();
         this.endInDraw();
         return;

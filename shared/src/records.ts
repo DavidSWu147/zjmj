@@ -15,16 +15,21 @@ export type MovePart1 =
   | { t: 'bigKong'; tile: Tile }
   | { t: 'mahjongDiscard'; tile: Tile }
   /**
-   * A bonus tile is revealed and set aside. `repl` is the dead-wall
-   * replacement that joins the hand — present only for starting-hand bonus
-   * tiles; a bonus drawn mid-turn is followed by its own draw move instead.
+   * A starting-hand bonus tile is revealed and set aside; `repl` is the
+   * dead-wall replacement that joins the hand. Only used before play begins
+   * — a bonus tile drawn mid-turn is a draw with a `bonus` part2 instead.
    */
-  | { t: 'bonus'; tile: Tile; repl?: Tile };
+  | { t: 'bonus'; tile: Tile; repl: Tile };
 
 export type MovePart2 =
   | { t: 'discard'; tile: Tile }
   | { t: 'kong'; tile: Tile } // concealed or small exposed, disambiguated by context
-  | { t: 'mahjong' };
+  | { t: 'mahjong' }
+  /**
+   * The drawn tile was a bonus tile: revealed and set aside; the dead-wall
+   * replacement draw starts the player's next line, like a kong replacement.
+   */
+  | { t: 'bonus'; tile: Tile };
 
 export interface MoveRecord {
   seat: number; // current seat (0=E..3=N)
@@ -83,7 +88,7 @@ function part1ToTxt(p: MovePart1): string {
     case 'mahjongDiscard':
       return `MAHJONG ${p.tile}`;
     case 'bonus':
-      return p.repl ? `BONUS ${p.tile}, DRAW ${p.repl}` : `BONUS ${p.tile}`;
+      return `BONUS ${p.tile}, DRAW ${p.repl}`;
   }
 }
 
@@ -95,6 +100,8 @@ function part2ToTxt(p: MovePart2): string {
       return `KONG ${p.tile}`;
     case 'mahjong':
       return 'MAHJONG';
+    case 'bonus':
+      return `BONUS ${p.tile}`;
   }
 }
 
@@ -298,12 +305,10 @@ export function replayGame(g: GameRecord): ReplayStep[] {
         break;
       }
       case 'bonus': {
+        // Starting-hand bonus: swap it for the dead-wall replacement.
         bonus[seat].push(p1.tile);
-        if (p1.repl !== undefined) {
-          // Starting-hand bonus: swap it for the dead-wall replacement.
-          removeFromHand(seat, [p1.tile]);
-          hands[seat] = sortTiles([...hands[seat], p1.repl]);
-        }
+        removeFromHand(seat, [p1.tile]);
+        hands[seat] = sortTiles([...hands[seat], p1.repl]);
         break;
       }
     }
@@ -353,6 +358,11 @@ export function replayGame(g: GameRecord): ReplayStep[] {
         }
         case 'mahjong':
           // Self-draw win; the drawn tile stays separated for display.
+          break;
+        case 'bonus':
+          // The drawn bonus tile moves from the drawn slot to the bonus row.
+          bonus[seat].push(p2.tile);
+          drawn[seat] = null;
           break;
       }
     }
