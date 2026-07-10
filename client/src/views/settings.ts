@@ -22,6 +22,11 @@ export function renderSettings(root: HTMLElement): void {
               <small>1–9 on number tiles, ESWN on winds, R/G on dragons</small></span>
           </label>
           <div class="tile-preview" id="tile-preview" style="--tw: 44px"></div>
+          <label class="toggle-row">
+            <input type="checkbox" id="physical-walls" />
+            <span>Physical tile walls 牌牆<br/>
+              <small>Draw the four walls around the table. Hidden automatically on mobile or small windows.</small></span>
+          </label>
         </section>
 
         <section class="settings-card">
@@ -57,6 +62,10 @@ export function renderSettings(root: HTMLElement): void {
     updateSettings({ tileIndices: indices.checked });
     renderPreview();
   });
+
+  const walls = el.querySelector<HTMLInputElement>('#physical-walls')!;
+  walls.checked = getSettings().physicalWalls;
+  walls.addEventListener('change', () => updateSettings({ physicalWalls: walls.checked }));
 
   // Default room sliders, saved on every move.
   buildRoomSliders(

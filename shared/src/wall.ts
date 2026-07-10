@@ -74,6 +74,26 @@ export class Wall {
     return this.liveTotal - this.drawnCount;
   }
 
+  /** Total columns around the table: 68, or 72 with bonus tiles. */
+  get columns(): number {
+    return this.lastColumn + 1;
+  }
+
+  /** All four dice: counts the break position from the wall's right end. */
+  get diceSum(): number {
+    return this.dice[0] + this.dice[1] + this.dice[2] + this.dice[3];
+  }
+
+  /** Internal pointer past the last live-drawn tile (52 right after the deal). */
+  get livePointer(): number {
+    return this.liveNext;
+  }
+
+  /** Replacement tiles taken off the dead-wall end so far. */
+  get kongDrawnCount(): number {
+    return this.kongDrawn;
+  }
+
   drawLive(): Tile {
     if (this.remaining <= 0) throw new Error('wall empty');
     this.drawnCount++;

@@ -6,10 +6,10 @@ export const LENGTHS: { v: 1 | 2 | 4; label: string }[] = [
   { v: 2, label: '2 rounds (半莊戰)' },
   { v: 4, label: '4 rounds (一莊戰)' },
 ];
-export const TIMES: { v: 7.5 | 10 | 15; label: string }[] = [
+export const TIMES: { v: 7.5 | 15 | 30; label: string }[] = [
   { v: 7.5, label: '7.5 seconds' },
-  { v: 10, label: '10 seconds' },
   { v: 15, label: '15 seconds' },
+  { v: 30, label: '30 seconds' },
 ];
 export const CHICKENS: { v: RoomSettings['chickenHand']; label: string }[] = [
   { v: 'notAllowed', label: 'Not allowed' },

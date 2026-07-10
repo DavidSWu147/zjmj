@@ -77,9 +77,9 @@ export async function signIn(username: string, password: string): Promise<void> 
 }
 
 /** Creates an account from the current guest session (history carries over). */
-export async function register(username: string, password: string): Promise<void> {
+export async function register(username: string, password: string, email?: string): Promise<void> {
   const auth = await ensureAuth();
-  storeAuth(await post('register', { username, password }, auth.token));
+  storeAuth(await post('register', { username, password, ...(email ? { email } : {}) }, auth.token));
 }
 
 export async function signOut(): Promise<void> {
@@ -93,6 +93,35 @@ export async function changePassword(oldPassword: string, newPassword: string): 
   const auth = currentAuth();
   if (!auth) throw new Error('Not signed in.');
   storeAuth(await post('changePassword', { oldPassword, newPassword }, auth.token));
+}
+
+/** Adds or changes the recovery email; the session is reissued on success. */
+export async function setEmail(password: string, email: string): Promise<void> {
+  const auth = currentAuth();
+  if (!auth) throw new Error('Not signed in.');
+  const res = await post('setEmail', { password, email }, auth.token);
+  if (res.token) storeAuth(res); // no token = email was already set, session intact
+}
+
+/** The recovery email on file, or null (also on any lookup failure). */
+export async function getEmail(): Promise<string | null> {
+  const auth = currentAuth();
+  if (!auth) return null;
+  try {
+    const res = await fetch('/api/auth/email', {
+      headers: { Authorization: `Bearer ${auth.token}` },
+    });
+    if (!res.ok) return null;
+    return ((await res.json()) as { email: string | null }).email;
+  } catch {
+    return null;
+  }
+}
+
+/** Requests a password-reset email; resolves to a masked username hint. */
+export async function forgotPassword(email: string): Promise<string> {
+  const res = (await post('forgot', { email })) as unknown as { usernameHint?: string };
+  return res.usernameHint ?? '';
 }
 
 export async function deleteAccount(password: string): Promise<void> {

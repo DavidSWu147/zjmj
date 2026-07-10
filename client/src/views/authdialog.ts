@@ -1,5 +1,21 @@
-import { PASSWORD_RULES, USERNAME_RULES, validatePassword, validateUsername } from '../../../shared/src/auth';
-import { changePassword, currentAuth, deleteAccount, register, signIn, signOut } from '../account';
+import {
+  PASSWORD_RULES,
+  USERNAME_RULES,
+  validateEmail,
+  validatePassword,
+  validateUsername,
+} from '../../../shared/src/auth';
+import {
+  changePassword,
+  currentAuth,
+  deleteAccount,
+  forgotPassword,
+  getEmail,
+  register,
+  setEmail,
+  signIn,
+  signOut,
+} from '../account';
 import { playerName, setPlayerName } from '../identity';
 import { syncSettingsFromServer } from '../settings';
 import { net } from '../net';
@@ -63,6 +79,8 @@ export function openSignInDialog(): void {
       ${field('Password', 'password', 're-pass', 'new-password')}
       <div class="form-hint">${PASSWORD_RULES}</div>
       ${field('Confirm password', 'password', 're-pass2', 'new-password')}
+      ${field('Email (optional)', 'text', 're-email', 'email')}
+      <div class="form-hint">Lets you recover a forgotten username or password. You can also add one later.</div>
       <div class="form-hint">Your guest statistics and records carry over to the new account.</div>
       <div class="form-error" id="re-err"></div>
       <div class="dialog-btns">
@@ -70,33 +88,54 @@ export function openSignInDialog(): void {
         <button type="submit" id="re-go" style="border-color: var(--accent)">Create account</button>
       </div>
     </form>
+    <form id="forgot" hidden>
+      ${field('Email', 'text', 'fp-email', 'email')}
+      <div class="form-hint">If your account has an email, you will receive a password-reset link and a reminder of your username. No email on the account? Contact the developer.</div>
+      <div class="form-error" id="fp-err"></div>
+      <div class="form-hint" id="fp-done" style="color:var(--kw-chow)"></div>
+      <div class="dialog-btns">
+        <button type="button" id="fp-cancel">Cancel</button>
+        <button type="submit" id="fp-go" style="border-color: var(--accent)">Send recovery email</button>
+      </div>
+    </form>
     <div class="auth-alt">
       <a href="#" id="mode">New here? Create an account</a>
+      <a href="#" id="forgotlink">Forgot your username or password?</a>
       <a href="#" id="rename">Playing as ${playerName()} · change name</a>
     </div>
   `);
   const $ = <T extends HTMLElement>(sel: string) => dlg.querySelector<T>(sel)!;
   const signinForm = $<HTMLFormElement>('#signin');
   const registerForm = $<HTMLFormElement>('#register');
+  const forgotForm = $<HTMLFormElement>('#forgot');
   const title = $('#title');
   const modeLink = $('#mode');
+  const forgotLink = $('#forgotlink');
 
-  let mode: 'signin' | 'register' = 'signin';
+  let mode: 'signin' | 'register' | 'forgot' = 'signin';
   const setMode = (m: typeof mode) => {
     mode = m;
     signinForm.hidden = m !== 'signin';
     registerForm.hidden = m !== 'register';
-    title.textContent = m === 'signin' ? 'Sign in 登入' : 'Create account 註冊';
+    forgotForm.hidden = m !== 'forgot';
+    title.textContent =
+      m === 'signin' ? 'Sign in 登入' : m === 'register' ? 'Create account 註冊' : 'Account recovery 找回帳戶';
     modeLink.textContent =
       m === 'signin' ? 'New here? Create an account' : 'Already have an account? Sign in';
+    forgotLink.hidden = m === 'forgot';
   };
   modeLink.addEventListener('click', (e) => {
     e.preventDefault();
     setMode(mode === 'signin' ? 'register' : 'signin');
   });
+  forgotLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    setMode('forgot');
+  });
 
   $('#si-cancel').addEventListener('click', () => dlg.close());
   $('#re-cancel').addEventListener('click', () => dlg.close());
+  $('#fp-cancel').addEventListener('click', () => setMode('signin'));
   $('#rename').addEventListener('click', (e) => {
     e.preventDefault();
     const name = prompt('Display name:', playerName());
@@ -118,14 +157,26 @@ export function openSignInDialog(): void {
     const username = $<HTMLInputElement>('#re-user').value.trim();
     const pass = $<HTMLInputElement>('#re-pass').value;
     const pass2 = $<HTMLInputElement>('#re-pass2').value;
+    const email = $<HTMLInputElement>('#re-email').value.trim();
     const bad =
       validateUsername(username) ??
       validatePassword(pass) ??
-      (pass !== pass2 ? 'Passwords do not match.' : null);
+      (pass !== pass2 ? 'Passwords do not match.' : null) ??
+      (email ? validateEmail(email) : null);
     if (bad) throw new Error(bad);
-    await register(username, pass);
+    await register(username, pass, email || undefined);
     net.rehello();
     dlg.close();
+  });
+
+  wireForm(forgotForm, $('#fp-go'), $('#fp-err'), async () => {
+    const email = $<HTMLInputElement>('#fp-email').value.trim();
+    const bad = email ? validateEmail(email) : 'Email required.';
+    if (bad) throw new Error(bad);
+    $('#fp-done').textContent = '';
+    const hint = await forgotPassword(email);
+    $('#fp-done').textContent =
+      `Recovery email sent${hint ? ` for account "${hint}"` : ''}. Check your inbox.`;
   });
 }
 
@@ -139,13 +190,25 @@ export function openAccountDialog(): void {
       <button id="signout">Sign out</button>
     </div>
 
+    <h3 class="auth-section">Recovery email</h3>
+    <form id="chemail">
+      <div class="form-hint" id="em-current">Checking for an email on file…</div>
+      ${field('Email', 'text', 'em-new', 'email')}
+      ${field('Password', 'password', 'em-pass', 'current-password')}
+      <div class="form-hint">An email lets you recover a forgotten username or password. Setting it signs you out everywhere else.</div>
+      <div class="form-error" id="em-err"></div>
+      <div class="dialog-btns">
+        <button type="submit" id="em-go">Set email</button>
+      </div>
+    </form>
+
     <h3 class="auth-section">Change password</h3>
     <form id="chpass">
       ${field('Old password', 'password', 'cp-old', 'current-password')}
       ${field('New password', 'password', 'cp-new', 'new-password')}
       <div class="form-hint">${PASSWORD_RULES}</div>
       ${field('Confirm new password', 'password', 'cp-new2', 'new-password')}
-      <div class="form-hint">Changing the password signs you out everywhere else. Forgot your password? There is no email recovery yet — contact the developer.</div>
+      <div class="form-hint">Changing the password signs you out everywhere else. Forgot your password? Use the recovery email if you set one; otherwise contact the developer.</div>
       <div class="form-error" id="cp-err"></div>
       <div class="dialog-btns">
         <button type="submit" id="cp-go">Change password</button>
@@ -175,6 +238,24 @@ export function openAccountDialog(): void {
       net.rehello();
       dlg.close();
     });
+  });
+
+  void getEmail().then((email) => {
+    $('#em-current').textContent = email
+      ? `Email on file: ${email}`
+      : 'No email on file — add one below.';
+    $<HTMLButtonElement>('#em-go').textContent = email ? 'Change email' : 'Set email';
+  });
+
+  wireForm($<HTMLFormElement>('#chemail'), $('#em-go'), $('#em-err'), async () => {
+    const email = $<HTMLInputElement>('#em-new').value.trim();
+    const pass = $<HTMLInputElement>('#em-pass').value;
+    const bad = email ? validateEmail(email) : 'Email required.';
+    if (bad) throw new Error(bad);
+    await setEmail(pass, email);
+    net.rehello();
+    dlg.close();
+    net.toast('Recovery email saved.');
   });
 
   wireForm($<HTMLFormElement>('#chpass'), $('#cp-go'), $('#cp-err'), async () => {

@@ -5,8 +5,8 @@ import { ParSetting } from './payment';
 export interface RoomSettings {
   /** Match length in rounds: 1 (東風戰), 2 (半莊戰), 4 (一莊戰). */
   rounds: 1 | 2 | 4;
-  /** Pre-discard thinking time in seconds. */
-  thinkingTime: 7.5 | 10 | 15;
+  /** Pre-discard thinking time in seconds (10 is legacy, pre-0.1.1). */
+  thinkingTime: 7.5 | 10 | 15 | 30;
   chickenHand: 'notAllowed' | 'zero' | 'one';
   par: ParSetting;
   /** Absent in v0.0 records: treat as 'original'. */
@@ -17,25 +17,28 @@ export interface RoomSettings {
 
 export const DEFAULT_SETTINGS: RoomSettings = {
   rounds: 4,
-  thinkingTime: 15,
+  thinkingTime: 30,
   chickenHand: 'one',
   par: 25,
   scoring: 'original',
   bonusTiles: 'none',
 };
 
-export const ROOM_CAP = 4; // user-created rooms #1..#4, not counting room #0
+export const ROOM_CAP = 24; // user-created rooms #1..#24, not counting room #0
 
 /** Per-player preferences, cached client-side and saved to PlayFab user data. */
 export interface PlayerSettings {
   /** Show English indices (1–9 / ESWN / R / G) in tile corners. */
   tileIndices: boolean;
+  /** Draw the physical tile walls (ignored on mobile / small screens). */
+  physicalWalls: boolean;
   /** Slider defaults used when creating a new room. */
   defaultRoom: RoomSettings;
 }
 
 export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
   tileIndices: false,
+  physicalWalls: true,
   defaultRoom: { ...DEFAULT_SETTINGS },
 };
 
@@ -54,6 +57,8 @@ export interface RoomSummary {
   players: { name: string; isBot: boolean }[];
   hostName: string | null;
   inGame: boolean;
+  /** Joining needs the room's 4-digit code (the code itself is never listed). */
+  isPrivate: boolean;
 }
 
 export interface MeldView {
@@ -143,6 +148,20 @@ export interface GameView {
   gameNumberZh: string; // e.g. "東一"
   remaining: number;
   dice: number[] | null;
+  /**
+   * Physical wall state for clients that draw the walls (desktop). Columns
+   * are indexed 0..cols-1 from the breakpoint in the dealing direction; the
+   * dice sum locates the breakpoint from the right end of breakSeat's wall.
+   */
+  wall: {
+    breakSeat: number;
+    cols: number;
+    diceSum: number;
+    /** Tiles consumed off the live end (2 per column; 52 covers the deal). */
+    livePointer: number;
+    /** Tiles consumed off the dead end (kong/bonus replacements). */
+    kongDrawn: number;
+  } | null;
   mySeat: number; // current-seat index of this client (0=E..3=N)
   turnSeat: number;
   seats: SeatView[]; // indexed by current seat
@@ -163,7 +182,7 @@ export interface GameView {
    */
   claims: {
     seat: number;
-    kind: 'chow' | 'pung' | 'kong' | 'mahjong' | 'selfdraw' | 'cancel';
+    kind: 'chow' | 'pung' | 'kong' | 'mahjong' | 'selfdraw' | 'cancel' | 'dealin';
     expires?: number;
   }[];
   myOptions: MyOptions;
@@ -189,8 +208,8 @@ export type GameAction =
 
 export type ClientMsg =
   | { type: 'hello'; token: string; name?: string }
-  | { type: 'createRoom'; settings: RoomSettings }
-  | { type: 'joinRoom'; roomId: number }
+  | { type: 'createRoom'; settings: RoomSettings; isPrivate?: boolean }
+  | { type: 'joinRoom'; roomId: number; code?: string }
   | { type: 'leaveRoom' }
   | { type: 'deleteRoom' }
   | { type: 'startMatch' }
@@ -199,7 +218,8 @@ export type ClientMsg =
 
 export type ServerMsg =
   | { type: 'welcome'; you: { id: string; name: string } }
-  | { type: 'lobby'; rooms: RoomSummary[]; myRoom: number | null; inMatch: boolean }
+  /** `myRoomCode` is my private room's join code (shared out-of-band). */
+  | { type: 'lobby'; rooms: RoomSummary[]; myRoom: number | null; myRoomCode: string | null; inMatch: boolean }
   | { type: 'game'; view: GameView }
   | { type: 'toast'; message: string }
   /** The session is no longer valid (signed in elsewhere, signed out, etc.). */

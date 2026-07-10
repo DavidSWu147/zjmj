@@ -21,6 +21,7 @@ interface Session {
   playerId: string;
   name: string;
   token: string;
+  kind: 'guest' | 'account';
   ws: WebSocket | null;
 }
 
@@ -57,10 +58,12 @@ function sendViewTo(playerId: string, view: GameView): void {
 
 function lobbyMsgFor(session: Session): ServerMsg {
   const room = rooms.roomOf(session.playerId);
+  const isMember = !!room?.members.some((m) => m.playerId === session.playerId);
   return {
     type: 'lobby',
     rooms: rooms.list(),
     myRoom: room ? room.id : null,
+    myRoomCode: isMember ? (room?.code ?? null) : null,
     inMatch: !!room?.match && !room.match.finished,
   };
 }
@@ -85,12 +88,16 @@ function handleMsg(session: Session, msg: ClientMsg): void {
     case 'hello':
       break; // handled at connection setup
     case 'createRoom': {
-      const r = rooms.create(sessionLike(session), msg.settings);
+      if (msg.isPrivate && session.kind !== 'account') {
+        send(session, { type: 'toast', message: 'Sign in to create a private room.' });
+        break;
+      }
+      const r = rooms.create(sessionLike(session), msg.settings, msg.isPrivate === true);
       if (typeof r === 'string') send(session, { type: 'toast', message: r });
       break;
     }
     case 'joinRoom': {
-      const r = rooms.join(sessionLike(session), msg.roomId);
+      const r = rooms.join(sessionLike(session), msg.roomId, msg.code);
       if (typeof r === 'string') send(session, { type: 'toast', message: r });
       break;
     }
@@ -177,9 +184,10 @@ wss.on('connection', (ws) => {
         existing.ws = ws;
         existing.name = name;
         existing.token = msg.token;
+        existing.kind = dbSession.kind;
         session = existing;
       } else {
-        session = { playerId: dbSession.playerId, name, token: msg.token, ws };
+        session = { playerId: dbSession.playerId, name, token: msg.token, kind: dbSession.kind, ws };
         sessions.set(dbSession.playerId, session);
       }
       send(session, { type: 'welcome', you: { id: session.playerId, name: session.name } });

@@ -1,5 +1,5 @@
 import { RoomSettings, RoomSummary } from '../../../shared/src/protocol';
-import { displayName } from '../account';
+import { displayName, isAccount } from '../account';
 import { getSettings } from '../settings';
 import { net } from '../net';
 import { renderGame } from './game';
@@ -75,9 +75,12 @@ function roomRow(room: RoomSummary, myRoom: number | null): HTMLElement {
     .fill('<span class="player-chip" style="opacity:.35">empty</span>')
     .join('');
 
+  const isMyPrivate = isMine && room.isPrivate && net.state.myRoomCode;
   row.innerHTML = `
-    <div class="room-id">Room #${room.id}${room.id === 0 ? ' 🔒' : ''}</div>
-    <div class="room-settings">${settingsSummary(room.settings)}</div>
+    <div class="room-id">Room #${room.id}${room.id === 0 ? ' 🔒' : ''}${room.isPrivate ? ' 🔐' : ''}</div>
+    <div class="room-settings">${settingsSummary(room.settings)}${
+      isMyPrivate ? ` · <b>Code: ${net.state.myRoomCode}</b>` : ''
+    }</div>
     <div class="room-players">${players}${empties}</div>
     <div class="btns"></div>
   `;
@@ -100,16 +103,30 @@ function roomRow(room: RoomSummary, myRoom: number | null): HTMLElement {
     mk('Leave', () => net.send({ type: 'leaveRoom' }));
     if (room.id !== 0) mk('Delete', () => net.send({ type: 'deleteRoom' }), !iAmHost);
   } else {
-    mk('Join', () => net.send({ type: 'joinRoom', roomId: room.id }), myRoom !== null || room.players.length >= 4);
+    const join = () => {
+      if (room.isPrivate) {
+        const code = prompt(`Room #${room.id} is private. Enter its 4-digit code:`)?.trim();
+        if (!code) return;
+        net.send({ type: 'joinRoom', roomId: room.id, code });
+      } else {
+        net.send({ type: 'joinRoom', roomId: room.id });
+      }
+    };
+    mk('Join', join, myRoom !== null || room.players.length >= 4);
   }
   return row;
 }
 
 function openSettingsDialog(): void {
   const dlg = document.createElement('dialog');
+  const canPrivate = isAccount();
   dlg.innerHTML = `
     <h2 style="margin-bottom:6px">Create Room</h2>
     <div id="sliders"></div>
+    <label style="display:flex;gap:8px;align-items:center;margin-top:10px;${canPrivate ? '' : 'opacity:.5'}">
+      <input type="checkbox" id="private" ${canPrivate ? '' : 'disabled'} />
+      <span>Private room 私人房 — joining needs a 4-digit code${canPrivate ? '' : ' (sign in to use)'}</span>
+    </label>
     <div class="dialog-btns">
       <button id="cancel">Cancel</button>
       <button id="ok" style="border-color: var(--accent)">Create</button>
@@ -122,7 +139,8 @@ function openSettingsDialog(): void {
   );
   dlg.querySelector('#cancel')!.addEventListener('click', () => dlg.close());
   dlg.querySelector('#ok')!.addEventListener('click', () => {
-    net.send({ type: 'createRoom', settings: sliders.read() });
+    const isPrivate = dlg.querySelector<HTMLInputElement>('#private')!.checked;
+    net.send({ type: 'createRoom', settings: sliders.read(), isPrivate });
     dlg.close();
   });
   dlg.addEventListener('close', () => dlg.remove());

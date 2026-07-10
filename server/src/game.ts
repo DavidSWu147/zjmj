@@ -147,7 +147,7 @@ export class Game {
   /** Transient keyword announcements (kong declarations, wins, cancels). */
   private announcements: {
     seat: number;
-    kind: 'kong' | 'mahjong' | 'selfdraw' | 'cancel';
+    kind: 'kong' | 'mahjong' | 'selfdraw' | 'cancel' | 'dealin';
     expires: number;
   }[] = [];
 
@@ -231,15 +231,16 @@ export class Game {
     return this.host.settings.thinkingTime * 1000;
   }
 
-  /** Post-discard time: half the thinking time, but at least 5 seconds. */
+  /** Post-discard call time: 5s / 10s / 20s at 7.5s / 15s / 30s thinking. */
   private claimMs(): number {
-    return Math.max(this.thinkingMs() / 2, 5000);
+    const t = this.host.settings.thinkingTime;
+    return t >= 30 ? 20000 : t >= 15 ? 10000 : 5000;
   }
 
-  /** Uniform window per discard: 1s at 7.5s/10s thinking time, 1.5s at 15s. */
+  /** Uniform window per discard: 1s at 7.5s thinking time, 1.5s at 15s+. */
   private gapMs(): number {
     const base = this.host.timing.claimGapMs;
-    return this.host.settings.thinkingTime === 15 ? base : Math.min(base, 1000);
+    return this.host.settings.thinkingTime >= 15 ? base : Math.min(base, 1000);
   }
 
   // ── move recording ────────────────────────────────────────────────────────
@@ -256,7 +257,11 @@ export class Game {
     this.moves.push(m);
   }
 
-  private announce(seat: number, kind: 'kong' | 'mahjong' | 'selfdraw' | 'cancel', ms = 1600): void {
+  private announce(
+    seat: number,
+    kind: 'kong' | 'mahjong' | 'selfdraw' | 'cancel' | 'dealin',
+    ms = 1600,
+  ): void {
     const now = Date.now();
     this.announcements = this.announcements.filter((a) => a.expires > now);
     this.announcements.push({ seat, kind, expires: now + ms });
@@ -1090,6 +1095,9 @@ export class Game {
       par: this.host.settings.par,
     });
     this.drawn[seat] = tile;
+    // The player who fed the win sees DEAL-IN 放銃 (skipped when nobody is
+    // responsible: same-round immunity, or an earth win paying like self-draw).
+    if (!earth && responsible !== null) this.announce(responsible, 'dealin');
     this.announce(seat, 'mahjong');
     this.finishWithPause(
       {
@@ -1141,7 +1149,9 @@ export class Game {
     if (this.botTimer) clearTimeout(this.botTimer);
     this.botTimer = null;
     this.host.onChange();
-    const pauseMs = this.bigPatternOf(score) ? 3600 : 1600;
+    // Big hands hold the board longer: the 30+ point gold flash needs time to
+    // register, and a 125+ point pattern's name needs time to sink in.
+    const pauseMs = this.bigPatternOf(score) ? 3600 : score.total >= 30 ? 3000 : 1600;
     this.timer = setTimeout(() => {
       this.timer = null;
       this.finishGame(result, score);
@@ -1369,6 +1379,13 @@ export class Game {
       gameNumberZh: g.zh,
       remaining: this.wall.remaining,
       dice: this.phase === 'dealing' ? this.dice : null,
+      wall: {
+        breakSeat: this.wall.breakSeat,
+        cols: this.wall.columns,
+        diceSum: this.wall.diceSum,
+        livePointer: this.wall.livePointer,
+        kongDrawn: this.wall.kongDrawnCount,
+      },
       mySeat: viewer,
       turnSeat: this.turnSeat,
       seats,

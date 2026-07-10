@@ -100,14 +100,49 @@ export async function loginWithServerCustomId(customId: string): Promise<string>
   return String(data.PlayFabId);
 }
 
-/** Creates a username/password account (no email). */
-export async function registerUser(username: string, password: string): Promise<string> {
+/** Creates a username/password account, with an optional recovery email. */
+export async function registerUser(
+  username: string,
+  password: string,
+  email?: string | null,
+): Promise<string> {
   const data = await call('Client/RegisterPlayFabUser', {
     Username: username,
     Password: password,
     RequireBothUsernameAndEmail: false,
+    ...(email ? { Email: email } : {}),
   });
   return String(data.PlayFabId);
+}
+
+/** The login/recovery email on the account, or null if none was ever added. */
+export async function getAccountEmail(playFabId: string): Promise<string | null> {
+  const data = await call('Server/GetUserAccountInfo', { PlayFabId: playFabId }, { secret: true });
+  const info = data.UserInfo as { PrivateInfo?: { Email?: string } } | undefined;
+  return info?.PrivateInfo?.Email ?? null;
+}
+
+/** Looks an account up by its recovery email; null when no account has it. */
+export async function findAccountByEmail(
+  email: string,
+): Promise<{ playFabId: string; username: string | null } | null> {
+  try {
+    const data = await call('Admin/GetUserAccountInfo', { Email: email }, { secret: true });
+    const info = data.UserInfo as { PlayFabId?: string; Username?: string } | undefined;
+    return info?.PlayFabId ? { playFabId: info.PlayFabId, username: info.Username ?? null } : null;
+  } catch (err) {
+    if (err instanceof PlayFabError && err.apiError === 'AccountNotFound') return null;
+    throw err;
+  }
+}
+
+/** Has PlayFab email the account's password-reset link to its recovery email. */
+export async function sendAccountRecoveryEmail(email: string): Promise<void> {
+  const templateId = process.env.PLAYFAB_RECOVERY_TEMPLATE_ID;
+  await call('Client/SendAccountRecoveryEmail', {
+    Email: email,
+    ...(templateId ? { EmailTemplateId: templateId } : {}),
+  });
 }
 
 /** Verifies username/password; resolves to the PlayFabId. */
@@ -140,18 +175,26 @@ export async function deleteMasterPlayerAccount(playFabId: string): Promise<void
 }
 
 /**
- * Registers a username that is being freed by an in-flight master-account
- * deletion. Deletion takes a few seconds, so retry on UsernameNotAvailable.
+ * Registers a username (and email) being freed by an in-flight master-account
+ * deletion. Deletion takes a few seconds, so retry on UsernameNotAvailable
+ * (and EmailAddressNotAvailable, when the email rides along).
  */
-export async function registerUserWithRetry(username: string, password: string): Promise<string> {
+export async function registerUserWithRetry(
+  username: string,
+  password: string,
+  email?: string | null,
+): Promise<string> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < 15; attempt++) {
     if (attempt > 0) await new Promise((r) => setTimeout(r, 2000));
     try {
-      return await registerUser(username, password);
+      return await registerUser(username, password, email);
     } catch (err) {
       lastErr = err;
-      if (!(err instanceof PlayFabError) || err.apiError !== 'UsernameNotAvailable') throw err;
+      const retryable =
+        err instanceof PlayFabError &&
+        (err.apiError === 'UsernameNotAvailable' || err.apiError === 'EmailAddressNotAvailable');
+      if (!retryable) throw err;
     }
   }
   throw lastErr;

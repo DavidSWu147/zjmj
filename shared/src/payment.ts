@@ -9,8 +9,13 @@ export type ParSetting = 25 | '30/25' | 30;
  * - Win on discard with a responsible player: for hands at or below par each
  *   opponent pays 1x; above par the two others pay par each and the
  *   responsible player pays the balance.
- * - Par "30 unless exact then 25": a hand of exactly 30 won by discard makes
- *   the responsible player pay 40 and the others 25 each; otherwise par 30.
+ * - Par "30 unless exact then 25": hands of 26-30 won by discard make the
+ *   others pay 25 each with the responsible player paying the balance
+ *   (26 -> 28-25-25 up to 30 -> 40-25-25); 31-34 ramp the others' share up
+ *   toward 30 (31 -> 41-26-26 up to 34 -> 44-29-29, i.e. others pay value-5
+ *   and the responsible player value+10), meeting the plain par-30 rule at 35
+ *   (45-30-30). Values of 25 and below split equally. These in-between values
+ *   only arise with bonus tiles in play.
  */
 export function computePayments(opts: {
   value: number;
@@ -36,13 +41,22 @@ export function computePayments(opts: {
     return deltas;
   }
 
-  const parValue = par === '30/25' ? 30 : par;
-  if (par === '30/25' && value === 30) {
-    paySplit((s) => (s === responsibleSeat ? 40 : 25));
-  } else if (value <= parValue) {
+  if (par === '30/25') {
+    if (value <= 25) {
+      paySplit(() => value);
+    } else if (value <= 30) {
+      paySplit((s) => (s === responsibleSeat ? 3 * value - 50 : 25));
+    } else if (value <= 34) {
+      paySplit((s) => (s === responsibleSeat ? value + 10 : value - 5));
+    } else {
+      paySplit((s) => (s === responsibleSeat ? 3 * value - 60 : 30));
+    }
+    return deltas;
+  }
+  if (value <= par) {
     paySplit(() => value);
   } else {
-    paySplit((s) => (s === responsibleSeat ? 3 * value - 2 * parValue : parValue));
+    paySplit((s) => (s === responsibleSeat ? 3 * value - 2 * par : par));
   }
   return deltas;
 }

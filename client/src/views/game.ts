@@ -11,6 +11,7 @@ import {
   takeSnapshot,
 } from '../anim';
 import { net } from '../net';
+import { getSettings } from '../settings';
 import { meldEl, orientedTile, tileEl, Deg } from '../tileui';
 import { escapeHtml } from './play';
 
@@ -26,6 +27,7 @@ const KW_LABEL: Record<string, { en: string; zh: string; cls: string }> = {
   mahjong: { en: 'MAHJONG', zh: '和', cls: 'mahjong' },
   selfdraw: { en: 'SELF-DRAW', zh: '自摸', cls: 'mahjong' },
   cancel: { en: 'CANCEL', zh: '取消', cls: 'discarder' },
+  dealin: { en: 'DEAL-IN', zh: '放銃', cls: 'discarder' },
 };
 
 let selKey: string | null = null;
@@ -38,6 +40,20 @@ let ownClickRect: Rect | null = null;
 let lastViewKey = '';
 let showZhNumber = false;
 let shownBigPattern = '';
+let winFlashKey = '';
+let winFlashStart = 0;
+/**
+ * Physical walls are an opt-out embellishment, but even when enabled they
+ * need a desktop pointer and enough room to draw four extra tile bands.
+ */
+function wallsWanted(W: number, H: number): boolean {
+  return (
+    getSettings().physicalWalls &&
+    window.matchMedia('(hover: hover) and (pointer: fine)').matches &&
+    W >= 900 &&
+    H >= 620
+  );
+}
 
 function act(action: GameAction): void {
   net.send({ type: 'action', action });
@@ -115,17 +131,29 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   const bottomReserve = th + 30;
   const availV = H - topReserve - bottomReserve - 28;
   const availH = W / 2 - (oth + 44);
-  // Central area: panel P = 4.5·dt plus 4 discard rows on each side.
-  let dh = availV / 11.6; // 8·dh + 3.375·dh + gaps
-  dh = Math.min(dh, availH / 5.8);
+  // Central area: panel P = 4.5·dt plus 4 discard rows on each side; the
+  // desktop wall band adds roughly one more dh per side.
+  const showWalls = view.wall !== null && wallsWanted(W, H);
+  let dh = availV / (showWalls ? 14.8 : 11.6); // 8·dh + 3.375·dh + gaps
+  dh = Math.min(dh, availH / (showWalls ? 7.4 : 5.8));
   const dt = dh * 0.75;
   const P = 4.5 * dt;
   // The gutter between panel and discards hosts the timer bar (4px), with
   // clearance from the panel's 2px shadow ring on one side and the tiles on
   // the other, so it must never collapse below that.
   const gap = Math.max(12, dh * 0.15);
+  // Wall metrics (desktop): a windmill of four walls just outside the discard
+  // windmill. Each wall is L columns; the windmill relation L·cw = 2·inner+wh
+  // (a side plus the adjacent band's depth) gives the column width.
+  const wallL = view.wall ? view.wall.cols / 4 : 17;
+  const wallGap = Math.max(6, dh * 0.15);
+  const wallInner = P / 2 + gap + 4 * dh + wallGap; // center → band inner edge
+  const wallCw = (2 * wallInner) / (wallL - 4 / 3);
+  const wallWh = (wallCw * 4) / 3;
+  const wallPeek = Math.max(2, wallWh * 0.13);
+  const wallBand = showWalls ? wallGap + wallWh + wallPeek : 0;
   const cx = W / 2;
-  const cy = topReserve + 10 + 4 * dh + gap + P / 2;
+  const cy = topReserve + 10 + 4 * dh + gap + P / 2 + wallBand;
 
   board.style.setProperty('--tw', `${tw}px`);
 
@@ -157,11 +185,19 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     quad.style.clipPath = QUAD_CLIP[rel];
     panel.appendChild(quad);
     // A 30+ point win flashes the winner's quadrant gold until the scoring
-    // screen (a gold copy of the quad blinking on top).
+    // screen (a gold copy of the quad blinking on top). The blink's phase is
+    // anchored to when the flash first appeared, so a board re-render mid-pause
+    // doesn't restart the animation in its invisible half.
     if (view.winFlash && view.winFlash.seat === seat && view.winFlash.value >= 30) {
+      const key = `${view.gameNumber}:${seat}`;
+      if (winFlashKey !== key) {
+        winFlashKey = key;
+        winFlashStart = Date.now();
+      }
       const gold = document.createElement('div');
       gold.className = 'quad quad-gold';
       gold.style.clipPath = QUAD_CLIP[rel];
+      gold.style.animationDelay = `${-(Date.now() - winFlashStart)}ms`;
       panel.appendChild(gold);
     }
     const label = document.createElement('div');
@@ -262,29 +298,99 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     board.appendChild(zone);
   }
 
-  // ── bonus tiles (flowers & seasons) ───────────────────────────────
-  // Each seat's revealed bonus tiles sit in the pinwheel corner clockwise of
-  // its discard zone (for the bottom seat: left of the zone, first row), the
-  // one region the windmill never reaches.
-  for (let rel = 0; rel < 4; rel++) {
-    const seat = (view.mySeat + rel) % 4;
-    const bonus = view.seats[seat].bonus ?? [];
-    if (bonus.length === 0) continue;
+  // ── physical tile walls (desktop only) ────────────────────────────
+  // The four walls form a windmill around the discard windmill, arranged as
+  // four right-handed players would push them together: each wall's owner-
+  // RIGHT edge sits at the square corner on the owner's right, so its owner-
+  // left end overhangs past the adjacent wall's band and the local player's
+  // wall claims the bottom-left corner block. Slots are numbered in
+  // consumption order — clockwise from the right end of breakSeat's wall —
+  // and the dice sum locates internal column 0 (the breakpoint) among them.
+  // A full column is two face-down tiles, the bottom one peeking out on the
+  // side nearest the panel; a half column is a single flat tile.
+  if (showWalls && view.wall) {
+    const wi = view.wall;
+    const C = wi.cols;
+    const L = wallL;
+    const inner = wallInner;
+    const cw = wallCw;
+    const wh = wallWh;
+    const peek = wallPeek;
+
+    const lp = wi.livePointer;
+    const kd = wi.kongDrawn;
+    const liveCols = Math.floor(lp / 2);
+    const frontHalf = lp % 2 === 1;
+    const deadCols = Math.floor(kd / 2);
+    const backHalf = kd % 2 === 1;
+    const tilesLeft = (c: number): number => {
+      const front = c < liveCols ? 2 : c === liveCols && frontHalf ? 1 : 0;
+      const fromBack = C - 1 - c;
+      const back = fromBack < deadCols ? 2 : fromBack === deadCols && backHalf ? 1 : 0;
+      return Math.max(0, 2 - front - back);
+    };
+    // The dead wall is always the last `deadSize` un-drawn tiles counted from
+    // the back (in replacement-draw order: top then bottom, walking forward),
+    // so its gray boundary rolls forward as kong/bonus replacements are drawn.
+    const deadSize = C === 72 ? 16 : 14;
+    const isDeadTile = (c: number, half: 0 | 1): boolean =>
+      2 * (C - 1 - c) + half < kd + deadSize;
+
     const zone = document.createElement('div');
     zone.className = 'discard-zone';
-    zone.style.setProperty('--tw', `${dt}px`);
-    const wrapW = rel % 2 === 0 ? dt : dh;
-    const wrapH = rel % 2 === 0 ? dh : dt;
-    bonus.forEach((t, i) => {
-      const x0 = cx + P / 2 - 6 * dt - 0.45 * dt - i * dt; // grows leftward
-      const y0 = cy + P / 2 + gap;
-      const [x, y] = rot(x0 - dt / 2, y0 + dh / 2, rel);
-      const el = orientedTile(t, BASE_DEG[rel]);
-      el.style.left = `${x - wrapW / 2}px`;
-      el.style.top = `${y - wrapH / 2}px`;
-      el.dataset.bonus = `${seat}-${i}`;
-      zone.appendChild(el);
-    });
+    zone.style.setProperty('--tw', `${cw}px`);
+    const T = wi.diceSum % C;
+    for (let k = 0; k < C; k++) {
+      const c = (k - T + C) % C; // internal column at this physical slot
+      const left = tilesLeft(c);
+      if (left === 0) continue;
+      const wallIdx = Math.floor(k / L);
+      const seat = (wi.breakSeat + [0, 3, 2, 1][wallIdx]) % 4;
+      const rel = (seat - view.mySeat + 4) % 4;
+      const p = k % L; // column position from the owner's right end
+      // Bottom-tile base position plus the top tile's outward stack offset.
+      // Owner-right ends sit at the corners; owner-left ends overhang by wh.
+      let bx: number;
+      let by: number;
+      let ox = 0;
+      let oy = 0;
+      if (rel === 0) {
+        bx = cx + inner - (p + 1) * cw;
+        by = cy + inner;
+        oy = peek;
+      } else if (rel === 1) {
+        bx = cx + inner;
+        by = cy - inner + p * cw;
+        ox = peek;
+      } else if (rel === 2) {
+        bx = cx - inner + p * cw;
+        by = cy - inner - wh;
+        oy = -peek;
+      } else {
+        bx = cx - inner - wh;
+        by = cy + inner - (p + 1) * cw;
+        ox = -peek;
+      }
+      const isFront = c === liveCols;
+      const bot = orientedTile(null, BASE_DEG[rel], { back: true });
+      bot.dataset.wt = `${c}-bot`;
+      bot.style.left = `${bx}px`;
+      bot.style.top = `${by}px`;
+      if (isDeadTile(c, 1)) bot.classList.add('tile-dead');
+      zone.appendChild(bot);
+      if (left === 2) {
+        const top = orientedTile(null, BASE_DEG[rel], { back: true });
+        top.dataset.wt = `${c}-top`;
+        top.style.left = `${bx + ox}px`;
+        top.style.top = `${by + oy}px`;
+        top.style.zIndex = '2';
+        if (isDeadTile(c, 0)) top.classList.add('tile-dead');
+        if (isFront) top.dataset.wallfront = '1';
+        zone.appendChild(top);
+      } else if (isFront) {
+        bot.dataset.wallfront = '1';
+      }
+    }
     board.appendChild(zone);
   }
 
@@ -465,6 +571,57 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   // rects measured right after this render are correct.
   handWrap.style.left = `${Math.max(8, (W - (handWrap.offsetWidth - drawnExtra)) / 2)}px`;
 
+  // ── bonus tiles (flowers & seasons) ───────────────────────────────
+  // Each seat's revealed bonus tiles sit in front of that seat's melds at
+  // hand-tile size: the local player's in the bottom-left corner (mirroring
+  // the action buttons), each opponent's along the meld end of their strip —
+  // the anchored end, so the row stays put as the drawn tile comes and goes.
+  const myBonus = view.seats[view.mySeat].bonus ?? [];
+  if (myBonus.length > 0) {
+    const row = document.createElement('div');
+    row.className = 'bonus-row';
+    row.style.left = '18px';
+    row.style.bottom = `${th + 34}px`;
+    row.style.setProperty('--tw', `${tw}px`);
+    myBonus.forEach((t, i) => {
+      const el = tileEl(t);
+      el.dataset.bonus = `${view.mySeat}-${i}`;
+      row.appendChild(el);
+    });
+    board.appendChild(row);
+  }
+  for (let rel = 1; rel < 4; rel++) {
+    const seat = (view.mySeat + rel) % 4;
+    const bonus = view.seats[seat].bonus ?? [];
+    if (bonus.length === 0) continue;
+    const strip = rectOf(board.querySelector(`[data-strip="${seat}"]`), board);
+    if (!strip) continue;
+    const zone = document.createElement('div');
+    zone.className = 'discard-zone';
+    zone.style.setProperty('--tw', `${otw}px`);
+    const step = otw + 2;
+    bonus.forEach((t, i) => {
+      const el = orientedTile(t, BASE_DEG[rel]);
+      if (rel === 2) {
+        // Top strip is reversed: melds end at the screen-right edge; the row
+        // sits below the strip and reads left-to-right for its owner.
+        el.style.left = `${strip.x + strip.w - otw - i * step}px`;
+        el.style.top = `${strip.y + strip.h + 6}px`;
+      } else if (rel === 1) {
+        // Right strip: melds end at the bottom; the column sits to its left.
+        el.style.left = `${strip.x - oth - 6}px`;
+        el.style.top = `${strip.y + strip.h - otw - i * step}px`;
+      } else {
+        // Left strip: melds end at the top; the column sits to its right.
+        el.style.left = `${strip.x + strip.w + 6}px`;
+        el.style.top = `${strip.y + i * step}px`;
+      }
+      el.dataset.bonus = `${seat}-${i}`;
+      zone.appendChild(el);
+    });
+    board.appendChild(zone);
+  }
+
   // ── claim keywords (animate only when they first appear) ──────────
   const D = P / 2 + gap + 2 * dh;
   const KW_POS: [number, number][] = [
@@ -482,9 +639,15 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     const rel = (c.seat - view.mySeat + 4) % 4;
     const kw = KW_LABEL[c.kind];
     const w = document.createElement('div');
-    w.className = 'claim-word' + (shownKW.has(kwKey) ? '' : ' pop');
+    const firstShowing = !shownKW.has(kwKey);
+    w.className = 'claim-word' + (firstShowing ? ' pop' : '');
     w.style.color = `var(--kw-${kw.cls})`;
     w.textContent = `${kw.en} ${kw.zh}`;
+    // On a discard win, DEAL-IN pops on the feeder a beat before MAHJONG.
+    if (firstShowing && c.kind === 'mahjong' && view.claims.some((o) => o.kind === 'dealin')) {
+      w.style.animationDelay = '0.3s';
+      w.style.animationFillMode = 'backwards';
+    }
     const [x, y] = KW_POS[rel];
     w.style.left = `${x}px`;
     w.style.top = `${y}px`;

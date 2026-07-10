@@ -21,11 +21,16 @@ function load(): PlayerSettings {
 /** Fills any missing fields with defaults so old saved blobs stay valid. */
 function merge(partial: Partial<PlayerSettings>): PlayerSettings {
   const def = structuredClone(DEFAULT_PLAYER_SETTINGS);
-  return {
+  const merged = {
     ...def,
     ...partial,
     defaultRoom: { ...def.defaultRoom, ...(partial.defaultRoom ?? {}) },
   };
+  // Saved blobs may carry retired thinking-time options (10s pre-0.1.1).
+  if (![7.5, 15, 30].includes(merged.defaultRoom.thinkingTime)) {
+    merged.defaultRoom.thinkingTime = 15;
+  }
+  return merged;
 }
 
 export function onSettingsChange(fn: Listener): () => void {

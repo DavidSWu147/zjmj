@@ -29,10 +29,13 @@ export class Room {
   match: Match | null = null;
   /** Last join/leave/start; idle rooms are cleaned up (anti-squatting). */
   lastActivity = Date.now();
+  /** 4-digit join code for private rooms; null for public ones. */
+  code: string | null = null;
 
-  constructor(id: number, settings: RoomSettings) {
+  constructor(id: number, settings: RoomSettings, code: string | null = null) {
     this.id = id;
     this.settings = settings;
+    this.code = code;
   }
 
   touch(): void {
@@ -54,6 +57,7 @@ export class Room {
       players: this.members.map((m) => ({ name: m.name, isBot: false })),
       hostName: this.host?.name ?? null,
       inGame: this.match !== null && !this.match.finished,
+      isPrivate: this.code !== null,
     };
   }
 }
@@ -119,11 +123,14 @@ export class Rooms {
     return null;
   }
 
-  create(session: SessionLike, settings: RoomSettings): Room | string {
+  create(session: SessionLike, settings: RoomSettings, isPrivate = false): Room | string {
     if (this.roomOf(session.playerId)) return 'Already in a room.';
     for (let id = 1; id <= ROOM_CAP; id++) {
       if (!this.rooms.has(id)) {
-        const room = new Room(id, settings);
+        const code = isPrivate
+          ? String(Math.floor(Math.random() * 10000)).padStart(4, '0')
+          : null;
+        const room = new Room(id, settings, code);
         room.members.push(session);
         this.rooms.set(id, room);
         this.delegate.onLobbyChanged();
@@ -133,12 +140,15 @@ export class Rooms {
     return `Room cap reached (${ROOM_CAP} rooms).`;
   }
 
-  join(session: SessionLike, roomId: number): Room | string {
+  join(session: SessionLike, roomId: number, code?: string): Room | string {
     const room = this.rooms.get(roomId);
     if (!room) return 'No such room.';
     if (this.roomOf(session.playerId)) return 'Already in a room.';
     if (room.match && !room.match.finished) return 'Match in progress.';
     if (room.members.length >= 4) return 'Room is full.';
+    if (room.code !== null && code !== room.code) {
+      return code ? 'Wrong room code.' : 'This room needs its 4-digit code.';
+    }
     room.members.push(session);
     room.touch();
     this.delegate.onLobbyChanged();
@@ -192,15 +202,22 @@ export class Rooms {
       isConnected: (pid) => this.delegate.isConnected(pid),
       onMatchEnd: (record, aborted) => {
         this.delegate.onMatchFinished(record, aborted);
-        // Clean up: the room returns to lobby state.
+        // Clean up after the standings screen has run its course: user rooms
+        // are disbanded outright; room #0 just returns to lobby state.
         setTimeout(() => {
-          if (room.match === match) {
-            room.match.dispose();
-            room.match = null;
+          if (room.match !== match) return;
+          room.match.dispose();
+          room.match = null;
+          if (room.isDefault) {
             room.touch();
-            if (!room.isDefault && room.members.length === 0) this.rooms.delete(room.id);
-            this.delegate.onLobbyChanged();
+          } else {
+            this.rooms.delete(room.id);
+            const stragglers = room.members.map((m) => m.playerId);
+            if (stragglers.length > 0) {
+              this.delegate.notify(stragglers, `Room #${room.id} was disbanded after the match.`);
+            }
           }
+          this.delegate.onLobbyChanged();
         }, 20000);
         this.delegate.onLobbyChanged();
       },

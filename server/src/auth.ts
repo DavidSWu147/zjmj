@@ -1,10 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import express from 'express';
-import { validatePassword, validateUsername } from '../../shared/src/auth';
+import { validateEmail, validatePassword, validateUsername } from '../../shared/src/auth';
 import { AuthResponse } from '../../shared/src/protocol';
 import { Db, Session } from './db';
 import {
   deleteMasterPlayerAccount,
+  findAccountByEmail,
+  getAccountEmail,
   getUserData,
   loginWithPassword,
   loginWithServerCustomId,
@@ -12,6 +14,7 @@ import {
   playFabEnabled,
   registerUser,
   registerUserWithRetry,
+  sendAccountRecoveryEmail,
   updateUserData,
 } from './playfab';
 
@@ -36,6 +39,10 @@ function friendly(err: unknown): { status: number; message: string } | null {
       return { status: 401, message: 'Incorrect username or password.' };
     case 'AccountBanned':
       return { status: 403, message: 'This account is banned.' };
+    case 'EmailAddressNotAvailable':
+      return { status: 409, message: 'That email is already in use by another account.' };
+    case 'InvalidEmailAddress':
+      return { status: 400, message: 'That email address looks invalid.' };
     case 'InvalidParams':
       return { status: 400, message: err.detail ?? 'Invalid username or password format.' };
     case 'APIClientRequestRateLimitExceeded':
@@ -159,6 +166,7 @@ export function makeAuthApi(db: Db, delegate: AuthDelegate): express.Router {
     const session = sessionFromRequest(db, req);
     const username = str(req.body?.username, 64);
     const password = str(req.body?.password, 200);
+    const email = str(req.body?.email, 254); // optional recovery email
     if (!session || session.kind !== 'guest') {
       res.status(401).json({ error: 'Sign out before creating an account.' });
       return;
@@ -167,13 +175,14 @@ export function makeAuthApi(db: Db, delegate: AuthDelegate): express.Router {
       res.status(400).json({ error: 'Username and password required.' });
       return;
     }
-    const bad = validateUsername(username) ?? validatePassword(password);
+    const bad =
+      validateUsername(username) ?? validatePassword(password) ?? (email ? validateEmail(email) : null);
     if (bad) {
       res.status(400).json({ error: bad });
       return;
     }
     try {
-      const playerId = await registerUser(username, password);
+      const playerId = await registerUser(username, password, email);
       const guestId = session.playerId;
       db.migratePlayerId(guestId, playerId);
       if (guestId !== session.deviceId) {
@@ -246,8 +255,9 @@ export function makeAuthApi(db: Db, delegate: AuthDelegate): express.Router {
       const settings = (await getUserData(oldId).catch(() => ({}) as Record<string, string>))[
         SETTINGS_KEY
       ];
+      const email = await getAccountEmail(oldId).catch(() => null);
       await deleteMasterPlayerAccount(oldId);
-      const newId = await registerUserWithRetry(username, newPassword);
+      const newId = await registerUserWithRetry(username, newPassword, email);
       if (settings) {
         await updateUserData(newId, { [SETTINGS_KEY]: settings }).catch((err) =>
           console.error('failed to restore settings after password change', err),
@@ -258,6 +268,102 @@ export function makeAuthApi(db: Db, delegate: AuthDelegate): express.Router {
       res.json(issueSession(newId, 'account', username, session.deviceId, username));
     } catch (err) {
       fail(res, err, 'Could not change the password.');
+    }
+  });
+
+  /**
+   * Adds or changes the account's recovery email after re-verifying the
+   * password. PlayFab has no email mutation for username accounts either, so
+   * this uses the same recreate-the-account dance as /changePassword.
+   */
+  router.post('/setEmail', rateLimiter(6, 5 * 60 * 1000), async (req, res) => {
+    const session = sessionFromRequest(db, req);
+    const password = str(req.body?.password, 200);
+    const email = str(req.body?.email, 254);
+    if (!session || session.kind !== 'account' || !session.username) {
+      res.status(401).json({ error: 'Not signed in.' });
+      return;
+    }
+    if (!password || !email) {
+      res.status(400).json({ error: 'Password and email required.' });
+      return;
+    }
+    const bad = validateEmail(email);
+    if (bad) {
+      res.status(400).json({ error: bad });
+      return;
+    }
+    const username = session.username;
+    try {
+      const oldId = await loginWithPassword(username, password);
+      // Surface an email conflict BEFORE deleting anything.
+      const holder = await findAccountByEmail(email);
+      if (holder && holder.playFabId !== oldId) {
+        res.status(409).json({ error: 'That email is already in use by another account.' });
+        return;
+      }
+      if (holder && holder.playFabId === oldId) {
+        res.json({ ok: true, email }); // already set: nothing to do
+        return;
+      }
+      const settings = (await getUserData(oldId).catch(() => ({}) as Record<string, string>))[
+        SETTINGS_KEY
+      ];
+      await deleteMasterPlayerAccount(oldId);
+      const newId = await registerUserWithRetry(username, password, email);
+      if (settings) {
+        await updateUserData(newId, { [SETTINGS_KEY]: settings }).catch((err) =>
+          console.error('failed to restore settings after email change', err),
+        );
+      }
+      db.migratePlayerId(oldId, newId);
+      revokeOthers(newId, null, 'Email was changed on another device.');
+      res.json({ ...issueSession(newId, 'account', username, session.deviceId, username), email });
+    } catch (err) {
+      fail(res, err, 'Could not set the email.');
+    }
+  });
+
+  /** The signed-in account's recovery email, for the account dialog. */
+  router.get('/email', async (req, res) => {
+    const session = sessionFromRequest(db, req);
+    if (!session || session.kind !== 'account') {
+      res.status(401).json({ error: 'Not signed in.' });
+      return;
+    }
+    try {
+      res.json({ email: await getAccountEmail(session.playerId) });
+    } catch (err) {
+      fail(res, err, 'Could not load the email.');
+    }
+  });
+
+  /**
+   * Forgotten password/username: sends PlayFab's password-reset email and
+   * echoes a masked username so the player can recognize their account.
+   * Email-less players are pointed at the developer instead.
+   */
+  router.post('/forgot', rateLimiter(6, 5 * 60 * 1000), async (req, res) => {
+    const email = str(req.body?.email, 254);
+    if (!email || validateEmail(email)) {
+      res.status(400).json({ error: 'A valid email address is required.' });
+      return;
+    }
+    try {
+      const account = await findAccountByEmail(email);
+      if (!account) {
+        res.status(404).json({
+          error:
+            'No account has that email. If you never added one, contact the developer to recover your account.',
+        });
+        return;
+      }
+      await sendAccountRecoveryEmail(email);
+      const u = account.username ?? '';
+      const masked = u.length > 2 ? `${u.slice(0, 2)}${'*'.repeat(u.length - 2)}` : u;
+      res.json({ ok: true, usernameHint: masked });
+    } catch (err) {
+      fail(res, err, 'Could not send the recovery email.');
     }
   });
 

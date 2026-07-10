@@ -7,6 +7,8 @@ export interface NetState {
   connected: boolean;
   rooms: RoomSummary[];
   myRoom: number | null;
+  /** My private room's 4-digit join code (to share with friends). */
+  myRoomCode: string | null;
   inMatch: boolean;
   gameView: GameView | null;
   toast: string | null;
@@ -19,6 +21,7 @@ class Net {
     connected: false,
     rooms: [],
     myRoom: null,
+    myRoomCode: null,
     inMatch: false,
     gameView: null,
     toast: null,
@@ -79,8 +82,14 @@ class Net {
       case 'lobby':
         this.state.rooms = msg.rooms;
         this.state.myRoom = msg.myRoom;
+        this.state.myRoomCode = msg.myRoomCode;
         this.state.inMatch = msg.inMatch;
-        if (!msg.inMatch) this.state.gameView = null;
+        // The match-end standings screen outlives the match on the server, so
+        // a lobby update saying "not in a match" must not tear it down; the
+        // overlay dismisses itself and clears the view.
+        if (!msg.inMatch && this.state.gameView?.phase !== 'matchEnd') {
+          this.state.gameView = null;
+        }
         break;
       case 'game':
         this.state.gameView = msg.view;

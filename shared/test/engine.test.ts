@@ -521,15 +521,15 @@ describe('payments', () => {
       par: '30/25',
     });
     expect(d).toEqual([90, -40, -25, -25]);
-    // 28 points under the same setting: at or below par 30 -> equal split
+    // 24 points under the same setting: at or below 25 -> equal split
     const e = computePayments({
-      value: 28,
+      value: 24,
       winnerSeat: 0,
       winBy: 'discard',
       responsibleSeat: 1,
       par: '30/25',
     });
-    expect(e).toEqual([84, -28, -28, -28]);
+    expect(e).toEqual([72, -24, -24, -24]);
     // 40 points: above par -> 25? no: par 30 -> others pay 30, responsible pays 60
     const f = computePayments({
       value: 40,
@@ -539,6 +539,40 @@ describe('payments', () => {
       par: '30/25',
     });
     expect(f).toEqual([120, -60, -30, -30]);
+  });
+
+  it('par 30/25: in-between values from bonus tiles follow the fixed table', () => {
+    // value -> [responsible pays, others pay each]
+    const table: Record<number, [number, number]> = {
+      26: [28, 25],
+      27: [31, 25],
+      28: [34, 25],
+      29: [37, 25],
+      31: [41, 26],
+      32: [42, 27],
+      33: [43, 28],
+      34: [44, 29],
+      35: [45, 30], // meets the plain par-30 rule
+    };
+    for (const [value, [resp, other]] of Object.entries(table)) {
+      const d = computePayments({
+        value: Number(value),
+        winnerSeat: 0,
+        winBy: 'discard',
+        responsibleSeat: 2,
+        par: '30/25',
+      });
+      expect(d).toEqual([resp + 2 * other, -other, -resp, -other]);
+    }
+    // Self-draw is untouched: everyone pays face value.
+    const s = computePayments({
+      value: 28,
+      winnerSeat: 0,
+      winBy: 'self',
+      responsibleSeat: null,
+      par: '30/25',
+    });
+    expect(s).toEqual([84, -28, -28, -28]);
   });
 
   it('payments are always zero-sum', () => {

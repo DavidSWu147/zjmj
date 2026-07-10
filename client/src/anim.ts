@@ -110,6 +110,19 @@ function handUnion(board: HTMLElement, seat: number, mySeat: number): Rect | nul
   return u;
 }
 
+/**
+ * Where an opponent's discard appears to come from: the rightmost concealed
+ * tile of their hand (from the owner's perspective), never the drawn tile.
+ * Right and top strips are laid out reversed, so the owner's right end is the
+ * first back in DOM order there and the last one on the left strip.
+ */
+function oppRightmostBack(board: HTMLElement, seat: number, mySeat: number): Rect | null {
+  const backs = board.querySelectorAll<HTMLElement>(`[data-hb="${seat}"]`);
+  if (backs.length === 0) return null;
+  const rel = (seat - mySeat + 4) % 4;
+  return rectOf(rel === 3 ? backs[backs.length - 1] : backs[0], board);
+}
+
 export function takeSnapshot(board: HTMLElement, view: GameView): BoardSnapshot {
   const lastDiscardRect: (Rect | null)[] = [];
   const stripRect: (Rect | null)[] = [];
@@ -239,13 +252,16 @@ export function animateTransition(
     const isMe = s === view.mySeat;
     const hasDrawnNow = isMe ? view.myDrawn !== null : sv.hasDrawn;
 
-    // Fresh draw: a quick slide from the wall (control panel edge for now).
+    // Fresh draw: a quick slide from the wall — the live wall's front tile
+    // when the physical walls are rendered, the panel edge otherwise.
     if (hasDrawnNow && !prev.drawnFlags[s] && view.remaining < prev.remaining) {
       const sel = drawnSel(s, view.mySeat);
       const dest = board.querySelector<HTMLElement>(sel);
       const size = dest ? rectOf(dest, board) : null;
       if (size) {
-        const from = panelEdge(board, s, view.mySeat, size);
+        const from =
+          rectOf(board.querySelector('[data-wallfront]'), board) ??
+          panelEdge(board, s, view.mySeat, size);
         if (from) fly(board, isMe ? view.myDrawn : null, from, sel, DRAW_MS, degOfSeat(s, view.mySeat));
       }
     }
@@ -262,6 +278,7 @@ export function animateTransition(
       const from =
         (d.fromDraw ? prev.drawnRect[s] : null) ??
         (isMe && !meldJustGrew ? ownClickRect : null) ??
+        (isMe ? handUnion(board, s, view.mySeat) : oppRightmostBack(board, s, view.mySeat)) ??
         handUnion(board, s, view.mySeat) ??
         prev.stripRect[s];
       if (from) {

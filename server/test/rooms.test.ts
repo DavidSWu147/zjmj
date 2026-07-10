@@ -19,6 +19,25 @@ const sweep = (rooms: Rooms, now: number): void => {
   (rooms as unknown as { sweepIdle(now: number): void }).sweepIdle(now);
 };
 
+describe('private rooms', () => {
+  it('requires the 4-digit code to join', () => {
+    const { rooms } = makeRooms();
+    const room = rooms.create(session('host'), { ...DEFAULT_SETTINGS }, true) as Room;
+    expect(room.code).toMatch(/^\d{4}$/);
+    const wrong = room.code === '9999' ? '0000' : '9999';
+    expect(rooms.join(session('p2'), room.id)).toBe('This room needs its 4-digit code.');
+    expect(rooms.join(session('p2'), room.id, wrong)).toBe('Wrong room code.');
+    expect(rooms.join(session('p2'), room.id, room.code!)).toBeInstanceOf(Room);
+  });
+
+  it('public rooms ignore any code supplied', () => {
+    const { rooms } = makeRooms();
+    const room = rooms.create(session('host'), { ...DEFAULT_SETTINGS }) as Room;
+    expect(room.code).toBeNull();
+    expect(rooms.join(session('p2'), room.id, '1234')).toBeInstanceOf(Room);
+  });
+});
+
 describe('idle room cleanup', () => {
   it('ejects room #0 members after 5 idle minutes but keeps the room', () => {
     const { rooms, notified } = makeRooms();

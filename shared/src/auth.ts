@@ -14,6 +14,14 @@ export function validateUsername(username: string): string | null {
   return null;
 }
 
+/** Light shape check only — PlayFab does the real validation on its side. */
+export function validateEmail(email: string): string | null {
+  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return 'That email address looks invalid.';
+  }
+  return null;
+}
+
 export const PASSWORD_RULES =
   '8+ characters, with at least one uppercase letter, one lowercase letter, and one number or symbol.';
 
