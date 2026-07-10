@@ -582,8 +582,10 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   if (myBonus.length > 0) {
     const row = document.createElement('div');
     row.className = 'bonus-row';
-    row.style.left = '18px';
-    row.style.bottom = `${th + 34}px`;
+    // Clear of the left opponent's strip (their drawn tile reaches the bottom
+    // end) and above a small exposed kong's pocket (two rotated tiles tall).
+    row.style.left = `${oth + 18}px`;
+    row.style.bottom = `${Math.max(th + 34, 2 * tw + 20)}px`;
     row.style.setProperty('--tw', `${tw}px`);
     myBonus.forEach((t, i) => {
       const el = tileEl(t);
