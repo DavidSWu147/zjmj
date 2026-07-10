@@ -55,7 +55,7 @@ export function renderSettings(root: HTMLElement): void {
   const preview = el.querySelector<HTMLElement>('#tile-preview')!;
   const renderPreview = () => {
     preview.innerHTML = '';
-    for (const t of ['C7', 'B3', 'D9', 'E ', 'N ', 'R ', 'G ', 'O ']) preview.appendChild(tileEl(t));
+    for (const t of ['B3', 'C7', 'D5', 'E ', 'N ', 'R ', 'G ', 'O ']) preview.appendChild(tileEl(t));
   };
   renderPreview();
   indices.addEventListener('change', () => {

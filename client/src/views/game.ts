@@ -329,12 +329,14 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       const back = fromBack < deadCols ? 2 : fromBack === deadCols && backHalf ? 1 : 0;
       return Math.max(0, 2 - front - back);
     };
-    // The dead wall is always the last `deadSize` un-drawn tiles counted from
-    // the back (in replacement-draw order: top then bottom, walking forward),
-    // so its gray boundary rolls forward as kong/bonus replacements are drawn.
+    // The dead wall is every tile the live wall will never reach: indices at
+    // or past the final live pointer (2C − deadSize − kd). Each replacement
+    // draw rolls the gray boundary forward BOTTOM-first — the boundary
+    // column's top tile stays live as the eventual seabed tile — so an odd
+    // dead wall shows two lone bottom tiles.
     const deadSize = C === 72 ? 16 : 14;
     const isDeadTile = (c: number, half: 0 | 1): boolean =>
-      2 * (C - 1 - c) + half < kd + deadSize;
+      2 * c + half >= 2 * C - deadSize - kd;
 
     const zone = document.createElement('div');
     zone.className = 'discard-zone';
