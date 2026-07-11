@@ -948,6 +948,99 @@ dialog::backdrop {
   border-color: var(--kw-mahjong);
 }
 
+/* ── In-match top bar (leave ✕ · auto A · settings ⚙ · help ?) ───── */
+
+.top-bar {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  gap: 8px;
+  z-index: 25;
+}
+.top-btn {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 9px;
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0e1a14cc;
+  border: 1px solid #0007;
+  opacity: 0.9;
+}
+.top-btn.leave {
+  color: #ff6b57;
+}
+.top-btn.auto {
+  color: var(--kw-mahjong);
+}
+.top-btn.gear {
+  color: #b9c4bd;
+}
+.top-btn.helpq {
+  color: var(--kw-pung);
+}
+.top-btn.active {
+  background: var(--kw-mahjong);
+  color: #221a02;
+  border-color: var(--kw-mahjong);
+  box-shadow: 0 0 10px #e8b93e88;
+}
+.top-btn.gear.active,
+.top-btn.helpq.active {
+  background: var(--panel-2);
+  color: var(--accent);
+  border-color: var(--accent);
+  box-shadow: none;
+}
+
+/* Mid-screen Settings/Help panel during a match. A sibling of the board, so
+   it survives the per-view board rebuilds. */
+.match-panel {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(720px, 92%);
+  max-height: min(86%, 640px);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 12px 40px #000b;
+  z-index: 30;
+}
+.match-panel .mp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.match-panel .mp-head h2 {
+  font-size: 18px;
+  letter-spacing: 0.05em;
+}
+.match-panel .mp-close {
+  color: #ff6b57;
+  font-weight: 800;
+  padding: 4px 12px;
+}
+.match-panel .mp-body {
+  padding: 14px 18px;
+  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 /* ── Result overlays ──────────────────────────────────────────────── */
 
 .overlay {
@@ -1027,6 +1120,16 @@ dialog::backdrop {
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.1em;
+}
+/* Cumulative scores after payments, under a divider (update #10). */
+.result-divider {
+  border-top: 1px solid var(--line);
+  margin: 16px 0 8px;
+}
+.result-scores-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 0.08em;
 }
 .result-next {
   margin-top: 16px;
@@ -1157,6 +1260,55 @@ table.data th.num {
 }
 .record-row:hover {
   background: var(--panel-2);
+}
+/* Per-row record actions (download / delete). */
+.row-actions {
+  white-space: nowrap;
+}
+.icon-btn {
+  padding: 4px 9px;
+  font-size: 14px;
+  border-radius: 8px;
+}
+.icon-btn.danger {
+  border-color: #a04437;
+}
+/* Keyboard selection in the lobby (arrows + Enter). */
+.room-row.kb-sel {
+  outline: 2px solid var(--kw-mahjong);
+  outline-offset: -1px;
+}
+/* Key binding editor rows (Settings page). */
+.keybind-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 14px;
+}
+.keybind-key {
+  min-width: 96px;
+  padding: 5px 12px;
+  font-variant-numeric: tabular-nums;
+}
+.keybind-key.listening {
+  border-color: var(--kw-mahjong);
+  color: var(--kw-mahjong);
+}
+/* Help tabs stay visible while the pattern tables scroll under them. */
+.help-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.page-body > .help-tabs,
+.mp-body > .help-tabs {
+  background: var(--bg);
+  padding: 2px 0 8px;
+}
+.mp-body > .help-tabs {
+  background: var(--panel);
 }
 
 .viewer {

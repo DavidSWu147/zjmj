@@ -152,6 +152,16 @@ export async function apiPost<T>(path: string, body: Record<string, unknown> = {
   return (await res.json()) as T;
 }
 
+/** Authenticated DELETE against our API. */
+export async function apiDelete(path: string): Promise<void> {
+  const auth = await ensureAuth();
+  const res = await fetch(path, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${auth.token}` },
+  });
+  if (!res.ok) throw new Error(`DELETE ${path} failed (${res.status})`);
+}
+
 /** Server revoked our session: drop it and fall back to a guest session. */
 export async function handleSignedOut(): Promise<void> {
   storeAuth(null);

@@ -14,6 +14,9 @@ function settingsSummary(s: RoomSettings): string {
   return `${len} · ${s.thinkingTime}s · Chicken: ${chick} · Par: ${par} · ${scoring} · ${bonus}`;
 }
 
+/** Index of the lobby row the keyboard selection sits on (update #6). */
+let lobbySel = 0;
+
 export function renderPlay(root: HTMLElement): void {
   const el = document.createElement('div');
   el.style.height = '100%';
@@ -36,6 +39,59 @@ export function renderPlay(root: HTMLElement): void {
     }
   };
   unsub = net.onUpdate(update);
+
+  // Lobby keyboard: arrows pick a room, Enter joins it — or, already in a
+  // room, Enter attempts to start the match (host only), ESC leaves the
+  // room, and Backspace/Delete deletes it (host only).
+  const onKey = (e: KeyboardEvent) => {
+    if (!el.isConnected || location.hash.replace(/^#\/?/, '') !== 'play') {
+      document.removeEventListener('keydown', onKey);
+      return;
+    }
+    if (net.state.gameView) return; // the board has its own keyboard layer
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
+    if (t?.closest('dialog')) return; // the Create Room dialog owns its keys
+    const rows = [...el.querySelectorAll<HTMLElement>('.room-row')];
+    const inMyRoom = (action: string) =>
+      el.querySelector<HTMLButtonElement>(`[data-action="${action}"]`);
+    if (e.key === 'ArrowUp' || e.key === 'ArrowLeft' || e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+      const delta = e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 1;
+      lobbySel = Math.max(0, Math.min(rows.length - 1, lobbySel + delta));
+      rows.forEach((r, i) => r.classList.toggle('kb-sel', i === lobbySel));
+      rows[lobbySel]?.scrollIntoView({ block: 'nearest' });
+      e.preventDefault();
+      return;
+    }
+    if (e.key === 'Enter') {
+      // Always claimed by the lobby: a leftover-focused button (e.g. Create
+      // Room after its dialog was dismissed) must never swallow Enter.
+      e.preventDefault();
+      // In a room: try to start the match (the button exists only for members
+      // and is disabled unless this player is the host).
+      const btn = inMyRoom('start') ?? rows[lobbySel]?.querySelector<HTMLButtonElement>('[data-action="join"]');
+      if (btn && !btn.disabled) btn.click();
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      // In a room: leave it. Otherwise ESC backs out to the home page.
+      const leave = inMyRoom('leave');
+      if (leave && !leave.disabled) leave.click();
+      else location.hash = '';
+      return;
+    }
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+      const del = inMyRoom('delete'); // absent for room #0 and non-members
+      if (del && !del.disabled) {
+        e.preventDefault();
+        del.click();
+      }
+    }
+  };
+  document.addEventListener('keydown', onKey);
+
   update();
 }
 
@@ -61,6 +117,10 @@ function renderLobby(el: HTMLElement): void {
   for (const room of rooms) {
     list.appendChild(roomRow(room, myRoom));
   }
+  // Keep the keyboard selection on a valid row across lobby refreshes.
+  const rows = list.querySelectorAll<HTMLElement>('.room-row');
+  lobbySel = Math.max(0, Math.min(rows.length - 1, lobbySel));
+  rows.forEach((r, i) => r.classList.toggle('kb-sel', i === lobbySel));
 }
 
 function roomRow(room: RoomSummary, myRoom: number | null): HTMLElement {
@@ -89,10 +149,11 @@ function roomRow(room: RoomSummary, myRoom: number | null): HTMLElement {
     <div class="btns"></div>
   `;
   const btns = row.querySelector('.btns')!;
-  const mk = (label: string, fn: () => void, disabled = false) => {
+  const mk = (label: string, fn: () => void, disabled = false, action?: string) => {
     const b = document.createElement('button');
     b.textContent = label;
     b.disabled = disabled;
+    if (action) b.dataset.action = action; // keyboard Enter targets (update #6)
     b.addEventListener('click', fn);
     btns.appendChild(b);
   };
@@ -103,9 +164,9 @@ function roomRow(room: RoomSummary, myRoom: number | null): HTMLElement {
     tag.textContent = 'In game';
     btns.appendChild(tag);
   } else if (isMine) {
-    mk('Start Match', () => net.send({ type: 'startMatch' }), !iAmHost);
-    mk('Leave', () => net.send({ type: 'leaveRoom' }));
-    if (room.id !== 0) mk('Delete', () => net.send({ type: 'deleteRoom' }), !iAmHost);
+    mk('Start Match', () => net.send({ type: 'startMatch' }), !iAmHost, 'start');
+    mk('Leave', () => net.send({ type: 'leaveRoom' }), false, 'leave');
+    if (room.id !== 0) mk('Delete', () => net.send({ type: 'deleteRoom' }), !iAmHost, 'delete');
   } else {
     const join = () => {
       if (room.isPrivate) {
@@ -116,7 +177,7 @@ function roomRow(room: RoomSummary, myRoom: number | null): HTMLElement {
         net.send({ type: 'joinRoom', roomId: room.id });
       }
     };
-    mk('Join', join, myRoom !== null || room.players.length >= 4);
+    mk('Join', join, myRoom !== null || room.players.length >= 4, 'join');
   }
   return row;
 }

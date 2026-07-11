@@ -26,12 +26,43 @@ export const DEFAULT_SETTINGS: RoomSettings = {
 
 export const ROOM_CAP = 24; // user-created rooms #1..#24, not counting room #0
 
+/**
+ * The rebindable action hotkeys, as KeyboardEvent.key values (letters stored
+ * uppercase, 'Enter' for return). The fixed keys — Escape, the digit row,
+ * Backspace/Delete and Space — are not rebindable and never stored here.
+ */
+export interface KeyBindings {
+  chow: string;
+  pung: string;
+  kong: string;
+  /** Rightmost option of an ambiguous chow/kong choice. */
+  optRight: string;
+  /** Second-rightmost option. */
+  optMid: string;
+  /** Leftmost option when there are 3 choices. */
+  optLeft: string;
+  mahjong: string;
+}
+
+export const DEFAULT_KEY_BINDINGS: KeyBindings = {
+  chow: 'A',
+  pung: 'S',
+  kong: 'D',
+  optRight: 'E',
+  optMid: 'W',
+  optLeft: 'Q',
+  mahjong: 'Enter',
+};
+
 /** Per-player preferences, cached client-side and saved to PlayFab user data. */
 export interface PlayerSettings {
   /** Show English indices (1–9 / ESWN / R / G) in tile corners. */
   tileIndices: boolean;
   /** Draw the physical tile walls (ignored on mobile / small screens). */
   physicalWalls: boolean;
+  /** In-match keyboard hotkeys (desktop). */
+  hotkeys: boolean;
+  keyBindings: KeyBindings;
   /** Slider defaults used when creating a new room. */
   defaultRoom: RoomSettings;
 }
@@ -39,6 +70,8 @@ export interface PlayerSettings {
 export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
   tileIndices: false,
   physicalWalls: true,
+  hotkeys: true,
+  keyBindings: { ...DEFAULT_KEY_BINDINGS },
   defaultRoom: { ...DEFAULT_SETTINGS },
 };
 

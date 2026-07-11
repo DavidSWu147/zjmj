@@ -121,6 +121,20 @@ export function makeApi(db: Db): express.Router {
     res.json(db.listMatches(session.playerId));
   });
 
+  /** Removes the match from the session owner's Records list only. */
+  router.delete('/record/:matchId', (req, res) => {
+    const session = sessionFromRequest(db, req);
+    if (!session) {
+      res.status(401).json({ error: 'Not signed in.' });
+      return;
+    }
+    if (!db.deleteMatchFor(session.playerId, Number(req.params.matchId))) {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
+    res.json({ ok: true });
+  });
+
   router.get('/record/:matchId', (req, res) => {
     const rec = db.getMatch(Number(req.params.matchId));
     if (!rec) {

@@ -1,6 +1,7 @@
 import { sortTiles, Tile, tileFromIndex, tileIndex, rankOf } from './tiles';
 import { PatternHit } from './scoring';
 import { MeldView, RoomSettings } from './protocol';
+import { findResponsible } from './payment';
 
 /**
  * Match records. Seat indices inside a GameRecord are *current* seats for that
@@ -165,6 +166,171 @@ export function matchToTxt(m: MatchRecord): string {
     lines.push('ENDGAME');
   }
   return lines.join('\n') + '\n';
+}
+
+/**
+ * Parses a record in the matchToTxt format back into a MatchRecord (for
+ * viewing an uploaded .txt file). Inverse of matchToTxt for everything the
+ * archive viewer needs; data the .txt does not carry (per-game deltas,
+ * pattern breakdowns, final scores) comes back zeroed/empty. Throws an Error
+ * with a human-readable message on malformed input.
+ */
+export function matchFromTxt(txt: string): MatchRecord {
+  const lines = txt.split(/\r?\n/);
+  let ln = 0;
+  const fail = (msg: string): never => {
+    throw new Error(`Line ${ln + 1}: ${msg}`);
+  };
+
+  // Tiles are two chars ("B3", "E "); editors may strip trailing spaces.
+  const tile = (s: string): Tile => {
+    const t = s.trim();
+    if (/^[BCDFA][1-9]$/.test(t)) return t;
+    if (/^[ESWNRGO]$/.test(t)) return `${t} `;
+    return fail(`bad tile "${s}"`);
+  };
+
+  const header: Record<string, string> = {};
+  while (ln < lines.length && lines[ln].trim() !== '') {
+    const m = lines[ln].match(/^([^:]+):\s*(.*)$/);
+    if (!m) fail('expected a "Key: value" header line');
+    header[m![1].trim()] = m![2].trim();
+    ln++;
+  }
+  const num = (key: string): number => {
+    if (!(key in header)) throw new Error(`Missing header "${key}"`);
+    const n = Number(header[key]);
+    if (Number.isNaN(n)) throw new Error(`Header "${key}" is not a number`);
+    return n;
+  };
+  const chicken = num('Chicken Hand');
+  const par = num('Par Score');
+  const scoring = 'Scoring' in header ? num('Scoring') : 0;
+  const bonus = 'Bonus Tiles' in header ? num('Bonus Tiles') : 0;
+  const settings: RoomSettings = {
+    rounds: num('Match Length') as RoomSettings['rounds'],
+    thinkingTime: num('Thinking Time') as RoomSettings['thinkingTime'],
+    chickenHand: chicken === 1 ? 'one' : chicken === 0 ? 'zero' : 'notAllowed',
+    par: par === -30 ? '30/25' : (par as 25 | 30),
+    scoring: scoring === 2 ? 'adjustedExtra' : scoring === 1 ? 'adjusted' : 'original',
+    bonusTiles: bonus === 2 ? 'full' : bonus === 1 ? 'half' : 'none',
+  };
+  const players = SEAT_LABELS.map((label, s) => ({
+    id: `uploaded-${s}`,
+    name: header[`Starting ${label} Username`] ?? label,
+    isBot: false,
+  }));
+
+  const parseMove = (seat: number, rest: string): MoveRecord => {
+    const segs = rest.replace(/,\s*$/, '').split(', ');
+    const p1s = segs[0];
+    let m: RegExpMatchArray | null;
+    let part1: MovePart1;
+    let p2seg: string | undefined = segs[1];
+    if ((m = p1s.match(/^BONUS (.+)$/)) && segs[1]?.startsWith('DRAW ')) {
+      part1 = { t: 'bonus', tile: tile(m[1]), repl: tile(segs[1].slice('DRAW '.length)) };
+      p2seg = segs[2];
+    } else if ((m = p1s.match(/^DRAW AND DISCARD (.+)$/))) {
+      part1 = { t: 'drawAndDiscard', tile: tile(m[1]) };
+    } else if ((m = p1s.match(/^DRAW (.+)$/))) {
+      part1 = { t: 'draw', tile: tile(m[1]) };
+    } else if ((m = p1s.match(/^CHOW (.+) ([1-9])[1-9][1-9]$/))) {
+      const t = tile(m[1]);
+      part1 = { t: 'chow', tile: t, low: `${t[0]}${m[2]}` };
+    } else if ((m = p1s.match(/^PUNG (.+)$/))) {
+      part1 = { t: 'pung', tile: tile(m[1]) };
+    } else if ((m = p1s.match(/^KONG (.+)$/))) {
+      part1 = { t: 'bigKong', tile: tile(m[1]) };
+    } else if ((m = p1s.match(/^MAHJONG (.+)$/))) {
+      part1 = { t: 'mahjongDiscard', tile: tile(m[1]) };
+    } else {
+      return fail(`bad move "${p1s}"`);
+    }
+    if (p2seg === undefined) return { seat, part1 };
+    let part2: MovePart2;
+    if ((m = p2seg.match(/^DISCARD (.+)$/))) part2 = { t: 'discard', tile: tile(m[1]) };
+    else if ((m = p2seg.match(/^KONG (.+)$/))) part2 = { t: 'kong', tile: tile(m[1]) };
+    else if ((m = p2seg.match(/^BONUS (.+)$/))) part2 = { t: 'bonus', tile: tile(m[1]) };
+    else if ((m = p2seg.match(/^MAHJONG(?: (.+))?$/))) {
+      part2 = m[1] ? { t: 'mahjong', tile: tile(m[1]) } : { t: 'mahjong' };
+    } else {
+      return fail(`bad move part "${p2seg}"`);
+    }
+    return { seat, part1, part2 };
+  };
+
+  const games: GameRecord[] = [];
+  while (ln < lines.length) {
+    while (ln < lines.length && lines[ln].trim() === '') ln++;
+    if (ln >= lines.length) break;
+    let m = lines[ln].match(/^Game Number:\s*(\S+)/);
+    if (!m) fail('expected "Game Number: …"');
+    const gameNumber = m![1];
+    ln++;
+    const startingHands: Tile[][] = [];
+    for (let s = 0; s < 4; s++) {
+      m = lines[ln]?.match(/^(East|South|West|North) player's starting hand:\s*(.*)$/);
+      if (!m || m[1] !== SEAT_LABELS[s]) fail(`expected ${SEAT_LABELS[s]}'s starting hand`);
+      startingHands.push(m![2].split(',').map(tile));
+      ln++;
+    }
+    const moves: MoveRecord[] = [];
+    const discardLog: { seat: number; tile: Tile }[] = [];
+    const result: GameResultRecord = { winnerSeat: null, deltas: [0, 0, 0, 0] };
+    for (;;) {
+      if (ln >= lines.length) fail('game never reached ENDGAME');
+      const line = lines[ln].trim();
+      if (line === 'ENDGAME') {
+        ln++;
+        break;
+      }
+      if ((m = line.match(/^SCORE:\s*(-?\d+)$/))) {
+        result.value = Number(m[1]);
+        ln++;
+        continue;
+      }
+      if ((m = line.match(/^(EAST|SOUTH|WEST|NORTH): (.*)$/))) {
+        const seat = SEAT_NAMES.indexOf(m[1]);
+        const mv = parseMove(seat, m[2]);
+        moves.push(mv);
+        // Track discards + wins so the result summary can be reconstructed.
+        if (mv.part1.t === 'drawAndDiscard') discardLog.push({ seat, tile: mv.part1.tile });
+        if (mv.part2?.t === 'discard') discardLog.push({ seat, tile: mv.part2.tile });
+        if (mv.part1.t === 'mahjongDiscard') {
+          result.winnerSeat = seat;
+          result.winBy = 'discard';
+          const prev = moves[moves.length - 2];
+          const robbed =
+            !!prev && prev.seat !== seat && prev.part2?.t === 'kong' && prev.part2.tile === mv.part1.tile;
+          result.responsibleSeat = robbed
+            ? prev.seat
+            : findResponsible(discardLog, seat, mv.part1.tile);
+        }
+        if (mv.part2?.t === 'mahjong') {
+          result.winnerSeat = seat;
+          result.winBy = 'self';
+          result.responsibleSeat = null;
+        }
+        ln++;
+        continue;
+      }
+      // Anything else before ENDGAME is the pattern-name line; the .txt has
+      // no ids/points to rebuild PatternHits from, so it is skipped.
+      ln++;
+    }
+    games.push({ gameNumber, startingHands, moves, result });
+  }
+  if (games.length === 0) throw new Error('No games found in the file.');
+
+  return {
+    matchId: num('Match ID'),
+    matchLength: settings.rounds,
+    settings,
+    players,
+    games,
+    finalScores: [0, 0, 0, 0],
+    abandonedBy: [],
+  };
 }
 
 /** One reconstructed position while stepping through a game record. */

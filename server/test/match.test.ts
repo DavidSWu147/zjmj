@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { mulberry32 } from '../../shared/src/tiles';
 import { GameView, RoomSettings } from '../../shared/src/protocol';
-import { MatchRecord, matchToTxt, replayGame } from '../../shared/src/records';
+import { MatchRecord, matchFromTxt, matchToTxt, replayGame } from '../../shared/src/records';
 import { Match } from '../src/match';
 import { Db } from '../src/db';
 import { computeStats } from '../src/api';
@@ -189,6 +189,28 @@ describe('match simulation', () => {
     // Winning games list their patterns and score before ENDGAME.
     expect(txt.match(/^SCORE: \d+$/gm)?.length).toBe(wins);
 
+    // The .txt round-trips through the upload parser: same games, moves,
+    // hands and results, and every parsed game still replays cleanly.
+    const parsed = matchFromTxt(txt);
+    expect(parsed.matchId).toBe(rec.matchId);
+    // The parser makes the optional settings explicit ('original'/'none').
+    expect(parsed.settings).toEqual({ scoring: 'original', bonusTiles: 'none', ...rec.settings });
+    expect(parsed.players.map((p) => p.name)).toEqual(rec.players.map((p) => p.name));
+    expect(parsed.games).toHaveLength(rec.games.length);
+    parsed.games.forEach((g, gi) => {
+      const orig = rec.games[gi];
+      expect(g.gameNumber).toBe(orig.gameNumber);
+      expect(g.startingHands).toEqual(orig.startingHands);
+      expect(g.moves).toEqual(orig.moves);
+      expect(g.result.winnerSeat).toBe(orig.result.winnerSeat);
+      if (orig.result.winnerSeat !== null) {
+        expect(g.result.winBy).toBe(orig.result.winBy);
+        expect(g.result.value).toBe(orig.result.value);
+        expect(g.result.responsibleSeat).toBe(orig.result.responsibleSeat ?? null);
+      }
+      expect(replayGame(g)).toHaveLength(g.moves.length + 1);
+    });
+
     // Persistence + stats round-trip on the finished match.
     const db = new Db(path.join(mkdtempSync(path.join(tmpdir(), 'zjmj-')), 'test.db'));
     db.saveMatch(rec);
@@ -196,6 +218,13 @@ describe('match simulation', () => {
     expect(list).toHaveLength(1);
     expect(list[0].matchId).toBe(rec.matchId);
     expect(db.getMatch(rec.matchId)?.games).toHaveLength(8);
+
+    // Per-player deletion hides the record for that player only.
+    expect(db.deleteMatchFor('a', rec.matchId)).toBe(true);
+    expect(db.listMatches('a')).toHaveLength(0);
+    expect(db.listMatches('b')).toHaveLength(1);
+    expect(db.getMatch(rec.matchId)).not.toBeNull();
+    expect(db.deleteMatchFor('nobody', rec.matchId)).toBe(false);
 
     const stats = computeStats(db, 'a');
     expect(stats.games.total).toBe(8);
@@ -245,6 +274,15 @@ describe('match simulation', () => {
     expect(txt).toContain('Bonus Tiles: 2');
     expect(txt).toContain('Scoring: 2');
     if (bonusMoves > 0) expect(txt).toContain('BONUS ');
+
+    // Bonus moves (both the part1 and part2 forms) round-trip through the
+    // upload parser.
+    const parsed = matchFromTxt(txt);
+    expect(parsed.settings).toEqual(rec.settings);
+    parsed.games.forEach((g, gi) => {
+      expect(g.moves).toEqual(rec.games[gi].moves);
+      expect(replayGame(g)).toHaveLength(g.moves.length + 1);
+    });
   }, 90000);
 
   it('ends in an immediate draw when the seabed tile is a bonus tile', async () => {

@@ -20,6 +20,8 @@ function route(): void {
     renderStats(app);
   } else if (hash === 'records') {
     renderRecords(app);
+  } else if (hash === 'records/upload') {
+    renderRecordViewer(app, 'upload');
   } else if (hash.startsWith('records/')) {
     renderRecordViewer(app, Number(hash.slice('records/'.length)));
   } else if (hash === 'settings') {

@@ -46,6 +46,35 @@ const ADJUSTED_CHANGES: { id: string; from: number; to: number }[] = Object.entr
 
 type Tab = 'standard' | 'optional' | 'bonus';
 
+/**
+ * The tabbed help content (pattern tables), shared by the Help page and the
+ * in-match Help panel. `tabsInto` hosts the tab buttons (e.g. the page head);
+ * defaults to the top of `body` itself.
+ */
+export function buildHelpContent(body: HTMLElement, tabsInto?: HTMLElement): void {
+  const tabRow = document.createElement('div');
+  tabRow.className = 'help-tabs';
+  tabRow.innerHTML = `
+    <button data-tab="standard">Zung Jung Patterns 中庸牌型</button>
+    <button data-tab="optional">Optional Patterns 選用牌型</button>
+    <button data-tab="bonus">Bonus Tiles 花牌</button>
+  `;
+  const content = document.createElement('div');
+  (tabsInto ?? body).appendChild(tabRow);
+  body.appendChild(content);
+  const tabs = tabRow.querySelectorAll<HTMLButtonElement>('button');
+
+  const show = (tab: Tab) => {
+    tabs.forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+    if (tab === 'standard') content.innerHTML = standardHtml();
+    else if (tab === 'optional') content.innerHTML = optionalHtml();
+    else content.innerHTML = bonusHtml();
+    body.scrollTop = 0;
+  };
+  tabs.forEach((b) => b.addEventListener('click', () => show(b.dataset.tab as Tab)));
+  show('standard');
+}
+
 export function renderHelp(root: HTMLElement): void {
   const el = document.createElement('div');
   el.className = 'page';
@@ -54,27 +83,15 @@ export function renderHelp(root: HTMLElement): void {
       <button id="back">← Home</button>
       <h1>Help 說明</h1>
       <span class="spacer"></span>
-      <div class="help-tabs">
-        <button data-tab="standard">Zung Jung Patterns 中庸牌型</button>
-        <button data-tab="optional">Optional Patterns 選用牌型</button>
-        <button data-tab="bonus">Bonus Tiles 花牌</button>
-      </div>
+      <div id="tabs-slot"></div>
     </div>
     <div class="page-body" id="body"></div>
   `;
   el.querySelector('#back')!.addEventListener('click', () => (location.hash = ''));
-  const body = el.querySelector<HTMLElement>('#body')!;
-  const tabs = el.querySelectorAll<HTMLButtonElement>('.help-tabs button');
-
-  const show = (tab: Tab) => {
-    tabs.forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
-    if (tab === 'standard') body.innerHTML = standardHtml();
-    else if (tab === 'optional') body.innerHTML = optionalHtml();
-    else body.innerHTML = bonusHtml();
-    body.scrollTop = 0;
-  };
-  tabs.forEach((b) => b.addEventListener('click', () => show(b.dataset.tab as Tab)));
-  show('standard');
+  buildHelpContent(
+    el.querySelector<HTMLElement>('#body')!,
+    el.querySelector<HTMLElement>('#tabs-slot')!,
+  );
   root.appendChild(el);
 }
 

@@ -1,0 +1,39 @@
+This update will be a big user interface update
+1. During a match, when it is the player's turn to discard, update so clicking anywhere on the green background while a tile is nudged up for discard deselects that tile, so a double click is needed again to discard any tile
+2. During the match, in addition to changing the "Leave" button in the top left corner to a red X icon, add more usable buttons, labeled by icons, next to it along the top in the following order:
+    2.1. The yellow "A" icon Auto button, when clicked, toggles the player's Autoplay state to ON. When the player's Autoplay state is ON, they automatically discard the tile drawn and pass on all claims (Chow, Pung, and all Kongs), except for Mahjong/Self-Draw which they immediately accept. So like the dummy bot, except the player will automatically call Mahjong. Click the Auto button again to turn Autoplay OFF. You can give the player the same delay as the dummy bot and still explicitly show their claim options for a split second before enforcing PASS
+    2.2. The gray gear icon Settings button, when clicked, opens a settings panel in the middle of the screen with all of the settings available in the main settings page, except the defaults for starting a new match as those are not relevant. Click Settings again or a red X in the panel to close the panel
+    2.3. The blue ? mark icon Help button, when clicked, opens a help panel in the middle of the screen with information available from the main help page. Click Help again or a red X in the panel to close the panel. Clicking Settings while in Help closes Help then toggles to Settings, and vice versa
+3. Add keyboard support for desktop players. Use the following default key bindings:
+ESCAPE: same effect as behavior detailed in update #1
+BACKSPACE/DELETE: same effect as clicking on the tile just drawn this turn (toggles it for discard or discards it if already toggled)
+=: same effect as clicking on the tile next to the tile just drawn this turn
+-: tile 2 over from drawn tile
+0: tile 3 over from drawn tile
+9: tile 4 over from drawn tile
+8: tile 5 over from drawn tile
+7: tile 6 over from drawn tile
+6: tile 7 over from drawn tile
+5: tile 8 over from drawn tile
+4: tile 9 over from drawn tile
+3: tile 10 over from drawn tile
+2: tile 11 over from drawn tile
+1: tile 12 over from drawn tile
+`: tile 13 over from drawn tile, i.e. the leftmost tile in the player's hand
+Note that every exposed meld (or Concealed Kong) made by the player will reduce the range of these hotkeys. The first meld takes away `, 1, and 2, and so on
+SPACEBAR: PASS or CANCEL, depending on context
+A: CHOW
+S: PUNG
+D: KONG
+E: During an ambiguous Chow or Kong, selects the rightmost option
+W: During an ambiguous Chow or Kong, selects the second rightmost option
+Q: During an ambiguous Chow or Kong with 3 possible options, selects the leftmost option
+ENTER/RETURN: MAHJONG/SELF-DRAW
+
+4. In the settings page, and during a match in settings panel: Allow the user to turn on and off the usage of hotkeys
+5. In the settings page, but not during a match: Allow the user to bind custom keys to the last 7 hotkeys, as well as a button to reset to the defaults of ASDEWQ and ENTER/RETURN. Do not let the user bind keys that are already used, i.e. ESCAPE, the top row, and SPACEBAR. Trying to bind those keys is a no-op
+6. In the lobby page, allow the user to use the arrow keys and ENTER/RETURN to select a room to join. Then when in a room, pressing ENTER/RETURN attempts to start the match if allowed because the player is the room host
+7. In the records page for a specific match, left and right arrows go to the previous and next games, and up and down arrows go to previous and next moves within a game
+8. Allow the user to delete game records, by adding a button next to the button for downloading game records, and allowing downloading and deletion of game records directly from the records main screen with an iconic button
+9. Allow the user to upload a game record in .txt format for viewing, but manually uploaded records will not be saved to the server
+10. Update the scoring screen/match ending soon screen to also show players' scores after payments, below the payments for the current game and separated by a horizontal line. Also show players' current scores on a "Drawn Game" screen

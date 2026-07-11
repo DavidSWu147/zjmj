@@ -13,6 +13,8 @@ import {
 import { net } from '../net';
 import { getSettings } from '../settings';
 import { meldEl, orientedTile, tileEl, Deg } from '../tileui';
+import { buildHelpContent } from './help';
+import { buildHotkeySettings, buildTileSettings, normalizeKey, soundSettingsHtml } from './settings';
 import { escapeHtml } from './play';
 
 /** Seat colors by current seat wind (spec: E green, S vermilion, W cream, N blue). */
@@ -42,6 +44,27 @@ let showZhNumber = false;
 let shownBigPattern = '';
 let winFlashKey = '';
 let winFlashStart = 0;
+/** The element renderGame last mounted into (panel + re-render target). */
+let mountEl: HTMLElement | null = null;
+/** In-match overlay panel currently open (top-bar Settings/Help buttons). */
+let panelOpen: 'settings' | 'help' | null = null;
+/** Autoplay: auto-discard the draw and pass claims, but always take a win. */
+let autoplay = false;
+let autoTimer: number | null = null;
+/** Situation key autoplay last acted on (never act twice on one state). */
+let autoKey = '';
+/** Matches the server's dummy-bot delay so autoplay feels the same. */
+const AUTO_DELAY_MS = 700;
+/** Choice handlers of the open chow/kong variant bar (hotkey selection). */
+let variantFns: (() => void)[] | null = null;
+/** Hooks the keyboard layer uses to "click" this render's controls. */
+let kbCtx: {
+  handLen: number;
+  clickHand: (idx: number) => void;
+  clickDrawn: () => void;
+  buttons: Partial<Record<'chow' | 'pung' | 'kong' | 'mahjong' | 'pass', HTMLButtonElement>>;
+} | null = null;
+let keysHooked = false;
 /**
  * Physical walls are an opt-out embellishment, but even when enabled they
  * need a desktop pointer and enough room to draw four extra tile bands.
@@ -59,7 +82,169 @@ function act(action: GameAction): void {
   net.send({ type: 'action', action });
 }
 
+/** Full re-render of the live board (settings changed, autoplay toggled). */
+function forceRerender(): void {
+  const v = net.state.gameView;
+  if (mountEl && v && location.hash.includes('play')) {
+    clearFlights();
+    lastViewKey = '';
+    renderGame(mountEl, v);
+  }
+}
+
+/** Update #1: drop the nudged-up tile back down (background click / ESC). */
+function deselectTile(): void {
+  if (selKey === null) return;
+  selKey = null;
+  mountEl?.querySelectorAll('.hand-area .tile-selected').forEach((n) => n.classList.remove('tile-selected'));
+  act({ kind: 'select', tile: null });
+}
+
+function stopAutoplay(): void {
+  autoplay = false;
+  if (autoTimer !== null) {
+    clearTimeout(autoTimer);
+    autoTimer = null;
+  }
+}
+
+/** Leave the match for the lobby (top-bar ✕ and the standings screen). */
+function exitMatch(): void {
+  stopAutoplay();
+  closePanel();
+  net.send({ type: 'leaveMatch' });
+  net.state.gameView = null;
+  location.hash = '#/play';
+}
+
+// ── in-match Settings / Help panels ─────────────────────────────────
+// The panel lives on the mount element (a SIBLING of the board), so the
+// per-view board rebuilds never tear it down.
+
+function syncTopBtns(): void {
+  mountEl?.querySelector('.top-btn.gear')?.classList.toggle('active', panelOpen === 'settings');
+  mountEl?.querySelector('.top-btn.helpq')?.classList.toggle('active', panelOpen === 'help');
+}
+
+function closePanel(): void {
+  panelOpen = null;
+  mountEl?.querySelector('.match-panel')?.remove();
+  syncTopBtns();
+}
+
+/** Opening one panel closes the other (Settings ⇄ Help toggle per spec). */
+function togglePanel(kind: 'settings' | 'help'): void {
+  const next = panelOpen === kind ? null : kind;
+  closePanel();
+  if (!next || !mountEl) return;
+  panelOpen = next;
+
+  const panel = document.createElement('div');
+  panel.className = 'match-panel';
+  const head = document.createElement('div');
+  head.className = 'mp-head';
+  head.innerHTML = `<h2>${next === 'settings' ? 'Settings 設定' : 'Help 說明'}</h2>`;
+  const close = document.createElement('button');
+  close.className = 'mp-close';
+  close.title = 'Close';
+  close.textContent = '✕';
+  close.addEventListener('click', () => closePanel());
+  head.appendChild(close);
+  const body = document.createElement('div');
+  body.className = 'mp-body';
+  panel.append(head, body);
+
+  if (next === 'settings') {
+    // Everything from the main Settings page except the new-room defaults
+    // (not relevant mid-match).
+    const section = (title: string): HTMLElement => {
+      const card = document.createElement('section');
+      card.className = 'settings-card';
+      card.innerHTML = `<h2>${title}</h2>`;
+      const inner = document.createElement('div');
+      card.appendChild(inner);
+      body.appendChild(card);
+      return inner;
+    };
+    buildTileSettings(section('Tiles 牌面'), forceRerender);
+    buildHotkeySettings(section('Hotkeys 快捷鍵'), { bindings: false });
+    section('Sound 音效').innerHTML = soundSettingsHtml();
+  } else {
+    buildHelpContent(body);
+  }
+  mountEl.appendChild(panel);
+  syncTopBtns();
+}
+
+// ── keyboard hotkeys (update #3) ────────────────────────────────────
+// Hand keys mirror the top keyboard row right-to-left: '=' is the tile next
+// to the drawn tile, '`' the 13th over (the leftmost of a meld-free hand).
+const HAND_KEYS = ['=', '-', '0', '9', '8', '7', '6', '5', '4', '3', '2', '1', '`'];
+
+function onGameKey(e: KeyboardEvent): void {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const view = net.state.gameView;
+  if (!view || !location.hash.includes('play')) return;
+  const t = e.target as HTMLElement | null;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) {
+    return;
+  }
+  const k = normalizeKey(e.key);
+  if (k === 'Escape') {
+    e.preventDefault();
+    // ESC first dismisses an open panel; otherwise it deselects (update #1).
+    if (panelOpen) closePanel();
+    else if (getSettings().hotkeys) deselectTile();
+    return;
+  }
+  if (!getSettings().hotkeys || !kbCtx) return;
+  const kb = getSettings().keyBindings;
+
+  // An open chow/kong choice bar: E/W/Q (rightmost / 2nd / leftmost-of-3).
+  if (variantFns && variantFns.length > 0) {
+    const n = variantFns.length;
+    let fn: (() => void) | undefined;
+    if (k === kb.optRight) fn = variantFns[n - 1];
+    else if (k === kb.optMid && n >= 2) fn = variantFns[n - 2];
+    else if (k === kb.optLeft && n === 3) fn = variantFns[0];
+    if (fn) {
+      e.preventDefault();
+      fn();
+      return;
+    }
+  }
+
+  if (k === 'Backspace' || k === 'Delete') {
+    e.preventDefault();
+    kbCtx.clickDrawn();
+    return;
+  }
+  const hi = HAND_KEYS.indexOf(k);
+  if (hi >= 0) {
+    e.preventDefault();
+    // Offset from the drawn tile; melds shorten the hand and thereby retire
+    // the leftover keys on the left end.
+    kbCtx.clickHand(kbCtx.handLen - 1 - hi);
+    return;
+  }
+  const btn =
+    k === ' '
+      ? kbCtx.buttons.pass
+      : k === kb.chow
+        ? kbCtx.buttons.chow
+        : k === kb.pung
+          ? kbCtx.buttons.pung
+          : k === kb.kong
+            ? kbCtx.buttons.kong
+            : k === kb.mahjong
+              ? kbCtx.buttons.mahjong
+              : undefined;
+  if (k === ' ' || btn) e.preventDefault(); // Space must never scroll the page
+  btn?.click();
+}
+
 export function renderGame(el: HTMLElement, view: GameView): void {
+  mountEl = el;
   if (!resizeHooked) {
     resizeHooked = true;
     window.addEventListener('resize', () => {
@@ -71,6 +256,10 @@ export function renderGame(el: HTMLElement, view: GameView): void {
         renderGame(el, v);
       }
     });
+  }
+  if (!keysHooked) {
+    keysHooked = true;
+    document.addEventListener('keydown', onGameKey);
   }
   if (view.gameNumber !== lastGameNumber) {
     lastGameNumber = view.gameNumber;
@@ -106,11 +295,17 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   if (board && flightLayer && viewKey === lastViewKey) return;
   lastViewKey = viewKey;
   if (!board || !flightLayer) {
-    el.innerHTML = '';
+    el.innerHTML = ''; // wipes any open panel too — the flag must follow
+    panelOpen = null;
     el.style.position = 'relative';
     el.style.height = '100%';
     board = document.createElement('div');
     board.className = 'board';
+    // Update #1: a click on the bare felt (not a tile/button) drops the
+    // nudged-up tile back down, so discarding needs two clicks again.
+    board.addEventListener('pointerdown', (e) => {
+      if (e.target === board) deselectTile();
+    });
     flightLayer = document.createElement('div');
     flightLayer.className = 'flight-layer';
     el.append(board, flightLayer);
@@ -118,6 +313,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     board.innerHTML = '';
   }
   setFlightLayer(flightLayer);
+  variantFns = null; // the board rebuild removed any open variant bar
 
   // ── geometry ──────────────────────────────────────────────────────
   const W = el.clientWidth || window.innerWidth;
@@ -576,6 +772,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     meldStrip.appendChild(g);
   });
   if (mine.melds.length > 0) handWrap.appendChild(meldStrip);
+  const handTileEls: HTMLElement[] = [];
   view.myHand.forEach((t, i) => {
     const key = `h${i}`;
     const tile = tileEl(t, { selected: selKey === key });
@@ -584,6 +781,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       e.preventDefault();
       clickTile(key, t, false, tile);
     });
+    handTileEls.push(tile);
     handWrap.appendChild(tile);
   });
   // The drawn slot is always laid out (invisible placeholder without a
@@ -591,6 +789,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   const dg = document.createElement('div');
   dg.className = 'drawn-gap';
   handWrap.appendChild(dg);
+  let drawnEl: HTMLElement | null = null;
   if (view.myDrawn !== null) {
     const tile = tileEl(view.myDrawn, { selected: selKey === 'drawn' });
     tile.classList.add('hand-tile');
@@ -599,6 +798,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       e.preventDefault();
       clickTile('drawn', view.myDrawn!, true, tile);
     });
+    drawnEl = tile;
     handWrap.appendChild(tile);
   } else {
     const ph = tileEl(null, { back: true });
@@ -606,6 +806,19 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     handWrap.appendChild(ph);
   }
   board.appendChild(handWrap);
+  // Keyboard layer targets for this render (update #3). The buttons map is
+  // filled in when the action bar is built below.
+  kbCtx = {
+    handLen: view.myHand.length,
+    clickHand: (idx: number) => {
+      const node = handTileEls[idx];
+      if (node) clickTile(`h${idx}`, view.myHand[idx], false, node);
+    },
+    clickDrawn: () => {
+      if (drawnEl && view.myDrawn !== null) clickTile('drawn', view.myDrawn, true, drawnEl);
+    },
+    buttons: {},
+  };
   // Right-anchored on the drawn slot: a full 13-tile hand sits centered and
   // the drawn tile's spot never moves; melds push the hand leftward instead.
   // If they would push it past the left edge, the meld block shrinks just
@@ -790,6 +1003,9 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     b.innerHTML = `${en}<span class="zh">${zh}</span>`;
     b.addEventListener('click', fn);
     bar.appendChild(b);
+    // The keyboard layer presses buttons by role; CANCEL shares PASS's slot
+    // (both live on Space, "PASS or CANCEL depending on context").
+    if (kbCtx) kbCtx.buttons[cls as 'chow' | 'pung' | 'kong' | 'mahjong' | 'pass'] = b;
     return b;
   };
   const o = view.myOptions;
@@ -800,16 +1016,22 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     vb.style.right = '18px';
     vb.style.bottom = `${th + 96}px`;
     vb.style.setProperty('--tw', `${tw * 0.72}px`);
+    const fns: (() => void)[] = [];
     for (const it of items) {
+      const choose = () => {
+        vb.remove();
+        variantFns = null;
+        it.fn();
+      };
+      fns.push(choose);
       const opt = document.createElement('div');
       opt.className = 'variant-opt';
       opt.appendChild(it.label);
-      opt.addEventListener('click', () => {
-        vb.remove();
-        it.fn();
-      });
+      opt.addEventListener('click', choose);
       vb.appendChild(opt);
     }
+    // Ambiguous-choice hotkeys (E/W/Q) pick from the same list, left-to-right.
+    variantFns = fns;
     board.appendChild(vb);
   };
 
@@ -855,21 +1077,76 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   }
   if (bar.children.length > 0) board.appendChild(bar);
 
-  // ── leave button ──────────────────────────────────────────────────
-  // Stays above the scoring overlay so players can leave between games;
+  // ── top bar: leave ✕ · autoplay A · settings ⚙ · help ? ──────────
+  // Stays above the scoring overlay so players can use it between games;
   // hidden on the match-over screen (the match is already finished).
   if (!view.matchResult) {
-    const leave = document.createElement('button');
-    leave.textContent = 'Leave';
-    leave.style.cssText = 'position:absolute;top:10px;left:10px;z-index:25;opacity:.75;';
-    leave.addEventListener('click', () => {
-      if (confirm('Leave the match? A bot will take your seat.')) {
-        net.send({ type: 'leaveMatch' });
-        net.state.gameView = null;
-        location.hash = '#/play';
-      }
+    const top = document.createElement('div');
+    top.className = 'top-bar';
+    const mkTop = (cls: string, text: string, title: string, fn: () => void): HTMLButtonElement => {
+      const b = document.createElement('button');
+      b.className = `top-btn ${cls}`;
+      b.textContent = text;
+      b.title = title;
+      b.addEventListener('click', fn);
+      top.appendChild(b);
+      return b;
+    };
+    mkTop('leave', '✕', 'Leave the match', () => {
+      if (confirm('Leave the match? A bot will take your seat.')) exitMatch();
     });
-    board.appendChild(leave);
+    const autoBtn = mkTop(
+      'auto' + (autoplay ? ' active' : ''),
+      'A',
+      'Autoplay: discard every draw and pass all claims, but always take a win',
+      () => {
+        autoplay = !autoplay;
+        if (!autoplay) stopAutoplay();
+        autoKey = ''; // re-evaluate the current situation on the next render
+        autoBtn.classList.toggle('active', autoplay);
+        if (autoplay) forceRerender();
+      },
+    );
+    mkTop('gear' + (panelOpen === 'settings' ? ' active' : ''), '⚙', 'Settings', () =>
+      togglePanel('settings'),
+    );
+    mkTop('helpq' + (panelOpen === 'help' ? ' active' : ''), '?', 'Help', () => togglePanel('help'));
+    board.appendChild(top);
+  }
+
+  // ── autoplay (update #2.1) ────────────────────────────────────────
+  // Like the dummy bot — discard the draw, pass every claim — except a win
+  // is always taken immediately. Claim options still render for the moment
+  // the delay lasts, so the player sees what autoplay passed on.
+  if (autoplay && !view.gameResult && !view.matchResult && autoKey !== turnKey) {
+    const schedule = (fn: () => void): void => {
+      if (autoTimer !== null) clearTimeout(autoTimer);
+      autoTimer = window.setTimeout(() => {
+        autoTimer = null;
+        fn();
+      }, AUTO_DELAY_MS);
+    };
+    if (o.mahjong) {
+      autoKey = turnKey;
+      act({ kind: 'mahjong' });
+    } else if (o.claim?.mahjong) {
+      autoKey = turnKey;
+      act({ kind: 'claim', claim: 'mahjong' });
+    } else if (view.phase === 'preDiscard' && o.discard && view.myDrawn !== null) {
+      autoKey = turnKey;
+      const drawn = view.myDrawn;
+      schedule(() => {
+        const v = net.state.gameView;
+        if (autoplay && v?.phase === 'preDiscard' && v.myOptions.discard && v.myDrawn === drawn) {
+          act({ kind: 'discard', tile: drawn, fromDrawn: true });
+        }
+      });
+    } else if (o.claim) {
+      autoKey = turnKey;
+      schedule(() => {
+        if (autoplay && net.state.gameView?.myOptions.claim) act({ kind: 'claim', claim: 'pass' });
+      });
+    }
   }
 
   // ── result overlays ───────────────────────────────────────────────
@@ -943,6 +1220,31 @@ function deltaCell(view: GameView, seat: number, delta: number): string {
   </div>`;
 }
 
+/**
+ * Cumulative scores after this game's payments, shown under the payment
+ * deltas behind a divider (and on the Drawn Game screen) — update #10.
+ * By the time the scoring screen is up the server has already applied the
+ * payments, so the seats' scores are the post-payment totals.
+ */
+function scoresAfterEl(view: GameView): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'result-scores';
+  const cells = [0, 1, 2, 3]
+    .map((s) => {
+      const score = view.seats[s].score;
+      const cls = score > 0 ? 'win-gold' : score < 0 ? 'lose-gray' : '';
+      return `<div class="delta-cell">
+        <div class="nm">${SEAT_LETTERS[s]} · ${escapeHtml(view.seats[s].name)}</div>
+        <div class="dv ${cls}">${score > 0 ? '+' : ''}${score}</div>
+      </div>`;
+    })
+    .join('');
+  wrap.innerHTML = `<div class="result-divider"></div>
+    <div class="result-scores-label">Scores 總分</div>
+    <div class="result-deltas" style="margin-top:6px">${cells}</div>`;
+  return wrap;
+}
+
 function gameResultOverlay(view: GameView): HTMLElement {
   const r = view.gameResult!;
   const overlay = document.createElement('div');
@@ -953,6 +1255,7 @@ function gameResultOverlay(view: GameView): HTMLElement {
   if (r.draw) {
     card.innerHTML = `<h2 class="draw-green">Drawn Game 流局</h2>
       <p style="color:var(--text-dim)">The live wall is exhausted. Nobody scores.</p>`;
+    card.appendChild(scoresAfterEl(view));
     card.appendChild(countdownEl(r.nextAt - view.now, r.lastGame));
     overlay.appendChild(card);
     return overlay;
@@ -1019,6 +1322,7 @@ function gameResultOverlay(view: GameView): HTMLElement {
   deltas.innerHTML = [0, 1, 2, 3].map((s) => deltaCell(view, s, r.deltas[s])).join('');
   card.appendChild(deltas);
 
+  card.appendChild(scoresAfterEl(view));
   card.appendChild(countdownEl(r.nextAt - view.now, r.lastGame));
 
   overlay.appendChild(card);
@@ -1066,6 +1370,8 @@ function matchResultOverlay(view: GameView): HTMLElement {
     <table class="pattern-list">${rows}</table>
     <div class="dialog-btns"><button id="tolobby">Back to Lobby</button></div>`;
   const exit = () => {
+    stopAutoplay();
+    closePanel();
     net.send({ type: 'leaveMatch' });
     net.state.gameView = null;
     net.state.inMatch = false;

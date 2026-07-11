@@ -75,6 +75,12 @@ export class Db {
         stats_reset_at INTEGER NOT NULL DEFAULT 0
       );
     `);
+    // v0.1.3: per-player record deletion hides the row from that player's
+    // Records list (the match itself stays for the other participants).
+    const mpCols = this.db.prepare('PRAGMA table_info(match_players)').all() as { name: string }[];
+    if (!mpCols.some((c) => c.name === 'hidden')) {
+      this.db.exec('ALTER TABLE match_players ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0');
+    }
     // Prune sessions idle for half a year so the table cannot grow forever.
     this.db
       .prepare('DELETE FROM sessions WHERE last_seen < ?')
@@ -194,7 +200,7 @@ export class Db {
       .prepare(
         `SELECT m.id, m.created_at, m.match_length, m.record, mp.start_seat, mp.final_score, mp.result
          FROM match_players mp JOIN matches m ON m.id = mp.match_id
-         WHERE mp.player_id = ? AND mp.abandoned = 0
+         WHERE mp.player_id = ? AND mp.abandoned = 0 AND mp.hidden = 0
          ORDER BY m.created_at DESC LIMIT 200`,
       )
       .all(playerId) as {
@@ -219,6 +225,18 @@ export class Db {
         myResult: r.result as MatchListEntry['myResult'],
       };
     });
+  }
+
+  /**
+   * Removes a match from this player's Records list. The match itself (and
+   * the other participants' views of it, and Statistics) are untouched.
+   * Returns false if the player did not take part in the match.
+   */
+  deleteMatchFor(playerId: string, matchId: number): boolean {
+    const res = this.db
+      .prepare('UPDATE match_players SET hidden = 1 WHERE match_id = ? AND player_id = ?')
+      .run(matchId, playerId);
+    return res.changes > 0;
   }
 
   getMatch(matchId: number): MatchRecord | null {

@@ -24,6 +24,7 @@ function merge(partial: Partial<PlayerSettings>): PlayerSettings {
   const merged = {
     ...def,
     ...partial,
+    keyBindings: { ...def.keyBindings, ...(partial.keyBindings ?? {}) },
     defaultRoom: { ...def.defaultRoom, ...(partial.defaultRoom ?? {}) },
   };
   // Saved blobs may carry retired thinking-time options (10s pre-0.1.1).
