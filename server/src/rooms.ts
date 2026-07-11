@@ -56,7 +56,10 @@ export class Room {
       settings: this.settings,
       players: this.members.map((m) => ({ name: m.name, isBot: false })),
       hostName: this.host?.name ?? null,
-      inGame: this.match !== null && !this.match.finished,
+      // A finished match still counts: the standings screen is up and the
+      // post-match cleanup (which disbands user rooms) hasn't run yet, so
+      // anyone joining now would be ejected moments later.
+      inGame: this.match !== null,
       isPrivate: this.code !== null,
     };
   }
@@ -154,7 +157,9 @@ export class Rooms {
     const room = this.rooms.get(roomId);
     if (!room) return 'No such room.';
     if (this.roomOf(session.playerId)) return 'Already in a room.';
-    if (room.match && !room.match.finished) return 'Match in progress.';
+    // Also blocked while a FINISHED match awaits cleanup: user rooms are
+    // about to be disbanded, so a join would be yanked away immediately.
+    if (room.match) return 'Match in progress.';
     if (room.members.length >= 4) return 'Room is full.';
     if (room.code !== null && code !== room.code) {
       return code ? 'Wrong room code.' : 'This room needs its 4-digit code.';
@@ -199,7 +204,7 @@ export class Rooms {
     const room = this.roomOf(playerId);
     if (!room) return 'Not in a room.';
     if (room.host?.playerId !== playerId) return 'Only the host can start the match.';
-    if (room.match && !room.match.finished) return 'Match already running.';
+    if (room.match) return 'Match already running.';
     if (room.members.length === 0) return 'Room is empty.';
 
     const humans: MatchPlayer[] = room.members.map((m) => ({
@@ -213,7 +218,9 @@ export class Rooms {
       onMatchEnd: (record, aborted) => {
         this.delegate.onMatchFinished(record, aborted);
         // Clean up after the standings screen has run its course: user rooms
-        // are disbanded outright; room #0 just returns to lobby state.
+        // are disbanded outright; room #0 just returns to lobby state. An
+        // aborted match (every human left) has no standings watchers, so it
+        // is cleaned up at once — the room is playable again immediately.
         setTimeout(() => {
           if (room.match !== match) return;
           room.match.dispose();
@@ -228,7 +235,7 @@ export class Rooms {
             }
           }
           this.delegate.onLobbyChanged();
-        }, 20000);
+        }, aborted ? 0 : 20000);
         this.delegate.onLobbyChanged();
       },
     });

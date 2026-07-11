@@ -336,7 +336,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       H - cy - th - 24,
       cx - (8 + oppMeldDepth + (bonusActive ? oth + 6 : 0) + 8),
     ];
-    if (bonusActive) extLimits.push(cx - (oth + 18 + 4 * (tw + 2) + 12));
+    if (bonusActive) extLimits.push(cx - (8 + oppMeldDepth + 6 + oth + 4 * (tw + 2) + 12));
     const cw = Math.max(6, Math.min((inner + Math.min(...extLimits)) / L, wallCwMax));
     const wh = (cw * 4) / 3;
     const peek = Math.max(2, wh * 0.13);
@@ -471,6 +471,9 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       for (let i = 0; i < sv.handCount; i++) {
         const back = orientedTile(null, BASE_DEG[rel], { back: true });
         back.dataset.hb = String(seat); // hand-back: discard flights start here
+        // The back beside the drawn slot: a hand discard visually takes this
+        // tile, and the drawn tile slides over into its place.
+        if (i === sv.handCount - 1) back.dataset.hbend = String(seat);
         pieces.push(back);
       }
     }
@@ -629,9 +632,10 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     // long run of bonus tiles never reaches the player's own wall.
     const stack = document.createElement('div');
     stack.className = 'bonus-stack';
-    // Clear of the left opponent's strip (their drawn tile reaches the bottom
-    // end) and above a small exposed kong's pocket (two rotated tiles tall).
-    stack.style.left = `${oth + 18}px`;
+    // Left edge on the far edge of the left opponent's bonus column — past
+    // their strip's worst-case depth, so even a small exposed kong made as
+    // their final meld (its pocket near the strip's bottom end) can't reach.
+    stack.style.left = `${8 + oppMeldDepth + 6 + oth}px`;
     stack.style.bottom = `${Math.max(th + 34, 2 * tw + 20)}px`;
     stack.style.setProperty('--tw', `${tw}px`);
     let row: HTMLElement | null = null;

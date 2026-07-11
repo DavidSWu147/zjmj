@@ -44,6 +44,9 @@ export function tileEl(t: Tile | null, opts: TileOpts = {}): HTMLElement {
   el.className = 'tile';
   if (opts.back || t === null) {
     el.classList.add('tile-back');
+    // A face-down tile with a KNOWN identity (a concealed kong's end tiles)
+    // still joins the same-tile hover highlight, both ways.
+    if (t !== null) el.dataset.t = t;
   } else {
     el.dataset.t = t; // face-up tiles participate in same-tile highlighting
     const img = document.createElement('img');

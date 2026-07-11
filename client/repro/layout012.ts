@@ -149,6 +149,21 @@ if (scenario === 'walls') {
     out.textContent = `flights launched: ${flights}\n`;
     done();
   });
+} else if (scenario === 'shiftanim') {
+  // An opponent discards from hand while holding a drawn tile: the end back
+  // flies to the pile AND the drawn tile slides into its spot (2 flights).
+  const v1 = baseView();
+  v1.seats[2] = seat(13, [], [], [], true);
+  renderGame(app, v1);
+  requestAnimationFrame(() => {
+    const v2 = baseView();
+    v2.seats[2] = seat(13, [], [{ tile: 'C7', fromDraw: false }], [], false);
+    v2.now += 50;
+    renderGame(app, v2);
+    const flights = app.querySelectorAll('.flight').length;
+    out.textContent = `flights launched: ${flights}\n`;
+    done();
+  });
 } else if (scenario === 'stability') {
   // Item 5: draws and discards must not move a single already-placed hand
   // tile, for any player. Render, then re-render with every seat's drawn

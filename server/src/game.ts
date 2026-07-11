@@ -470,9 +470,19 @@ export class Game {
       if (!choice) return;
       // Amendments after acting are only reopened by ANOTHER player's visible
       // claim (spec's reactivation rule): a seat that passed may claim again,
-      // and a pung/chow claimant may upgrade to mahjong, only in that case.
+      // and a pung/chow claimant may upgrade to mahjong, only in that case —
+      // and only with something that OUTRANKS the visible claim (re-raising
+      // a lower claim could only win via a later withdrawal).
       if (slot.choice && choice.kind !== 'pass') {
-        if (slot.choice.kind === 'pass' && !slot.reopened) return;
+        if (slot.choice.kind === 'pass') {
+          if (!slot.reopened) return;
+          if (
+            this.claimRank(seat, choice.kind as ClaimKind, c.discarder) >=
+            this.bestOtherVisibleRank(seat)
+          ) {
+            return;
+          }
+        }
         if (slot.choice.kind === 'pung' || slot.choice.kind === 'chow') {
           // Only a mahjong upgrade is allowed, and only when reopened.
           if (choice.kind !== 'mahjong' || !slot.reopened) return;
@@ -622,15 +632,28 @@ export class Game {
     const [bestSeat, bestKind] = best;
 
     // Can any other seat make (or amend to) something that beats the best
-    // claim? Seats holding only lower-priority claims cannot affect the
-    // outcome, so the best claim does not wait for them to act.
+    // claim? Only what a seat can still LEGALLY do counts: an undecided seat
+    // may pick anything available; a seat that passed may act again only
+    // while reopened; a pung/chow claimant may only upgrade to mahjong while
+    // reopened. A seat that passed and was not reopened (e.g. it withdrew
+    // its own claim) can no longer block the best claim from resolving.
     const beatable = slots.some(([seat, s]) => {
       if (seat === bestSeat) return false;
       const options: ClaimKind[] = [];
-      if (s.avail.mahjong) options.push('mahjong');
-      if (s.avail.kong) options.push('kong');
-      if (s.avail.pung) options.push('pung');
-      if (s.avail.chows.length) options.push('chow');
+      const fresh = s.choice === null || (s.choice.kind === 'pass' && s.reopened);
+      if (fresh) {
+        if (s.avail.mahjong) options.push('mahjong');
+        if (s.avail.kong) options.push('kong');
+        if (s.avail.pung) options.push('pung');
+        if (s.avail.chows.length) options.push('chow');
+      } else if (
+        s.choice &&
+        (s.choice.kind === 'pung' || s.choice.kind === 'chow') &&
+        s.reopened &&
+        s.avail.mahjong
+      ) {
+        options.push('mahjong');
+      }
       return options.some(
         (k) =>
           this.claimRank(seat, k, c.discarder) < this.claimRank(bestSeat, bestKind, c.discarder),
@@ -652,6 +675,22 @@ export class Game {
       if (s !== seat && sl.choice && sl.choice.kind !== 'pass') return true;
     }
     return false;
+  }
+
+  /**
+   * Best (lowest) rank among OTHER seats' visible claims; Infinity if none.
+   * A reactivated seat may only amend to something that beats this — an
+   * amendment that loses anyway could only pay off if the visible claim
+   * were later withdrawn, and that cancel-gambit shouldn't be a thing.
+   */
+  private bestOtherVisibleRank(seat: number): number {
+    const c = this.claim!;
+    let best = Infinity;
+    for (const [s, sl] of c.slots) {
+      if (s === seat || !sl.choice || sl.choice.kind === 'pass') continue;
+      best = Math.min(best, this.claimRank(s, sl.choice.kind as ClaimKind, c.discarder));
+    }
+    return best;
   }
 
   /**
@@ -1233,11 +1272,15 @@ export class Game {
       return { kind: 'kong', kongType: 'concealed', tiles, rotated: -1, faceDown: [0, 3] };
     }
     const rel = m.claimedFrom !== undefined ? (m.claimedFrom - ownerSeat + 4) % 4 : 1;
-    const rotated = rel === 3 ? 0 : rel === 2 ? 1 : size - 1;
     if (m.kind === 'kong' && m.kongType === 'small') {
-      // Upgraded pung: 3 tiles with the 4th stacked on the rotated one.
-      return { kind: 'kong', kongType: 'small', tiles, rotated, faceDown: [], stacked: true };
+      // Upgraded pung: 3 tiles with the 4th stacked on the rotated one. The
+      // rotated index is the original PUNG's (0..2) — the 4th slot is the
+      // pocket tile itself, so pointing `rotated` at it (as the generic
+      // size-1 formula does for rel 1) would leave no tile rotated at all.
+      const pungRotated = rel === 3 ? 0 : rel === 2 ? 1 : 2;
+      return { kind: 'kong', kongType: 'small', tiles, rotated: pungRotated, faceDown: [], stacked: true };
     }
+    const rotated = rel === 3 ? 0 : rel === 2 ? 1 : size - 1;
     return { kind: m.kind as 'pung' | 'kong', kongType: m.kongType, tiles, rotated, faceDown: [] };
   }
 
@@ -1298,14 +1341,28 @@ export class Game {
           if (slot.avail.chows.length) co.chows = slot.avail.chows.map(tileFromIndex);
           myOptions.claim = co;
         } else if (slot.choice.kind === 'pass') {
-          // Buttons disappear after passing; they return if someone claims.
+          // Buttons disappear after passing; they return if someone claims —
+          // but only the options that outrank that claim (a pung reactivates
+          // a passed mahjong, never a passed chow).
           if (reopened) {
+            const limit = this.bestOtherVisibleRank(viewer);
             const co: ClaimOptions = {};
-            if (slot.avail.mahjong) co.mahjong = true;
-            if (slot.avail.kong) co.kong = true;
-            if (slot.avail.pung) co.pung = true;
-            if (slot.avail.chows.length) co.chows = slot.avail.chows.map(tileFromIndex);
-            myOptions.claim = co;
+            if (slot.avail.mahjong && this.claimRank(viewer, 'mahjong', this.claim.discarder) < limit) {
+              co.mahjong = true;
+            }
+            if (slot.avail.kong && this.claimRank(viewer, 'kong', this.claim.discarder) < limit) {
+              co.kong = true;
+            }
+            if (slot.avail.pung && this.claimRank(viewer, 'pung', this.claim.discarder) < limit) {
+              co.pung = true;
+            }
+            if (
+              slot.avail.chows.length &&
+              this.claimRank(viewer, 'chow', this.claim.discarder) < limit
+            ) {
+              co.chows = slot.avail.chows.map(tileFromIndex);
+            }
+            if (Object.keys(co).length > 0) myOptions.claim = co;
           }
         } else if (slot.choice.kind === 'pung' || slot.choice.kind === 'chow') {
           myOptions.discard = true;

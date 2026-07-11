@@ -18,6 +18,8 @@ export const DRAW_MS = 300;
 export const BONUS_MS = 220;
 /** Stagger between a bonus set-aside and the next flight in the chain. */
 export const BONUS_STEP = 200;
+/** Drawn tile sliding into the hand after a from-hand discard. */
+export const SHIFT_MS = 200;
 
 export interface Rect {
   x: number;
@@ -333,6 +335,15 @@ export function animateTransition(
         prev.stripRect[s];
       if (from) {
         fly(board, d.tile, from, `[data-ds="${s}-${n - 1}"]`, discardMs, degOfSeat(s, view.mySeat));
+      }
+      // From-hand discard by an opponent who held a drawn tile: the end back
+      // (where the discard flight starts) is really the tile that left, so
+      // the drawn tile slides over into its place — quick, but not instant.
+      // fly() hides the destination back until the slide lands, which is
+      // exactly the "tile was taken out" gap.
+      const drawnFrom = prev.drawnRect[s];
+      if (!isMe && !d.fromDraw && prev.drawnFlags[s] && !hasDrawnNow && drawnFrom) {
+        fly(board, null, drawnFrom, `[data-hbend="${s}"]`, SHIFT_MS, degOfSeat(s, view.mySeat));
       }
     }
 
