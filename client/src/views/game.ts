@@ -126,34 +126,61 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   const th = (tw * 4) / 3;
   const otw = Math.max(13, tw * 0.5); // opponent tile short side
   const oth = (otw * 4) / 3; // opponent tile long side
+  const bonusActive = view.wall !== null && view.wall.cols === 72;
 
-  const topReserve = oth + 32; // top opponent strip + name tag
-  const bottomReserve = th + 30;
-  const availV = H - topReserve - bottomReserve - 28;
-  const availH = W / 2 - (oth + 44);
-  // Central area: panel P = 4.5·dt plus 4 discard rows on each side; the
-  // desktop wall band adds roughly one more dh per side.
+  // Worst-case strip depth from a hand line: a small exposed kong's pocket
+  // is two upright short sides deep. Opponents' bonus tiles sit just past
+  // this, so with bonus tiles in play the top reserve grows to keep the top
+  // opponent's row clear of the board center; the bottom reserve grows in
+  // wall mode so the bottom wall can never reach the player's own pocket.
+  const oppMeldDepth = Math.max(oth, 2 * otw + 1);
+  const ownMeldDepth = Math.max(th, 2 * tw + 1);
   const showWalls = view.wall !== null && wallsWanted(W, H);
-  let dh = availV / (showWalls ? 14.8 : 11.6); // 8·dh + 3.375·dh + gaps
-  dh = Math.min(dh, availH / (showWalls ? 7.4 : 5.8));
+  const topReserve = bonusActive
+    ? Math.max(oth + 32, oppMeldDepth + otw + 22)
+    : oth + 32; // top opponent strip + name tag
+  const bottomReserve = (showWalls ? ownMeldDepth : th) + 30;
+  const availV = H - topReserve - bottomReserve - 28;
+  const availH = W / 2 - (8 + oppMeldDepth + (bonusActive ? oth + 6 : 0) + 30);
+  // Central area: panel P = 4.5·dt plus 3 discard rows on each side; the
+  // desktop wall bands reserve roughly 1.3·dh more per side, plus a little
+  // slack so the pinwheel's overhang has breathing room.
+  let dh = availV / (showWalls ? 13.4 : 9.7);
+  dh = Math.min(dh, availH / (showWalls ? 6.2 : 4.9));
   const dt = dh * 0.75;
   const P = 4.5 * dt;
   // The gutter between panel and discards hosts the timer bar (4px), with
   // clearance from the panel's 2px shadow ring on one side and the tiles on
   // the other, so it must never collapse below that.
   const gap = Math.max(12, dh * 0.15);
-  // Wall metrics (desktop): a windmill of four walls just outside the discard
-  // windmill. Each wall is L columns; the windmill relation L·cw = 2·inner+wh
-  // (a side plus the adjacent band's depth) gives the column width.
+  // Wall metrics (desktop): the walls form a real-life pinwheel around the
+  // discard windmill (see the walls section). The band reserved between the
+  // discards and each player's hand is budgeted for the max column width —
+  // capped at discard-tile size, so the walls always read as background.
   const wallL = view.wall ? view.wall.cols / 4 : 17;
   const wallGap = Math.max(6, dh * 0.15);
-  const wallInner = P / 2 + gap + 4 * dh + wallGap; // center → band inner edge
-  const wallCw = (2 * wallInner) / (wallL - 4 / 3);
-  const wallWh = (wallCw * 4) / 3;
-  const wallPeek = Math.max(2, wallWh * 0.13);
-  const wallBand = showWalls ? wallGap + wallWh + wallPeek : 0;
+  const wallCwMax = 0.75 * dh;
+  const wallBand = showWalls
+    ? wallGap + (wallCwMax * 4) / 3 + Math.max(2, ((wallCwMax * 4) / 3) * 0.13)
+    : 0;
   const cx = W / 2;
-  const cy = topReserve + 10 + 4 * dh + gap + P / 2 + wallBand;
+  let cy = topReserve + 10 + 3 * dh + gap + P / 2 + wallBand;
+  if (showWalls) {
+    // The pinwheel's overhang is capped by whichever side has less room, so
+    // the center floats toward the midpoint between the top furniture and
+    // the player's hand (within the bottom slack the dh budget left free)
+    // to give the overhang equal room both ways.
+    const bottomRoom = H - bottomReserve - 18 - (cy + P / 2 + gap + 3 * dh + wallBand);
+    const cyBalanced = (topReserve + 4 + H - th - 30) / 2;
+    cy = Math.min(cy + Math.max(0, bottomRoom), Math.max(cy, cyBalanced));
+  }
+  // Full 13-tile hand lengths (12 flex gaps of 2px), own and opponent.
+  const handOwn13 = 13 * tw + 12 * 2;
+  const handW13 = 13 * otw + 12 * 2;
+  // Length of the always-reserved drawn-tile slot at the free end of a strip
+  // (strip gap + tile + two flex gaps).
+  const drawnSlotOwn = tw * 1.45 + 4;
+  const drawnSlotOpp = otw * 1.4 + 4;
 
   board.style.setProperty('--tw', `${tw}px`);
 
@@ -184,22 +211,6 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     quad.style.background = SEAT_COLORS[seat];
     quad.style.clipPath = QUAD_CLIP[rel];
     panel.appendChild(quad);
-    // A 30+ point win flashes the winner's quadrant gold until the scoring
-    // screen (a gold copy of the quad blinking on top). The blink's phase is
-    // anchored to when the flash first appeared, so a board re-render mid-pause
-    // doesn't restart the animation in its invisible half.
-    if (view.winFlash && view.winFlash.seat === seat && view.winFlash.value >= 30) {
-      const key = `${view.gameNumber}:${seat}`;
-      if (winFlashKey !== key) {
-        winFlashKey = key;
-        winFlashStart = Date.now();
-      }
-      const gold = document.createElement('div');
-      gold.className = 'quad quad-gold';
-      gold.style.clipPath = QUAD_CLIP[rel];
-      gold.style.animationDelay = `${-(Date.now() - winFlashStart)}ms`;
-      panel.appendChild(gold);
-    }
     const label = document.createElement('div');
     // Side seats put the score on its own line so 東南西北 fits (issue #7).
     const side = rel === 1 || rel === 3;
@@ -278,8 +289,11 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     const wrapW = rel % 2 === 0 ? dt : dh;
     const wrapH = rel % 2 === 0 ? dh : dt;
     discards.forEach((d, i) => {
-      const row = Math.min(3, Math.floor(i / 6));
-      const col = row < 3 ? i % 6 : i - 18;
+      // 3 rows of 6; extra discards continue along the 3rd row (the 19th
+      // tile is its 7th), jutting out where they cannot collide with the
+      // next player's first column.
+      const row = Math.min(2, Math.floor(i / 6));
+      const col = row < 2 ? i % 6 : i - 12;
       const x0 = cx + P / 2 - 6 * dt + col * dt;
       const y0 = cy + P / 2 + gap + row * dh;
       const [x, y] = rot(x0 + dt / 2, y0 + dh / 2, rel);
@@ -299,23 +313,33 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   }
 
   // ── physical tile walls (desktop only) ────────────────────────────
-  // The four walls form a windmill around the discard windmill, arranged as
-  // four right-handed players would push them together: each wall's owner-
-  // RIGHT edge sits at the square corner on the owner's right, so its owner-
-  // left end overhangs past the adjacent wall's band and the local player's
-  // wall claims the bottom-left corner block. Slots are numbered in
-  // consumption order — clockwise from the right end of breakSeat's wall —
-  // and the dice sum locates internal column 0 (the breakpoint) among them.
-  // A full column is two face-down tiles, the bottom one peeking out on the
-  // side nearest the panel; a half column is a single flat tile.
+  // The four walls form a pinwheel around the discard windmill the way four
+  // players push them together in real life: each wall's owner-RIGHT end
+  // tucks into the square corner on the owner's right and its owner-left
+  // end runs outward past the adjacent wall's band — the left-hand player's
+  // wall tops out just below the opposite opponent's row. Slots are
+  // numbered in consumption order — clockwise from the right end of
+  // breakSeat's wall — and the dice sum locates internal column 0 (the
+  // breakpoint) among them. A full column is two face-down tiles, the
+  // bottom one peeking out on the side nearest the panel; a half column is
+  // a single flat tile.
   if (showWalls && view.wall) {
     const wi = view.wall;
     const C = wi.cols;
     const L = wallL;
-    const inner = wallInner;
-    const cw = wallCw;
-    const wh = wallWh;
-    const peek = wallPeek;
+    // Inner edge: the walls hug the discard windmill, and each wall's
+    // overhang stops just below/beside the players' furniture (the top
+    // strip and its bonus row, the own hand, the side strips).
+    const inner = P / 2 + gap + 3 * dh + wallGap;
+    const extLimits = [
+      cy - (topReserve + 2),
+      H - cy - th - 24,
+      cx - (8 + oppMeldDepth + (bonusActive ? oth + 6 : 0) + 8),
+    ];
+    if (bonusActive) extLimits.push(cx - (oth + 18 + 4 * (tw + 2) + 12));
+    const cw = Math.max(6, Math.min((inner + Math.min(...extLimits)) / L, wallCwMax));
+    const wh = (cw * 4) / 3;
+    const peek = Math.max(2, wh * 0.13);
 
     const lp = wi.livePointer;
     const kd = wi.kongDrawn;
@@ -351,7 +375,8 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       const rel = (seat - view.mySeat + 4) % 4;
       const p = k % L; // column position from the owner's right end
       // Bottom-tile base position plus the top tile's outward stack offset.
-      // Owner-right ends sit at the corners; owner-left ends overhang by wh.
+      // Owner-right ends sit at the inner corners; owner-left ends run out
+      // toward the screen edges (pinwheel overhang of L·cw − inner).
       let bx: number;
       let by: number;
       let ox = 0;
@@ -374,6 +399,9 @@ export function renderGame(el: HTMLElement, view: GameView): void {
         ox = -peek;
       }
       const isFront = c === liveCols;
+      // The dead-wall end's next replacement tile (kong/bonus draws start
+      // their flight here).
+      const isBackNext = c === C - 1 - deadCols;
       const bot = orientedTile(null, BASE_DEG[rel], { back: true });
       bot.dataset.wt = `${c}-bot`;
       bot.style.left = `${bx}px`;
@@ -388,24 +416,29 @@ export function renderGame(el: HTMLElement, view: GameView): void {
         top.style.zIndex = '2';
         if (isDeadTile(c, 0)) top.classList.add('tile-dead');
         if (isFront) top.dataset.wallfront = '1';
+        if (isBackNext && !backHalf) top.dataset.wallback = '1';
+        else if (isBackNext) bot.dataset.wallback = '1';
         zone.appendChild(top);
-      } else if (isFront) {
-        bot.dataset.wallfront = '1';
+      } else {
+        if (isFront) bot.dataset.wallfront = '1';
+        if (isBackNext) bot.dataset.wallback = '1';
       }
     }
     board.appendChild(zone);
   }
 
   // ── opponent hands + melds ────────────────────────────────────────
-  // Each strip is anchored at the fixed boundary between melds and hand, so
-  // the hand tiles stay put while the drawn tile comes and goes at the free
-  // end and melds grow toward the other side.
-  const handW13 = 13 * otw + 12 * 2; // width of a full 13-tile hand
+  // Each strip is anchored on its drawn-tile slot, which is ALWAYS laid out
+  // (an invisible placeholder when the seat holds no drawn tile): draws
+  // cause zero shift, the drawn tile's spot never moves, and melds grow
+  // away from it toward the other end — a strip full of kongs starts
+  // further along rather than moving the anchor.
   for (let rel = 1; rel < 4; rel++) {
     const seat = (view.mySeat + rel) % 4;
     const sv = view.seats[seat];
     const wrap = document.createElement('div');
-    wrap.className = 'opp-hand' + (rel !== 2 ? ' vertical' : '');
+    wrap.className =
+      'opp-hand' + (rel !== 2 ? ' vertical' : '') + (rel === 1 ? ' opp-right' : '');
     wrap.style.setProperty('--tw', `${otw}px`);
     wrap.dataset.strip = String(seat);
 
@@ -441,73 +474,66 @@ export function renderGame(el: HTMLElement, view: GameView): void {
         pieces.push(back);
       }
     }
-    if (sv.hasDrawn) {
-      const g = document.createElement('div');
-      g.className = 'strip-gap';
-      g.style.width = g.style.height = `${otw * 0.4}px`;
-      pieces.push(g);
-      const drawnTile = orientedTile(
-        revealed ? revealed.drawn : null,
-        BASE_DEG[rel],
-        revealed && revealed.drawn ? { highlight: true } : { back: true },
-      );
-      drawnTile.dataset.odrawn = String(seat);
-      pieces.push(drawnTile);
-    }
+    // The drawn slot is always laid out so its presence never re-flows the
+    // hand; without a drawn tile it is an invisible placeholder.
+    const g = document.createElement('div');
+    g.className = 'strip-gap';
+    g.style.width = g.style.height = `${otw * 0.4}px`;
+    pieces.push(g);
+    const drawnTile = orientedTile(
+      sv.hasDrawn && revealed ? revealed.drawn : null,
+      BASE_DEG[rel],
+      sv.hasDrawn && revealed && revealed.drawn ? { highlight: true } : { back: true },
+    );
+    if (sv.hasDrawn) drawnTile.dataset.odrawn = String(seat);
+    else drawnTile.style.visibility = 'hidden';
+    pieces.push(drawnTile);
     // Map owner's left-to-right onto the screen: right seat runs bottom-to-top
     // and top seat runs right-to-left, so those two reverse.
     const ordered = rel === 1 || rel === 2 ? pieces.reverse() : pieces;
     for (const p of ordered) wrap.appendChild(p);
 
-    if (rel === 2) {
-      wrap.style.top = '8px';
-      wrap.style.left = '0px';
-    } else if (rel === 1) {
-      wrap.style.right = '8px';
-      wrap.style.top = '0px';
-    } else {
-      wrap.style.left = '8px';
-      wrap.style.top = '0px';
-    }
     board.appendChild(wrap);
-    // Center the strip on melds + hand, EXCLUDING the drawn tile: draws then
-    // never shift the hand, discards/melds recenter it (like the own hand),
-    // and even a four-kong strip stays fully on screen.
-    const totalLen = rel === 2 ? wrap.offsetWidth : wrap.offsetHeight;
-    const drawnExtra = sv.hasDrawn ? otw * 1.4 + 4 : 0; // strip-gap + tile + flex gaps
-    const baseLen = totalLen - drawnExtra;
+    // Anchor so a full 13-tile hand sits centered and the drawn slot caps
+    // its free end; the position is computed from constants (or the strip's
+    // own deterministic length), never from the drawn tile's presence.
+    let stripTop: number;
     if (rel === 2) {
-      // Reversed layout: the drawn tile sits at the LEFT end.
-      wrap.style.left = `${cx - baseLen / 2 - drawnExtra}px`;
+      // Reversed layout: the drawn slot is the LEFT end — fixed.
+      wrap.style.top = '8px';
+      wrap.style.left = `${cx - handW13 / 2 - drawnSlotOpp}px`;
+      stripTop = 8;
     } else if (rel === 1) {
-      // Reversed layout: the drawn tile sits at the TOP end.
-      wrap.style.top = `${cy - baseLen / 2 - drawnExtra}px`;
+      // Reversed layout: the drawn slot is the TOP end — fixed.
+      wrap.style.right = '8px';
+      stripTop = cy - handW13 / 2 - drawnSlotOpp;
+      wrap.style.top = `${stripTop}px`;
     } else {
-      wrap.style.top = `${cy - baseLen / 2}px`;
+      // The drawn slot is the BOTTOM end — fixed; melds extend upward.
+      wrap.style.left = '8px';
+      stripTop = cy + handW13 / 2 + drawnSlotOpp - wrap.getBoundingClientRect().height;
+      wrap.style.top = `${stripTop}px`;
     }
 
     // Names sit at fixed board positions: side opponents' names at the top,
-    // near the top opponent's name. With big meld areas the strip's top end
-    // moves up past the default spot, so the name yields to the strip's
-    // worst-case extent (drawn tile included) — it only moves on melds.
+    // near the top opponent's name, yielding to the strip's top end when
+    // melds push it further up.
     const tag = document.createElement('div');
     tag.textContent = `${sv.name}${sv.connected ? '' : ' (away)'}`;
     tag.style.cssText =
       'position:absolute;font-size:11px;color:#dfe7e2;text-shadow:0 1px 2px #000;white-space:nowrap;z-index:5;';
     const sideTop = cy - handW13 / 2 - otw * 1.7 - 16;
-    const drawnAllowance = otw * 1.4 + 4;
     if (rel === 2) {
       tag.style.left = `${cx}px`;
       tag.style.transform = 'translateX(-50%)';
       tag.style.top = `${8 + oth + 6}px`;
     } else if (rel === 1) {
-      // Hand + drawn tile extend upward on the right side.
       tag.style.right = '8px';
-      tag.style.top = `${Math.min(sideTop, cy - baseLen / 2 - drawnAllowance - 18)}px`;
+      tag.style.top = `${Math.min(sideTop, stripTop - 18)}px`;
     } else {
       // Melds extend upward on the left side.
       tag.style.left = '8px';
-      tag.style.top = `${Math.min(sideTop, cy - baseLen / 2 - 18)}px`;
+      tag.style.top = `${Math.min(sideTop, stripTop - 18)}px`;
     }
     board.appendChild(tag);
   }
@@ -534,14 +560,19 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     }
   };
 
+  // Melds live in one sub-strip so they can be scaled down as a block when
+  // a meld-heavy hand would otherwise run off the left edge of the screen.
+  const meldStrip = document.createElement('div');
+  meldStrip.className = 'meld-strip';
   mine.melds.forEach((m, mi) => {
     const me = meldEl(m, 0);
     me.dataset.meld = `${view.mySeat}-${mi}`;
-    handWrap.appendChild(me);
+    meldStrip.appendChild(me);
     const g = document.createElement('div');
     g.className = 'meld-gap';
-    handWrap.appendChild(g);
+    meldStrip.appendChild(g);
   });
+  if (mine.melds.length > 0) handWrap.appendChild(meldStrip);
   view.myHand.forEach((t, i) => {
     const key = `h${i}`;
     const tile = tileEl(t, { selected: selKey === key });
@@ -552,11 +583,12 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     });
     handWrap.appendChild(tile);
   });
-  let drawnExtra = 0;
+  // The drawn slot is always laid out (invisible placeholder without a
+  // tile) so drawing and discarding never re-flow the hand.
+  const dg = document.createElement('div');
+  dg.className = 'drawn-gap';
+  handWrap.appendChild(dg);
   if (view.myDrawn !== null) {
-    const g = document.createElement('div');
-    g.className = 'drawn-gap';
-    handWrap.appendChild(g);
     const tile = tileEl(view.myDrawn, { selected: selKey === 'drawn' });
     tile.classList.add('hand-tile');
     tile.dataset.drawn = '1';
@@ -565,13 +597,26 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       clickTile('drawn', view.myDrawn!, true, tile);
     });
     handWrap.appendChild(tile);
-    drawnExtra = tw * 0.45 + tw + 4;
+  } else {
+    const ph = tileEl(null, { back: true });
+    ph.style.visibility = 'hidden';
+    handWrap.appendChild(ph);
   }
   board.appendChild(handWrap);
-  // Center on the 13-tile hand + melds so the strip does not shift when the
-  // 14th drawn tile comes and goes. Positioned synchronously so animation
-  // rects measured right after this render are correct.
-  handWrap.style.left = `${Math.max(8, (W - (handWrap.offsetWidth - drawnExtra)) / 2)}px`;
+  // Right-anchored on the drawn slot: a full 13-tile hand sits centered and
+  // the drawn tile's spot never moves; melds push the hand leftward instead.
+  // If they would push it past the left edge, the meld block shrinks just
+  // enough to stay on screen. Positioned synchronously so animation rects
+  // measured right after this render are correct.
+  const handAnchor = (W + handOwn13) / 2 + drawnSlotOwn;
+  let handLeft = handAnchor - handWrap.getBoundingClientRect().width;
+  if (handLeft < 8 && mine.melds.length > 0) {
+    const meldW = meldStrip.getBoundingClientRect().width;
+    const scale = Math.max(0.5, (meldW - (8 - handLeft)) / meldW);
+    meldStrip.style.setProperty('--tw', `${tw * scale}px`);
+    handLeft = handAnchor - handWrap.getBoundingClientRect().width;
+  }
+  handWrap.style.left = `${handLeft}px`;
 
   // ── bonus tiles (flowers & seasons) ───────────────────────────────
   // Each seat's revealed bonus tiles sit in front of that seat's melds at
@@ -580,19 +625,27 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   // the anchored end, so the row stays put as the drawn tile comes and goes.
   const myBonus = view.seats[view.mySeat].bonus ?? [];
   if (myBonus.length > 0) {
-    const row = document.createElement('div');
-    row.className = 'bonus-row';
+    // Rows of 4, stacking upward (the 5th tile sits above the 1st) so a
+    // long run of bonus tiles never reaches the player's own wall.
+    const stack = document.createElement('div');
+    stack.className = 'bonus-stack';
     // Clear of the left opponent's strip (their drawn tile reaches the bottom
     // end) and above a small exposed kong's pocket (two rotated tiles tall).
-    row.style.left = `${oth + 18}px`;
-    row.style.bottom = `${Math.max(th + 34, 2 * tw + 20)}px`;
-    row.style.setProperty('--tw', `${tw}px`);
+    stack.style.left = `${oth + 18}px`;
+    stack.style.bottom = `${Math.max(th + 34, 2 * tw + 20)}px`;
+    stack.style.setProperty('--tw', `${tw}px`);
+    let row: HTMLElement | null = null;
     myBonus.forEach((t, i) => {
+      if (i % 4 === 0) {
+        row = document.createElement('div');
+        row.className = 'bonus-row';
+        stack.appendChild(row); // column-reverse puts later rows above
+      }
       const el = tileEl(t);
       el.dataset.bonus = `${view.mySeat}-${i}`;
-      row.appendChild(el);
+      row!.appendChild(el);
     });
-    board.appendChild(row);
+    board.appendChild(stack);
   }
   for (let rel = 1; rel < 4; rel++) {
     const seat = (view.mySeat + rel) % 4;
@@ -604,26 +657,53 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     zone.className = 'discard-zone';
     zone.style.setProperty('--tw', `${otw}px`);
     const step = otw + 2;
+    // The row sits one worst-case meld depth inside the hand line — past a
+    // small exposed kong's two-tile pocket — so no meld can ever reach it.
+    const inset = oppMeldDepth + 6;
     bonus.forEach((t, i) => {
       const el = orientedTile(t, BASE_DEG[rel]);
       if (rel === 2) {
         // Top strip is reversed: melds end at the screen-right edge; the row
         // sits below the strip and reads left-to-right for its owner.
         el.style.left = `${strip.x + strip.w - otw - i * step}px`;
-        el.style.top = `${strip.y + strip.h + 6}px`;
+        el.style.top = `${8 + inset}px`;
       } else if (rel === 1) {
         // Right strip: melds end at the bottom; the column sits to its left.
-        el.style.left = `${strip.x - oth - 6}px`;
+        el.style.left = `${W - 8 - inset - oth}px`;
         el.style.top = `${strip.y + strip.h - otw - i * step}px`;
       } else {
         // Left strip: melds end at the top; the column sits to its right.
-        el.style.left = `${strip.x + strip.w + 6}px`;
+        el.style.left = `${8 + inset}px`;
         el.style.top = `${strip.y + i * step}px`;
       }
       el.dataset.bonus = `${seat}-${i}`;
       zone.appendChild(el);
     });
     board.appendChild(zone);
+  }
+
+  // ── 30+ point win: the winner's hand & meld area flashes gold ─────
+  // The blink's phase is anchored to when the flash first appeared, so a
+  // board re-render mid-pause doesn't restart it in its invisible half.
+  // Prepended so it paints behind the tiles it backs.
+  if (view.winFlash && view.winFlash.value >= 30) {
+    const wseat = view.winFlash.seat;
+    const key = `${view.gameNumber}:${wseat}`;
+    if (winFlashKey !== key) {
+      winFlashKey = key;
+      winFlashStart = Date.now();
+    }
+    const strip = rectOf(board.querySelector(`[data-strip="${wseat}"]`), board);
+    if (strip) {
+      const glow = document.createElement('div');
+      glow.className = 'win-flash';
+      glow.style.left = `${strip.x - 8}px`;
+      glow.style.top = `${strip.y - 8}px`;
+      glow.style.width = `${strip.w + 16}px`;
+      glow.style.height = `${strip.h + 16}px`;
+      glow.style.animationDelay = `${-(Date.now() - winFlashStart)}ms`;
+      board.prepend(glow);
+    }
   }
 
   // ── claim keywords (animate only when they first appear) ──────────

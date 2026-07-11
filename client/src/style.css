@@ -595,17 +595,20 @@ dialog::backdrop {
     filter: brightness(1.45);
   }
 }
-/* Winner celebration: a gold copy of the quadrant blinks on top of it. */
-.quad-gold {
+/* Winner celebration: the winner's hand & meld area blinks gold behind
+   the tiles (prepended to the board so everything paints above it). */
+.win-flash {
+  position: absolute;
   background: var(--kw-mahjong);
-  opacity: 0.95;
-  transition: none;
-  animation: quad-gold-blink 0.8s steps(1) infinite;
+  opacity: 0.85;
+  border-radius: 10px;
+  pointer-events: none;
+  animation: gold-blink 0.8s steps(1) infinite;
 }
 /* Starts VISIBLE so the flash registers even if the window is cut short. */
-@keyframes quad-gold-blink {
+@keyframes gold-blink {
   0% {
-    opacity: 0.95;
+    opacity: 0.85;
   }
   50%,
   100% {
@@ -773,12 +776,18 @@ dialog::backdrop {
 .discard-zone .tor {
   position: absolute;
 }
-/* The local player's revealed flowers & seasons, bottom-left of the board. */
-.bonus-row {
+/* The local player's revealed flowers & seasons, bottom-left of the board:
+   rows of 4 stacking upward (the 5th tile sits above the 1st). */
+.bonus-stack {
   position: absolute;
   display: flex;
+  flex-direction: column-reverse;
   gap: 2px;
   z-index: 4;
+}
+.bonus-row {
+  display: flex;
+  gap: 2px;
 }
 .discard-last {
   outline: 2px solid #fff8;
@@ -814,6 +823,13 @@ dialog::backdrop {
   width: calc(var(--tw) * 0.6);
   flex-shrink: 0;
 }
+/* The own melds as one block, scaled via its own --tw when space runs out. */
+.meld-strip {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+}
 .hand-tile {
   cursor: pointer;
   touch-action: manipulation;
@@ -826,13 +842,19 @@ dialog::backdrop {
   }
 }
 
+/* Opponent strips hug their outer screen edge on the cross axis, so melds
+   (and a small kong's pocket) always deepen toward the board center. */
 .opp-hand {
   position: absolute;
   display: flex;
   gap: 2px;
+  align-items: flex-start;
 }
 .opp-hand.vertical {
   flex-direction: column;
+}
+.opp-hand.opp-right {
+  align-items: flex-end;
 }
 .opp-hand .strip-gap {
   width: calc(var(--tw) * 0.5);

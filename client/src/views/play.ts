@@ -21,7 +21,11 @@ export function renderPlay(root: HTMLElement): void {
 
   let unsub: (() => void) | null = null;
   const update = () => {
-    if (location.hash.replace(/^#\/?/, '') !== 'play') {
+    // A detached root means the router rebuilt the page (play → home → play)
+    // without an intervening server update: this subscription is stale. It
+    // must die immediately — if it kept rendering into its dead element it
+    // would consume renderGame's render-skip key and freeze the live board.
+    if (!el.isConnected || location.hash.replace(/^#\/?/, '') !== 'play') {
       unsub?.();
       return;
     }

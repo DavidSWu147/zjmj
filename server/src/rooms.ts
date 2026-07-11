@@ -116,7 +116,17 @@ export class Rooms {
   roomOf(playerId: string): Room | null {
     for (const r of this.rooms.values()) {
       if (r.members.some((m) => m.playerId === playerId)) return r;
-      if (r.match && !r.match.finished && r.match.players.some((p) => p.id === playerId && !p.isBot)) {
+      // A running match still binds its ACTIVE humans to the room (so a
+      // reconnect rejoins the game) — but not players who left the match:
+      // dragging them back in produced a zombie board where a bot discarded
+      // their tiles while their own input was rejected, and it also blocked
+      // them from joining any other room until the match ended.
+      if (
+        r.match &&
+        !r.match.finished &&
+        r.match.players.some((p) => p.id === playerId && !p.isBot) &&
+        !r.match.hasLeft(playerId)
+      ) {
         return r;
       }
     }

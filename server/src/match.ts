@@ -231,6 +231,11 @@ export class Match {
     this.game?.nudgeBots();
   }
 
+  /** Has this player permanently left the match (a bot holds their seat)? */
+  hasLeft(playerId: string): boolean {
+    return this.leftIds.has(playerId);
+  }
+
   handleAction(playerId: string, action: Parameters<Game['handleAction']>[1]): void {
     if (this.finished || !this.game) return;
     const startSeat = this.players.findIndex((p) => p.id === playerId);
@@ -240,19 +245,12 @@ export class Match {
 
   viewFor(playerId: string): GameView | null {
     const startSeat = this.players.findIndex((p) => p.id === playerId);
-    if (startSeat < 0) return null;
-    const seat = this.currentSeatOf(startSeat);
-    if (this.matchResultView || !this.game) {
-      const base = this.game
-        ? this.game.buildView(seat, this.resultView)
-        : null;
-      if (base) {
-        base.phase = 'matchEnd';
-        base.matchResult = this.matchResultView;
-        return base;
-      }
-      return null;
-    }
+    if (startSeat < 0 || !this.game) return null;
+    // Seat mapping must follow the game being SHOWN, not the match's game
+    // counter: at match end the counter has already advanced past the final
+    // game, which used to rotate every viewer's perspective to their
+    // starting seat under the standings screen.
+    const seat = (startSeat - (this.game.gameIndex % 4) + 4) % 4;
     const v = this.game.buildView(seat, this.resultView);
     if (this.matchResultView) {
       v.phase = 'matchEnd';

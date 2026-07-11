@@ -14,6 +14,10 @@ import { Deg, orientedTile } from './tileui';
 
 export const MELD_MS = 380;
 export const DRAW_MS = 300;
+/** Bonus tile set-aside: quick, but never instant (an explicit beat). */
+export const BONUS_MS = 220;
+/** Stagger between a bonus set-aside and the next flight in the chain. */
+export const BONUS_STEP = 200;
 
 export interface Rect {
   x: number;
@@ -25,9 +29,11 @@ export interface Rect {
 export interface BoardSnapshot {
   gameNumber: string;
   remaining: number;
+  kongDrawn: number;
   discardCounts: number[];
   meldCounts: number[];
   meldTileLens: number[][];
+  bonusCounts: number[];
   drawnFlags: boolean[];
   lastDiscardRect: (Rect | null)[];
   stripRect: (Rect | null)[];
@@ -136,9 +142,11 @@ export function takeSnapshot(board: HTMLElement, view: GameView): BoardSnapshot 
   return {
     gameNumber: view.gameNumber,
     remaining: view.remaining,
+    kongDrawn: view.wall?.kongDrawn ?? 0,
     discardCounts: view.seats.map((sv) => sv.discards.length),
     meldCounts: view.seats.map((sv) => sv.melds.length),
     meldTileLens: view.seats.map((sv) => sv.melds.map((m) => m.tiles.length)),
+    bonusCounts: view.seats.map((sv) => (sv.bonus ?? []).length),
     drawnFlags: view.seats.map((sv, s) => (s === view.mySeat ? view.myDrawn !== null : sv.hasDrawn)),
     lastDiscardRect,
     stripRect,
@@ -163,6 +171,7 @@ function fly(
   destSel: string,
   ms: number,
   fromDeg: Deg,
+  delay = 0,
 ): void {
   if (!overlay) return;
   const dest = board.querySelector<HTMLElement>(destSel);
@@ -189,15 +198,20 @@ function fly(
   if (dr < -180) dr += 360;
   const sc = Math.max(0.4, Math.min(2.5, Math.min(from.w, from.h) / shortSide || 1));
   clone.style.transform = `translate(${dx}px, ${dy}px) rotate(${dr}deg) scale(${sc})`;
+  if (delay > 0) clone.style.visibility = 'hidden'; // queued behind another flight
   overlay.appendChild(clone);
 
-  const rec: Flight = { clone, destSel, endsAt: Date.now() + ms + 150 };
+  const rec: Flight = { clone, destSel, endsAt: Date.now() + delay + ms + 150 };
   flights.push(rec);
 
-  requestAnimationFrame(() => {
-    clone.style.transition = `transform ${ms}ms cubic-bezier(0.3, 0.7, 0.3, 1)`;
-    clone.style.transform = 'translate(0px, 0px) rotate(0deg) scale(1)';
-  });
+  const go = () =>
+    requestAnimationFrame(() => {
+      clone.style.removeProperty('visibility');
+      clone.style.transition = `transform ${ms}ms cubic-bezier(0.3, 0.7, 0.3, 1)`;
+      clone.style.transform = 'translate(0px, 0px) rotate(0deg) scale(1)';
+    });
+  if (delay > 0) setTimeout(go, delay);
+  else go();
   const finish = () => {
     const i = flights.indexOf(rec);
     if (i >= 0) flights.splice(i, 1);
@@ -205,7 +219,7 @@ function fly(
     curBoard?.querySelector<HTMLElement>(destSel)?.style.removeProperty('visibility');
   };
   clone.addEventListener('transitionend', finish);
-  setTimeout(finish, ms + 150);
+  setTimeout(finish, delay + ms + 150);
 }
 
 /** Point rect at the midpoint of the control panel edge facing a seat. */
@@ -252,17 +266,53 @@ export function animateTransition(
     const isMe = s === view.mySeat;
     const hasDrawnNow = isMe ? view.myDrawn !== null : sv.hasDrawn;
 
+    // Drawn bonus tiles: the server settles the whole chain in one update,
+    // but the set-aside is animated explicitly — each new bonus tile flies
+    // from the drawn spot (or the dead wall for chained replacements) to
+    // its slot in the seat's bonus row, one quick beat apiece.
+    const bonus = sv.bonus ?? [];
+    const newBonus = Math.max(0, bonus.length - (prev.bonusCounts[s] ?? bonus.length));
+    if (newBonus > 0) {
+      const wallBack = rectOf(board.querySelector('[data-wallback]'), board);
+      for (let k = 0; k < newBonus; k++) {
+        const bi = bonus.length - newBonus + k;
+        const destSel = `[data-bonus="${s}-${bi}"]`;
+        const dest = board.querySelector<HTMLElement>(destSel);
+        const size = dest ? rectOf(dest, board) : null;
+        if (!size) continue;
+        const from =
+          (k === 0 ? prev.drawnRect[s] : null) ??
+          wallBack ??
+          panelEdge(board, s, view.mySeat, size);
+        if (from) {
+          fly(board, bonus[bi], from, destSel, BONUS_MS, degOfSeat(s, view.mySeat), k * BONUS_STEP);
+        }
+      }
+    }
+
     // Fresh draw: a quick slide from the wall — the live wall's front tile
-    // when the physical walls are rendered, the panel edge otherwise.
-    if (hasDrawnNow && !prev.drawnFlags[s] && view.remaining < prev.remaining) {
+    // (or the dead-wall end for kong/bonus replacements) when the physical
+    // walls are rendered, the panel edge otherwise. A replacement draw that
+    // followed a bonus reveal waits for the set-aside beat(s) to play out.
+    // A concealed/small kong is declared while already holding a drawn tile,
+    // so the drawn flag never flips for its replacement — the seat's meld
+    // growth in the same wall-consuming update marks that draw instead.
+    const kongGrew =
+      sv.melds.length > prev.meldCounts[s] ||
+      sv.melds.some((m, mi) => m.tiles.length > (prev.meldTileLens[s][mi] ?? m.tiles.length));
+    if (hasDrawnNow && (!prev.drawnFlags[s] || kongGrew) && view.remaining < prev.remaining) {
       const sel = drawnSel(s, view.mySeat);
       const dest = board.querySelector<HTMLElement>(sel);
       const size = dest ? rectOf(dest, board) : null;
       if (size) {
+        const fromDead = newBonus > 0 || (view.wall?.kongDrawn ?? 0) > prev.kongDrawn;
         const from =
-          rectOf(board.querySelector('[data-wallfront]'), board) ??
+          rectOf(board.querySelector(fromDead ? '[data-wallback]' : '[data-wallfront]'), board) ??
           panelEdge(board, s, view.mySeat, size);
-        if (from) fly(board, isMe ? view.myDrawn : null, from, sel, DRAW_MS, degOfSeat(s, view.mySeat));
+        if (from) {
+          const delay = newBonus > 0 ? newBonus * BONUS_STEP + 60 : 0;
+          fly(board, isMe ? view.myDrawn : null, from, sel, DRAW_MS, degOfSeat(s, view.mySeat), delay);
+        }
       }
     }
 

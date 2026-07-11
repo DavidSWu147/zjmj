@@ -1,4 +1,4 @@
-import { ADJUSTED_POINTS, PATTERN_IDS, PATTERNS } from '../../../shared/src/scoring';
+import { ADJUSTED_POINTS, OPTIONAL_PATTERN_IDS, PATTERN_IDS, PATTERNS } from '../../../shared/src/scoring';
 
 /** The four optional patterns (playable under "Adjusted Scoring with Extra Patterns"). */
 const OPTIONAL_PATTERNS: { id: string; name: string; zh: string; points: number; desc: string }[] = [
@@ -79,7 +79,17 @@ export function renderHelp(root: HTMLElement): void {
 }
 
 function standardHtml(): string {
-  const orderedIds = ['chicken', ...PATTERN_IDS.filter((id) => id !== 'chicken')];
+  // Only the standard Zung Jung table: the optional patterns and the bonus
+  // tile (category 11) patterns live on their own tabs.
+  const orderedIds = [
+    'chicken',
+    ...PATTERN_IDS.filter(
+      (id) =>
+        id !== 'chicken' &&
+        !(OPTIONAL_PATTERN_IDS as readonly string[]).includes(id) &&
+        !id.startsWith('11.'),
+    ),
+  ];
   const rows = orderedIds
     .map((id) => {
       const p = PATTERNS[id];

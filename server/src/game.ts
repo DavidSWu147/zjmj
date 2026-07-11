@@ -1050,7 +1050,7 @@ export class Game {
     const winTile = this.drawn[seat]!;
     const score = this.scoreFor(seat, winTile, 'self', this.drawnFromDead);
     if (this.currentMove && this.currentMove.part1.t === 'draw') {
-      this.moves.push({ seat, part1: this.currentMove.part1, part2: { t: 'mahjong' } });
+      this.moves.push({ seat, part1: this.currentMove.part1, part2: { t: 'mahjong', tile: winTile } });
       this.currentMove = null;
     }
     const deltas = computePayments({
@@ -1095,9 +1095,10 @@ export class Game {
       par: this.host.settings.par,
     });
     this.drawn[seat] = tile;
-    // The player who fed the win sees DEAL-IN 放銃 (skipped when nobody is
-    // responsible: same-round immunity, or an earth win paying like self-draw).
-    if (!earth && responsible !== null) this.announce(responsible, 'dealin');
+    // DEAL-IN 放銃 always shows on the player who actually discarded the tile,
+    // even when they end up owing nothing (same-round immunity, or an earth
+    // win paying like a self-draw) — the scoring screen clarifies payment.
+    this.announce(discarder, 'dealin');
     this.announce(seat, 'mahjong');
     this.finishWithPause(
       {

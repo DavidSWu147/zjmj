@@ -24,7 +24,8 @@ export type MovePart1 =
 export type MovePart2 =
   | { t: 'discard'; tile: Tile }
   | { t: 'kong'; tile: Tile } // concealed or small exposed, disambiguated by context
-  | { t: 'mahjong' }
+  /** Self-drawn win; `tile` is the tile just drawn (absent in old records). */
+  | { t: 'mahjong'; tile?: Tile }
   /**
    * The drawn tile was a bonus tile: revealed and set aside; the dead-wall
    * replacement draw starts the player's next line, like a kong replacement.
@@ -99,7 +100,7 @@ function part2ToTxt(p: MovePart2): string {
     case 'kong':
       return `KONG ${p.tile}`;
     case 'mahjong':
-      return 'MAHJONG';
+      return p.tile ? `MAHJONG ${p.tile}` : 'MAHJONG';
     case 'bonus':
       return `BONUS ${p.tile}`;
   }
