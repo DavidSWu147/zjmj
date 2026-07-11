@@ -380,6 +380,10 @@ export function renderGame(el: HTMLElement, view: GameView): void {
 
   board.style.setProperty('--tw', `${tw}px`);
 
+  // Spectator: mySeat is only a viewing perspective; all private state
+  // arrives blanked from the server and the bottom hand renders face-down.
+  const spec = view.spectator === true;
+
   // ── central control panel ─────────────────────────────────────────
   const panel = document.createElement('div');
   panel.className = 'cpanel';
@@ -412,12 +416,22 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     const side = rel === 1 || rel === 3;
     label.className = 'quad-label' + (side ? ' side' : '');
     label.style.cssText = LABEL_POS[rel];
-    const windLine = `<span class="seat-letter">${SEAT_LETTERS[seat]}</span><span class="seat-zh">${SEAT_ZH[seat]}</span>`;
+    const eye = spec && rel === 0 ? '<span class="spec-eye">👁</span>' : '';
+    const windLine = `<span class="seat-letter">${SEAT_LETTERS[seat]}</span><span class="seat-zh">${SEAT_ZH[seat]}</span>${eye}`;
     label.innerHTML = side
       ? `<span class="wind-line">${windLine}</span><span class="seat-score">${view.seats[seat].score}</span>`
       : `${windLine}<span class="seat-score">${view.seats[seat].score}</span>`;
     label.title = escapeHtml(view.seats[seat].name);
     panel.appendChild(label);
+    // Spectators switch their viewing perspective by clicking a player's
+    // section of the panel.
+    if (spec && rel !== 0) {
+      const pick = () => net.send({ type: 'spectateSeat', seat });
+      for (const target of [quad, label]) {
+        target.style.cursor = 'pointer';
+        target.addEventListener('pointerdown', pick);
+      }
+    }
   }
   const circle = document.createElement('div');
   circle.className = 'ccircle';
@@ -773,37 +787,62 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   });
   if (mine.melds.length > 0) handWrap.appendChild(meldStrip);
   const handTileEls: HTMLElement[] = [];
-  view.myHand.forEach((t, i) => {
-    const key = `h${i}`;
-    const tile = tileEl(t, { selected: selKey === key });
-    tile.classList.add('hand-tile');
-    tile.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      clickTile(key, t, false, tile);
-    });
-    handTileEls.push(tile);
-    handWrap.appendChild(tile);
-  });
-  // The drawn slot is always laid out (invisible placeholder without a
-  // tile) so drawing and discarding never re-flow the hand.
-  const dg = document.createElement('div');
-  dg.className = 'drawn-gap';
-  handWrap.appendChild(dg);
   let drawnEl: HTMLElement | null = null;
-  if (view.myDrawn !== null) {
-    const tile = tileEl(view.myDrawn, { selected: selKey === 'drawn' });
-    tile.classList.add('hand-tile');
-    tile.dataset.drawn = '1';
-    tile.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      clickTile('drawn', view.myDrawn!, true, tile);
-    });
-    drawnEl = tile;
-    handWrap.appendChild(tile);
+  if (spec) {
+    // The perspective player's concealed tiles stay hidden: backs only,
+    // turned face-up only when that player wins (the public reveal).
+    const revealed = view.reveal && view.reveal.seat === view.mySeat ? view.reveal : null;
+    const n = revealed ? revealed.hand.length : mine.handCount;
+    for (let i = 0; i < n; i++) {
+      const tile = revealed ? tileEl(revealed.hand[i]) : tileEl(null, { back: true });
+      tile.classList.add('hand-tile', 'spec-tile');
+      handWrap.appendChild(tile);
+    }
+    const dg = document.createElement('div');
+    dg.className = 'drawn-gap';
+    handWrap.appendChild(dg);
+    if (revealed ? revealed.drawn !== null : mine.hasDrawn) {
+      const tile = revealed?.drawn ? tileEl(revealed.drawn, { highlight: true }) : tileEl(null, { back: true });
+      tile.classList.add('hand-tile', 'spec-tile');
+      tile.dataset.drawn = '1';
+      handWrap.appendChild(tile);
+    } else {
+      const ph = tileEl(null, { back: true });
+      ph.style.visibility = 'hidden';
+      handWrap.appendChild(ph);
+    }
   } else {
-    const ph = tileEl(null, { back: true });
-    ph.style.visibility = 'hidden';
-    handWrap.appendChild(ph);
+    view.myHand.forEach((t, i) => {
+      const key = `h${i}`;
+      const tile = tileEl(t, { selected: selKey === key });
+      tile.classList.add('hand-tile');
+      tile.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        clickTile(key, t, false, tile);
+      });
+      handTileEls.push(tile);
+      handWrap.appendChild(tile);
+    });
+    // The drawn slot is always laid out (invisible placeholder without a
+    // tile) so drawing and discarding never re-flow the hand.
+    const dg = document.createElement('div');
+    dg.className = 'drawn-gap';
+    handWrap.appendChild(dg);
+    if (view.myDrawn !== null) {
+      const tile = tileEl(view.myDrawn, { selected: selKey === 'drawn' });
+      tile.classList.add('hand-tile');
+      tile.dataset.drawn = '1';
+      tile.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        clickTile('drawn', view.myDrawn!, true, tile);
+      });
+      drawnEl = tile;
+      handWrap.appendChild(tile);
+    } else {
+      const ph = tileEl(null, { back: true });
+      ph.style.visibility = 'hidden';
+      handWrap.appendChild(ph);
+    }
   }
   board.appendChild(handWrap);
   // Keyboard layer targets for this render (update #3). The buttons map is
@@ -1092,25 +1131,34 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       top.appendChild(b);
       return b;
     };
-    mkTop('leave', '✕', 'Leave the match', () => {
-      if (confirm('Leave the match? A bot will take your seat.')) exitMatch();
+    mkTop('leave', '✕', spec ? 'Stop watching' : 'Leave the match', () => {
+      // Leaving as a spectator loses nothing: no confirmation needed.
+      if (spec || confirm('Leave the match? A bot will take your seat.')) exitMatch();
     });
-    const autoBtn = mkTop(
-      'auto' + (autoplay ? ' active' : ''),
-      'A',
-      'Autoplay: discard every draw and pass all claims, but always take a win',
-      () => {
-        autoplay = !autoplay;
-        if (!autoplay) stopAutoplay();
-        autoKey = ''; // re-evaluate the current situation on the next render
-        autoBtn.classList.toggle('active', autoplay);
-        if (autoplay) forceRerender();
-      },
-    );
+    if (!spec) {
+      const autoBtn = mkTop(
+        'auto' + (autoplay ? ' active' : ''),
+        'A',
+        'Autoplay: discard every draw and pass all claims, but always take a win',
+        () => {
+          autoplay = !autoplay;
+          if (!autoplay) stopAutoplay();
+          autoKey = ''; // re-evaluate the current situation on the next render
+          autoBtn.classList.toggle('active', autoplay);
+          if (autoplay) forceRerender();
+        },
+      );
+    }
     mkTop('gear' + (panelOpen === 'settings' ? ' active' : ''), '⚙', 'Settings', () =>
       togglePanel('settings'),
     );
     mkTop('helpq' + (panelOpen === 'help' ? ' active' : ''), '?', 'Help', () => togglePanel('help'));
+    if (spec) {
+      const note = document.createElement('span');
+      note.className = 'spec-note';
+      note.textContent = `Spectating 觀戰 — ${view.seats[view.mySeat].name}`;
+      top.appendChild(note);
+    }
     board.appendChild(top);
   }
 
@@ -1118,7 +1166,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   // Like the dummy bot — discard the draw, pass every claim — except a win
   // is always taken immediately. Claim options still render for the moment
   // the delay lasts, so the player sees what autoplay passed on.
-  if (autoplay && !view.gameResult && !view.matchResult && autoKey !== turnKey) {
+  if (autoplay && !spec && !view.gameResult && !view.matchResult && autoKey !== turnKey) {
     const schedule = (fn: () => void): void => {
       if (autoTimer !== null) clearTimeout(autoTimer);
       autoTimer = window.setTimeout(() => {

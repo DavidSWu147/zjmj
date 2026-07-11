@@ -149,7 +149,11 @@ export function takeSnapshot(board: HTMLElement, view: GameView): BoardSnapshot 
     meldCounts: view.seats.map((sv) => sv.melds.length),
     meldTileLens: view.seats.map((sv) => sv.melds.map((m) => m.tiles.length)),
     bonusCounts: view.seats.map((sv) => (sv.bonus ?? []).length),
-    drawnFlags: view.seats.map((sv, s) => (s === view.mySeat ? view.myDrawn !== null : sv.hasDrawn)),
+    // Spectator views blank myDrawn; the perspective seat's public hasDrawn
+    // flag is the truth there.
+    drawnFlags: view.seats.map((sv, s) =>
+      s === view.mySeat && !view.spectator ? view.myDrawn !== null : sv.hasDrawn,
+    ),
     lastDiscardRect,
     stripRect,
     drawnRect,
@@ -265,7 +269,9 @@ export function animateTransition(
   let meldGrew = false;
   for (let s = 0; s < 4; s++) {
     const sv = view.seats[s];
-    const isMe = s === view.mySeat;
+    // A spectator's "own" seat is only a perspective: its drawn tile state
+    // and faces are public info (hasDrawn / backs), like an opponent's.
+    const isMe = s === view.mySeat && !view.spectator;
     const hasDrawnNow = isMe ? view.myDrawn !== null : sv.hasDrawn;
 
     // Drawn bonus tiles: the server settles the whole chain in one update,
@@ -392,7 +398,10 @@ export function animateTransition(
     const from = prev.lastDiscardRect[claimedFrom];
     if (winner >= 0 && from) {
       const sel = drawnSel(winner, view.mySeat);
-      const face = winner === view.mySeat ? view.myDrawn : (view.reveal?.drawn ?? null);
+      const face =
+        winner === view.mySeat && !view.spectator
+          ? view.myDrawn
+          : (view.reveal?.drawn ?? null);
       if (board.querySelector(sel)) {
         fly(board, face, from, sel, MELD_MS, degOfSeat(claimedFrom, view.mySeat));
       }

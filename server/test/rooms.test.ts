@@ -76,3 +76,30 @@ describe('idle room cleanup', () => {
     expect(rooms.get(room.id)).toBeDefined();
   });
 });
+
+describe('spectating', () => {
+  it('watch joins a running match only, from outside any room', () => {
+    const { rooms } = makeRooms();
+    const room = rooms.create(session('host'), { ...DEFAULT_SETTINGS }) as Room;
+
+    // No match yet.
+    expect(rooms.watch(session('s1'), room.id)).toBe('No match in progress.');
+
+    expect(rooms.startMatch('host', () => {})).toBeNull();
+    expect(rooms.watch(session('s1'), room.id)).toBeNull();
+    expect(rooms.spectatingRoomOf('s1')?.id).toBe(room.id);
+    expect(room.summary().spectators).toBe(1);
+
+    // Watching twice / from inside a room / players themselves.
+    expect(rooms.watch(session('s1'), room.id)).toBe('Already watching a match.');
+    rooms.join(session('p2'), 0);
+    expect(rooms.watch(session('p2'), room.id)).toBe('Leave your room first.');
+    expect(rooms.watch(session('host'), room.id)).toBe('Leave your room first.');
+
+    // Leave stops spectating and frees the slot.
+    rooms.leave('s1');
+    expect(rooms.spectatingRoomOf('s1')).toBeNull();
+    expect(room.summary().spectators).toBe(0);
+    room.match?.dispose();
+  });
+});

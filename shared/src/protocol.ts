@@ -92,6 +92,8 @@ export interface RoomSummary {
   inGame: boolean;
   /** Joining needs the room's 4-digit code (the code itself is never listed). */
   isPrivate: boolean;
+  /** Spectators currently watching the running match (cap 4). */
+  spectators?: number;
 }
 
 export interface MeldView {
@@ -229,6 +231,12 @@ export interface GameView {
   winFlash: { seat: number; value: number; bigPattern?: { name: string; zh: string } } | null;
   gameResult: GameResultView | null;
   matchResult: MatchResultView | null;
+  /**
+   * Spectator view: `mySeat` is only a viewing perspective. All private
+   * state (myHand, myDrawn, myOptions, …) is blanked server-side; the
+   * perspective seat's tiles show as backs until a winning hand is revealed.
+   */
+  spectator?: boolean;
 }
 
 export type GameAction =
@@ -247,6 +255,10 @@ export type ClientMsg =
   | { type: 'deleteRoom' }
   | { type: 'startMatch' }
   | { type: 'leaveMatch' }
+  /** Join a running match as a spectator (up to 4 per match). */
+  | { type: 'watchMatch'; roomId: number }
+  /** Spectator only: switch the viewing perspective to this current seat. */
+  | { type: 'spectateSeat'; seat: number }
   | { type: 'action'; action: GameAction };
 
 export type ServerMsg =

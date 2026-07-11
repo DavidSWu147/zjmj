@@ -841,6 +841,15 @@ dialog::backdrop {
     transform: translateY(calc(var(--tw) * -0.1));
   }
 }
+/* Spectator perspective hand: not interactive, no hover lift. */
+.hand-tile.spec-tile {
+  cursor: default;
+}
+@media (hover: hover) and (pointer: fine) {
+  .hand-tile.spec-tile:hover {
+    transform: none;
+  }
+}
 
 /* Opponent strips hug their outer screen edge on the cross axis, so melds
    (and a small kong's pocket) always deepen toward the board center. */
@@ -997,6 +1006,22 @@ dialog::backdrop {
   color: var(--accent);
   border-color: var(--accent);
   box-shadow: none;
+}
+/* Spectator mode marker next to the top bar buttons. */
+.spec-note {
+  align-self: center;
+  margin-left: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: #0e1a14cc;
+  border: 1px solid #0007;
+  color: var(--kw-mahjong);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+/* Eye marker on the quadrant the spectator is viewing from. */
+.spec-eye {
+  font-size: calc(var(--ps, 240px) * 0.06);
 }
 
 /* Mid-screen Settings/Help panel during a match. A sibling of the board, so

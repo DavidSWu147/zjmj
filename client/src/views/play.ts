@@ -163,6 +163,14 @@ function roomRow(room: RoomSummary, myRoom: number | null): HTMLElement {
     tag.style.color = 'var(--kw-mahjong)';
     tag.textContent = 'In game';
     btns.appendChild(tag);
+    const specs = room.spectators ?? 0;
+    const b = document.createElement('button');
+    b.textContent = specs > 0 ? `Watch 👁${specs}` : 'Watch';
+    b.title = 'Watch this match as a spectator (up to 4 watchers)';
+    b.disabled = myRoom !== null || specs >= 4;
+    b.dataset.action = 'join'; // lobby Enter watches an in-game room too
+    b.addEventListener('click', () => net.send({ type: 'watchMatch', roomId: room.id }));
+    btns.appendChild(b);
   } else if (isMine) {
     mk('Start Match', () => net.send({ type: 'startMatch' }), !iAmHost, 'start');
     mk('Leave', () => net.send({ type: 'leaveRoom' }), false, 'leave');

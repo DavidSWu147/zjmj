@@ -61,6 +61,7 @@ export class Room {
       // anyone joining now would be ejected moments later.
       inGame: this.match !== null,
       isPrivate: this.code !== null,
+      spectators: this.match && !this.match.finished ? this.match.spectatorCount : 0,
     };
   }
 }
@@ -170,8 +171,33 @@ export class Rooms {
     return room;
   }
 
-  /** Leave the room (and the match if one is running). */
+  /** The room whose running match this player is watching, if any. */
+  spectatingRoomOf(playerId: string): Room | null {
+    for (const r of this.rooms.values()) {
+      if (r.match && !r.match.finished && r.match.hasSpectator(playerId)) return r;
+    }
+    return null;
+  }
+
+  /** Join a running match as a spectator. */
+  watch(session: SessionLike, roomId: number): string | null {
+    const room = this.rooms.get(roomId);
+    if (!room || !room.match || room.match.finished) return 'No match in progress.';
+    if (this.roomOf(session.playerId)) return 'Leave your room first.';
+    if (this.spectatingRoomOf(session.playerId)) return 'Already watching a match.';
+    const err = room.match.addSpectator(session.playerId);
+    if (err) return err;
+    this.delegate.onLobbyChanged();
+    return null;
+  }
+
+  /** Leave the room (and the match if one is running), or stop spectating. */
   leave(playerId: string): void {
+    const specRoom = this.spectatingRoomOf(playerId);
+    if (specRoom) {
+      specRoom.match!.removeSpectator(playerId);
+      this.delegate.onLobbyChanged();
+    }
     const room = this.roomOf(playerId);
     if (!room) return;
     room.members = room.members.filter((m) => m.playerId !== playerId);

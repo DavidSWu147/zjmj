@@ -25,6 +25,9 @@ export const DEFAULT_TIMING: MatchTiming = {
   matchEndMs: 10000, // final standings screen duration
 };
 
+/** Non-playing users allowed to watch a running match at one moment. */
+export const SPECTATOR_CAP = 4;
+
 export interface MatchDelegate {
   /** Push a view to a (human) player. */
   sendView(playerId: string, view: GameView): void;
@@ -55,6 +58,8 @@ export class Match {
   private resultView: GameResultView | null = null;
   private matchResultView: MatchResultView | null = null;
   private leftIds = new Set<string>();
+  /** Watching playerIds mapped to their viewing perspective (START seat). */
+  private spectators = new Map<string, number>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   finished = false;
 
@@ -236,6 +241,69 @@ export class Match {
     return this.leftIds.has(playerId);
   }
 
+  // ── spectators ──────────────────────────────────────────────────────
+  // Watchers are not players: they hold no seat, cannot act, and see only
+  // public information. Their perspective is stored as a START seat so it
+  // follows the same player across the match's seat rotations.
+
+  get spectatorCount(): number {
+    return this.spectators.size;
+  }
+
+  hasSpectator(playerId: string): boolean {
+    return this.spectators.has(playerId);
+  }
+
+  /** Adds a watcher (default perspective: the starting East player). */
+  addSpectator(playerId: string): string | null {
+    if (this.finished) return 'The match has already finished.';
+    if (this.players.some((p) => p.id === playerId)) return 'You are playing in this match.';
+    if (!this.spectators.has(playerId) && this.spectators.size >= SPECTATOR_CAP) {
+      return `Spectator limit reached (${SPECTATOR_CAP}).`;
+    }
+    this.spectators.set(playerId, 0);
+    this.sendSpectatorView(playerId);
+    return null;
+  }
+
+  removeSpectator(playerId: string): void {
+    this.spectators.delete(playerId);
+  }
+
+  /** Perspective switch; `currentSeat` is a seat of the game being shown. */
+  setSpectatorSeat(playerId: string, currentSeat: number): void {
+    if (!this.spectators.has(playerId) || !this.game) return;
+    const seat = ((Math.trunc(currentSeat) % 4) + 4) % 4;
+    this.spectators.set(playerId, (seat + this.game.gameIndex) % 4);
+    this.sendSpectatorView(playerId);
+  }
+
+  viewForSpectator(playerId: string): GameView | null {
+    const startSeat = this.spectators.get(playerId);
+    if (startSeat === undefined || !this.game) return null;
+    const seat = (startSeat - (this.game.gameIndex % 4) + 4) % 4;
+    const v = this.game.buildView(seat, this.resultView);
+    // Blank every piece of private state: the perspective seat's concealed
+    // tiles stay hidden (the client draws backs from seats[].handCount and
+    // only the reveal-on-win shows faces).
+    v.spectator = true;
+    v.myHand = [];
+    v.myDrawn = null;
+    v.selected = null;
+    v.myOptions = {};
+    v.pendingClaim = null;
+    if (this.matchResultView) {
+      v.phase = 'matchEnd';
+      v.matchResult = this.matchResultView;
+    }
+    return v;
+  }
+
+  private sendSpectatorView(playerId: string): void {
+    const v = this.viewForSpectator(playerId);
+    if (v) this.delegate.sendView(playerId, v);
+  }
+
   handleAction(playerId: string, action: Parameters<Game['handleAction']>[1]): void {
     if (this.finished || !this.game) return;
     const startSeat = this.players.findIndex((p) => p.id === playerId);
@@ -265,5 +333,6 @@ export class Match {
       const v = this.viewFor(p.id);
       if (v) this.delegate.sendView(p.id, v);
     }
+    for (const pid of this.spectators.keys()) this.sendSpectatorView(pid);
   }
 }

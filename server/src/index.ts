@@ -64,7 +64,10 @@ function lobbyMsgFor(session: Session): ServerMsg {
     rooms: rooms.list(),
     myRoom: room ? room.id : null,
     myRoomCode: isMember ? (room?.code ?? null) : null,
-    inMatch: !!room?.match && !room.match.finished,
+    // Spectators count as "in a match" so lobby refreshes never tear down
+    // the board they are watching.
+    inMatch:
+      (!!room?.match && !room.match.finished) || rooms.spectatingRoomOf(session.playerId) !== null,
   };
 }
 
@@ -114,6 +117,15 @@ function handleMsg(session: Session, msg: ClientMsg): void {
     case 'startMatch': {
       const err = rooms.startMatch(session.playerId, sendViewTo);
       if (err) send(session, { type: 'toast', message: err });
+      break;
+    }
+    case 'watchMatch': {
+      const err = rooms.watch(sessionLike(session), msg.roomId);
+      if (err) send(session, { type: 'toast', message: err });
+      break;
+    }
+    case 'spectateSeat': {
+      rooms.spectatingRoomOf(session.playerId)?.match?.setSpectatorSeat(session.playerId, msg.seat);
       break;
     }
     case 'action': {
@@ -210,6 +222,12 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     if (!session) return;
     if (session.ws === ws) session.ws = null;
+    // Spectator slots are scarce (cap 4): a disconnect frees one at once.
+    // Only when no socket is left — a reconnect closing its old socket
+    // must not drop the new session's spectator slot.
+    if (session.ws === null && rooms.spectatingRoomOf(session.playerId)) {
+      rooms.leave(session.playerId);
+    }
     const room = rooms.roomOf(session.playerId);
     if (room) {
       if (room.match && !room.match.finished) {

@@ -285,6 +285,63 @@ describe('match simulation', () => {
     });
   }, 90000);
 
+  it('supports spectators: censored views, seat switching, cap of 4', async () => {
+    const views = new Map<string, GameView>();
+    const match = new Match(
+      settings(1),
+      [{ id: 'p1', name: 'Solo', isBot: false }],
+      {
+        sendView: (pid, view) => views.set(pid, view),
+        isConnected: (pid) => pid === 'p1',
+        onMatchEnd: () => {},
+        rng: mulberry32(11),
+        timing: FAST,
+      },
+    );
+    match.start();
+    await sleep(20); // past dealMs: game E1 is under way
+
+    // Players cannot watch their own match; watchers join up to the cap.
+    expect(match.addSpectator('p1')).toBe('You are playing in this match.');
+    expect(match.addSpectator('s1')).toBeNull();
+    expect(match.addSpectator('s2')).toBeNull();
+    expect(match.addSpectator('s3')).toBeNull();
+    expect(match.addSpectator('s4')).toBeNull();
+    expect(match.addSpectator('s5')).toBe('Spectator limit reached (4).');
+    expect(match.addSpectator('s1')).toBeNull(); // re-watching is idempotent
+    expect(match.spectatorCount).toBe(4);
+    expect(match.hasSpectator('s1')).toBe(true);
+
+    // The spectator view carries only public information.
+    const v = views.get('s1')!;
+    expect(v.spectator).toBe(true);
+    expect(v.mySeat).toBe(0); // default perspective: starting East (game E1)
+    expect(v.myHand).toEqual([]);
+    expect(v.myDrawn).toBeNull();
+    expect(v.myOptions).toEqual({});
+    expect(v.pendingClaim).toBeNull();
+    expect(v.selected).toBeNull();
+    // Public counts are intact (13 concealed + possibly a drawn flag).
+    expect(v.seats[v.mySeat].handCount).toBe(13);
+
+    // Broadcasts reach spectators too.
+    views.delete('s1');
+    match.broadcast();
+    expect(views.get('s1')!.spectator).toBe(true);
+
+    // Perspective switch by current seat.
+    match.setSpectatorSeat('s1', 2);
+    expect(views.get('s1')!.mySeat).toBe(2);
+
+    match.removeSpectator('s1');
+    expect(match.spectatorCount).toBe(3);
+    views.delete('s1');
+    match.broadcast();
+    expect(views.has('s1')).toBe(false);
+
+    match.dispose();
+  });
+
   it('ends in an immediate draw when the seabed tile is a bonus tile', async () => {
     // Wall seed 2 makes game E1's final live draw a bonus tile for dummy
     // bots (found by simulating the wall consumption, including the match's
