@@ -1008,17 +1008,20 @@ dialog::backdrop {
   border-color: var(--accent);
   box-shadow: none;
 }
-/* Spectator mode marker next to the top bar buttons. */
-.spec-note {
+/* Info pills next to the top bar buttons (room number/code, spectating). */
+.top-note {
   align-self: center;
   margin-left: 6px;
   padding: 4px 10px;
   border-radius: 8px;
   background: #0e1a14cc;
   border: 1px solid #0007;
-  color: var(--kw-mahjong);
+  color: var(--text-dim);
   font-size: 12.5px;
   white-space: nowrap;
+}
+.top-note.spec-note {
+  color: var(--kw-mahjong);
 }
 /* Eye marker on the quadrant the spectator is viewing from. */
 .spec-eye {

@@ -120,7 +120,7 @@ function handleMsg(session: Session, msg: ClientMsg): void {
       break;
     }
     case 'watchMatch': {
-      const err = rooms.watch(sessionLike(session), msg.roomId);
+      const err = rooms.watch(sessionLike(session), msg.roomId, msg.code);
       if (err) send(session, { type: 'toast', message: err });
       break;
     }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SETTINGS } from '../../shared/src/protocol';
+import { DEFAULT_SETTINGS, GameView } from '../../shared/src/protocol';
 import { Room, Rooms, ROOM0_IDLE_MS, ROOM_IDLE_MS, RoomsDelegate, SessionLike } from '../src/rooms';
 
 function makeRooms(): { rooms: Rooms; notified: { ids: string[]; message: string }[] } {
@@ -100,6 +100,25 @@ describe('spectating', () => {
     rooms.leave('s1');
     expect(rooms.spectatingRoomOf('s1')).toBeNull();
     expect(room.summary().spectators).toBe(0);
+    room.match?.dispose();
+  });
+
+  it('watching a private room needs its code, and views carry the room', () => {
+    const { rooms } = makeRooms();
+    const room = rooms.create(session('host'), { ...DEFAULT_SETTINGS }, true) as Room;
+    const views = new Map<string, GameView>();
+    expect(rooms.startMatch('host', (pid, v) => views.set(pid, v))).toBeNull();
+
+    const wrong = room.code === '9999' ? '0000' : '9999';
+    expect(rooms.watch(session('s1'), room.id)).toBe('This room needs its 4-digit code.');
+    expect(rooms.watch(session('s1'), room.id, wrong)).toBe('Wrong room code.');
+    expect(rooms.watch(session('s1'), room.id, room.code!)).toBeNull();
+
+    // Every view — player's and spectator's — is stamped with the hosting
+    // room so the match screen can show "Room #N · Code XXXX".
+    room.match!.broadcast();
+    expect(views.get('host')?.room).toEqual({ id: room.id, code: room.code });
+    expect(views.get('s1')?.room).toEqual({ id: room.id, code: room.code });
     room.match?.dispose();
   });
 

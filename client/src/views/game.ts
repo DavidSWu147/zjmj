@@ -1156,9 +1156,17 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       togglePanel('settings'),
     );
     mkTop('helpq' + (panelOpen === 'help' ? ' active' : ''), '?', 'Help', () => togglePanel('help'));
+    // The hosting room — with its code for private rooms, since mid-match
+    // this is the only place players can still read it to invite watchers.
+    if (view.room) {
+      const rn = document.createElement('span');
+      rn.className = 'top-note';
+      rn.textContent = `Room #${view.room.id}${view.room.code ? ` · Code ${view.room.code}` : ''}`;
+      top.appendChild(rn);
+    }
     if (spec) {
       const note = document.createElement('span');
-      note.className = 'spec-note';
+      note.className = 'top-note spec-note';
       note.textContent = `Spectating 觀戰 — ${view.seats[view.mySeat].name}`;
       top.appendChild(note);
     }

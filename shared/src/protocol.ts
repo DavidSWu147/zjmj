@@ -232,6 +232,12 @@ export interface GameView {
   gameResult: GameResultView | null;
   matchResult: MatchResultView | null;
   /**
+   * The hosting room, shown at the top of the match screen — the only place
+   * a private room's code stays visible once the match is under way (it is
+   * needed to invite spectators). Null outside a room context (tests).
+   */
+  room: { id: number; code: string | null } | null;
+  /**
    * Spectator view: `mySeat` is only a viewing perspective. All private
    * state (myHand, myDrawn, myOptions, …) is blanked server-side; the
    * perspective seat's tiles show as backs until a winning hand is revealed.
@@ -255,8 +261,9 @@ export type ClientMsg =
   | { type: 'deleteRoom' }
   | { type: 'startMatch' }
   | { type: 'leaveMatch' }
-  /** Join a running match as a spectator (up to 4 per match). */
-  | { type: 'watchMatch'; roomId: number }
+  /** Join a running match as a spectator (up to 4 per match). Watching a
+   *  private room's match needs its 4-digit code, same as joining. */
+  | { type: 'watchMatch'; roomId: number; code?: string }
   /** Spectator only: switch the viewing perspective to this current seat. */
   | { type: 'spectateSeat'; seat: number }
   | { type: 'action'; action: GameAction };

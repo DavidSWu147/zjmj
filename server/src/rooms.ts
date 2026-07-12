@@ -179,12 +179,15 @@ export class Rooms {
     return null;
   }
 
-  /** Join a running match as a spectator. */
-  watch(session: SessionLike, roomId: number): string | null {
+  /** Join a running match as a spectator (private rooms need their code). */
+  watch(session: SessionLike, roomId: number, code?: string): string | null {
     const room = this.rooms.get(roomId);
     if (!room || !room.match || room.match.finished) return 'No match in progress.';
     if (this.roomOf(session.playerId)) return 'Leave your room first.';
     if (this.spectatingRoomOf(session.playerId)) return 'Already watching a match.';
+    if (room.code !== null && code !== room.code) {
+      return code ? 'Wrong room code.' : 'This room needs its 4-digit code.';
+    }
     const err = room.match.addSpectator(session.playerId);
     if (err) return err;
     this.delegate.onLobbyChanged();
@@ -267,7 +270,7 @@ export class Rooms {
         }, aborted ? 0 : 20000);
         this.delegate.onLobbyChanged();
       },
-    });
+    }, { id: room.id, code: room.code });
     room.match = match;
     room.touch();
     this.delegate.onLobbyChanged();

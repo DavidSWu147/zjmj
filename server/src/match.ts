@@ -65,9 +65,18 @@ export class Match {
   private timer: ReturnType<typeof setTimeout> | null = null;
   finished = false;
 
-  constructor(settings: RoomSettings, humans: MatchPlayer[], delegate: MatchDelegate) {
+  /** Hosting room, stamped onto every view (shows the private-room code). */
+  private roomInfo: { id: number; code: string | null } | null;
+
+  constructor(
+    settings: RoomSettings,
+    humans: MatchPlayer[],
+    delegate: MatchDelegate,
+    room: { id: number; code: string | null } | null = null,
+  ) {
     this.settings = settings;
     this.delegate = delegate;
+    this.roomInfo = room;
     this.timing = { ...DEFAULT_TIMING, ...delegate.timing };
     this.rng = delegate.rng ?? Math.random;
 
@@ -292,6 +301,7 @@ export class Match {
     if (startSeat === undefined || !this.game) return null;
     const seat = (startSeat - (this.game.gameIndex % 4) + 4) % 4;
     const v = this.game.buildView(seat, this.resultView);
+    v.room = this.roomInfo;
     // Blank every piece of private state: the perspective seat's concealed
     // tiles stay hidden (the client draws backs from seats[].handCount and
     // only the reveal-on-win shows faces).
@@ -329,6 +339,7 @@ export class Match {
     // starting seat under the standings screen.
     const seat = (startSeat - (this.game.gameIndex % 4) + 4) % 4;
     const v = this.game.buildView(seat, this.resultView);
+    v.room = this.roomInfo;
     if (this.matchResultView) {
       v.phase = 'matchEnd';
       v.matchResult = this.matchResultView;

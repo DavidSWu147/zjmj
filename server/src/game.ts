@@ -1461,6 +1461,7 @@ export class Game {
       claims,
       myOptions,
       pendingClaim,
+      room: null, // stamped by the Match, which knows its hosting room
       winFlash:
         this.result !== null &&
         this.result.winnerSeat != null &&

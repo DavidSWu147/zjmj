@@ -169,7 +169,15 @@ function roomRow(room: RoomSummary, myRoom: number | null): HTMLElement {
     b.title = 'Watch this match as a spectator (up to 4 watchers)';
     b.disabled = myRoom !== null || specs >= 4;
     b.dataset.action = 'join'; // lobby Enter watches an in-game room too
-    b.addEventListener('click', () => net.send({ type: 'watchMatch', roomId: room.id }));
+    b.addEventListener('click', () => {
+      if (room.isPrivate) {
+        const code = prompt(`Room #${room.id} is private. Enter its 4-digit code:`)?.trim();
+        if (!code) return;
+        net.send({ type: 'watchMatch', roomId: room.id, code });
+      } else {
+        net.send({ type: 'watchMatch', roomId: room.id });
+      }
+    });
     btns.appendChild(b);
   } else if (isMine) {
     mk('Start Match', () => net.send({ type: 'startMatch' }), !iAmHost, 'start');
