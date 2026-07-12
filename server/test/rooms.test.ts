@@ -102,4 +102,22 @@ describe('spectating', () => {
     expect(room.summary().spectators).toBe(0);
     room.match?.dispose();
   });
+
+  it('an abandoned match drops its spectators back to the lobby at once', () => {
+    const { rooms, notified } = makeRooms();
+    const room = rooms.create(session('host'), { ...DEFAULT_SETTINGS }) as Room;
+    const views: string[] = [];
+    expect(rooms.startMatch('host', (pid) => views.push(pid))).toBeNull();
+    expect(rooms.watch(session('s1'), room.id)).toBeNull();
+
+    views.length = 0;
+    rooms.leave('host'); // last human leaves: the match aborts
+    // The spectator was dropped BEFORE the final broadcast: no match-over
+    // screen reaches them, and they are told why.
+    expect(views).not.toContain('s1');
+    expect(rooms.spectatingRoomOf('s1')).toBeNull();
+    expect(
+      notified.some((n) => n.ids.includes('s1') && n.message.includes('abandoned')),
+    ).toBe(true);
+  });
 });

@@ -318,6 +318,7 @@ button:disabled {
 }
 .room-row .btns {
   display: flex;
+  align-items: center; /* the "In game" tag sits level with the buttons */
   gap: 8px;
 }
 

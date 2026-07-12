@@ -271,6 +271,9 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     lastViewKey = '';
     shownBigPattern = '';
     clearFlights();
+    // Autoplay never carries into a new game: accidentally leaving it on
+    // is disastrous, so every game starts with it off.
+    stopAutoplay();
   }
   // Reset the local tile selection only when the situation actually changes,
   // not on every server broadcast (a select echo must not clear it).

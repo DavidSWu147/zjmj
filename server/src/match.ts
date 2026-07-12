@@ -60,6 +60,8 @@ export class Match {
   private leftIds = new Set<string>();
   /** Watching playerIds mapped to their viewing perspective (START seat). */
   private spectators = new Map<string, number>();
+  /** Watchers dropped by an abort, for the host to notify (see endMatch). */
+  abortedWatchers: string[] = [];
   private timer: ReturnType<typeof setTimeout> | null = null;
   finished = false;
 
@@ -191,6 +193,13 @@ export class Match {
     this.finished = true;
     this.game?.dispose();
     if (this.timer) clearTimeout(this.timer);
+    // An abort tears the room down immediately — spectators are dropped
+    // BEFORE the final broadcast so no lingering match-over overlay can
+    // fight that cleanup; they land back in the lobby at once.
+    if (aborted && this.spectators.size > 0) {
+      this.abortedWatchers = [...this.spectators.keys()];
+      this.spectators.clear();
+    }
     this.matchResultView = {
       standings: this.players
         .map((p, seat) => ({

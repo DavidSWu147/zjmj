@@ -243,6 +243,9 @@ export class Rooms {
       isConnected: (pid) => this.delegate.isConnected(pid),
       onMatchEnd: (record, aborted) => {
         this.delegate.onMatchFinished(record, aborted);
+        if (aborted && match.abortedWatchers.length > 0) {
+          this.delegate.notify(match.abortedWatchers, 'The match was abandoned by its players.');
+        }
         // Clean up after the standings screen has run its course: user rooms
         // are disbanded outright; room #0 just returns to lobby state. An
         // aborted match (every human left) has no standings watchers, so it
