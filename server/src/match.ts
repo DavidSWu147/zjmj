@@ -1,12 +1,15 @@
-import { GameResultView, GameView, MatchResultView, RoomSettings } from '../../shared/src/protocol';
+import { BotDifficulty, GameResultView, GameView, MatchResultView, RoomSettings } from '../../shared/src/protocol';
 import { GameRecord, MatchRecord } from '../../shared/src/records';
 import { Tile } from '../../shared/src/tiles';
+import { BotKind } from './chickenbot';
 import { Game, GameHost } from './game';
 
 export interface MatchPlayer {
   id: string;
   name: string;
   isBot: boolean;
+  /** Bot brain; only meaningful when isBot (humans default to dummy takeover). */
+  kind?: BotKind;
 }
 
 export interface MatchTiming {
@@ -73,6 +76,7 @@ export class Match {
     humans: MatchPlayer[],
     delegate: MatchDelegate,
     room: { id: number; code: string | null } | null = null,
+    botDifficulty: BotDifficulty = 'dummy',
   ) {
     this.settings = settings;
     this.delegate = delegate;
@@ -82,8 +86,14 @@ export class Match {
 
     const seated: MatchPlayer[] = [...humans];
     let botNum = 1;
+    const botName = botDifficulty === 'chicken' ? 'ChickenBot' : 'DummyBot';
     while (seated.length < 4) {
-      seated.push({ id: `bot-${this.matchId}-${botNum}`, name: `Bot ${botNum}`, isBot: true });
+      seated.push({
+        id: `bot-${this.matchId}-${botNum}`,
+        name: `${botName}${botNum}`,
+        isBot: true,
+        kind: botDifficulty,
+      });
       botNum++;
     }
     // Random seating regardless of join order (spec).
@@ -128,6 +138,12 @@ export class Match {
       isBot: (seat) => {
         const p = this.playerAt(seat);
         return p.isBot || this.leftIds.has(p.id) || !this.delegate.isConnected(p.id);
+      },
+      // Actual bot players use their brain; a bot standing in for a departed
+      // or disconnected human stays a dummy.
+      botKind: (seat) => {
+        const p = this.playerAt(seat);
+        return p.isBot ? (p.kind ?? 'dummy') : 'dummy';
       },
       isBotPlayer: (seat) => this.playerAt(seat).isBot,
       nameOf: (seat) => this.playerAt(seat).name,

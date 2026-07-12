@@ -1,0 +1,51 @@
+First some minor cleaning up
+1. Remove the eye emoji from spectators view 
+2. Make the Scores 總分 text indicating current score larger
+3. Make the buttons and "Spectating" text in the top left smaller on mobile to not collide with the left player's name
+
+Now for a big change
+4. Add an actual non-trivial bot player. Rename the trivial bots to DummyBot1, DummyBot2, etc. and call the new bot ChickenBot1, ChickenBot2 etc. As one would expect, the ChickenBot only naively goes for the quickest win possible, usually resulting in a chicken hand. But it can make Seven Pairs or even Thirteen Terminals. How it works:
+
+First, define the concepts "distance from ready" and "distance reducing outs"
+"Distance from ready" is defined for a pre-draw 13-tile hand as how many perfect draws and/or called tiles one needs to reach "ready state", i.e. being able to call Mahjong on one or more tiles
+For example, a hand that's already ready, for example a hand with 4 melds already and just waiting for the pair, has a "distance from ready" of 0
+A hand such as B-456 C-556 D-45 EEE RR has "distance from ready" of 1
+A hand with all its tiles as unpaired honors and unpaired number tiles separated a distance of at least 3 from each other has the maximum possible "distance from ready" of 8
+Towards a regular hand that is. If the hand has not declared any melds, "distance from ready" can also be defined with respect to Seven Pairs. In that case it is just 6 minus the number of pairs in the hand (remember duplicate pairs work if Kong is not called)
+Similarly, "distance from ready" can be easily defined with respect to Thirteen Terminals, as 13 minus the number of unique 1s, 9s, and honors, minus another 1 if at least one of them is paired
+However, to define "distance from ready" towards a regular hand with 4 melds and one pair is more difficult
+Let melds such as sequences, triplets, and declared Kongs have a "contribution" of 3
+Let pairs and partial melds (any of 23, 34, 45, 56, 67, 78, 13, 24, 35, 46, 57, 68, 79, 12, or 89 in the same suit) have a "contribution" of 2
+Finally, let a single tile have a "contribution" of 1
+Determining the "distance from ready" is equivalent to extracting parts of the hand tiles out, to put alongside any melds already made, and trying to fill up 3-3-3-3-2, where the last 2 must be a pair or a single tile
+Then, subtracting the sum of the "contributions" from 13 yields "distance from ready"
+For example, there are two basic ways to have a ready hand, either 3-3-3-2-2 where at least one of the 2s is a pair, or 3-3-3-3-1
+For "distance from ready" of 1, there can be 3-3-2-2-2 (at least one of the 2s is a pair) like the above example hand, or 3-3-3-2-1 (the 2 doesn't have to be a pair, since the single 1 could be it). 13 - 12 = 1-"distance from ready"
+For "distance from ready" of 2, there can be 3-2-2-2-2 (at least one of the 2s is a pair), 3-3-2-2-1, or 3-3-3-1-1, the latter of which would be a hand with 3 melds but all other tiles are isolated. . 13 - 11 = 2-"distance from ready"
+"Distance from ready" of 8 only has 1-1-1-1-1 as a possibility, since for all five components the best the hand could do was put forth a 1 or single tile. 13 - 5 = 8-"distance from ready"
+In general, after having properly extracted sequences, triplets, pairs, and partial melds from the hand tiles, greedily filling out 3-3-3-3-2 in the order sequences/triplets, then pairs starting with the required pair for 2 at the end, then partial melds, and finally filling any leftover slots with 1s for single tiles works 
+The tricky part is properly extracting sequences and triplets: e.g. care must be taken not to extract 456 from 345567 instead of 345 and 567, and extracting a 111 triplet from 11123 instead of a 123 sequence could leave the hand without a pair
+
+"Distance reducing outs" is defined as the number of tiles (NOT number of types of tiles) that when drawn, take what was a previously N-"distance from ready" hand to, after discarding an appropriate tile, an N-1-"distance from ready" hand
+The exception is for hands which are already ready or 0-"distance from ready", and in that case "distance improving outs" simply refers to the number of tiles the hand can call Mahjong on and win
+Calculating "distance reducing outs" is simply done by checking each type of tile, trying to draw it into hand and seeing if discarding any other tile from the hand results in an N-1-"distance from ready" hand. Then, if that tile works, add the number of visible copies of that tile from the perspective of the player to the running count of "distance reducing outs"
+If the function for calculating "distance from ready" is logically correct and sound, then "distance reducing outs" naturally follows
+
+The policy the ChickenBot should follow is:
+    4.1 if it can call Mahjong, it always calls Mahjong, and will succeed unless intercepted by a higher priority Mahjong call
+    4.2 if the ChickenBot has not declared any melds, and has 9 or more unique 1s/9s/honors in hand, it will try to make Thirteen Terminals, and PASS on all non-Mahjong calls
+    4.3 else, if the ChickenBot has not declared any melds, and has 5 or more pairs in hand, it will try to make Seven Pairs, and PASS on all non-Mahjong calls
+    4.4 otherwise, when choosing a tile to discard, first it tries to minimize "distance from ready", then among choices of discard with equal "distance from ready", it tries to maximize "distance reducing outs". Finally, if there are still ties in "distance reducing outs":
+    4.4.1 discard a number tile before an honor tile. Among number tiles, discard the tile earliest in this order: B5, C5, D5, B4, C4, D4, B6, C6, D6, B3, C3, D3, B7, C7, D7, B2, C2, D2, B8, C8, D8, B1, C1, D1, B9, C9, D9
+    4.4.2 if choosing among honor tiles to discard, if sitting East, discard the tile earliest in this order: S, W, N, R, G, O, E; if sitting South: W, N, E, O, R, G, S; if sitting West: N, E, S, G, R, O, W; if sitting North: E, S, W, O, G, R, N
+    4.4.3 if multiple identical copies of the tile to discard exist in hand, discard the one closest to the drawn tile, i.e. always prefer to discard the drawn tile over an identical copy of that tile in hand
+    4.5 if the ChickenBot has a choice to Chow or Pung or both, it will choose to do so if it can strictly improve "distance from ready" to N-1. if all options to claim result in "distance from ready" of N, it will PASS. if multiple choices of claim result in "distance from ready" of N-1, break the tie with most "distance reducing outs", 
+    then if still tied, prefer Pung over Chow, and if still tied among multiple options to Chow, select the Chow using the highest numbers (as if pressing the "E" hotkey)
+    4.6 if the ChickenBot has a choice to Kong, immediately check the "distance from ready" of the resulting hand before drawing a replacement tile. if this is equal to original N, then Kong, but if this is greater than original N, then do not Kong. This applies to all three types of Kong. Note that a Pung or Chow that decreases "distance from ready" should be chosen over Big Exposed Kong
+
+5. To incorporate the ChickenBot into an actual game, in the same row as "Start Match", "Leave", and "Delete", add another option "Bot Difficulty". By default, it says "Bot Difficulty: Dummy", but clicking on it changes it to "Bot Difficulty: Chicken", and clicking it again reverts to "Bot Difficulty: Dummy" (for now). Only the host can toggle this option. Starting a match with "Bot Difficulty: Chicken" should load ChickenBots for the missing players instead of DummyBots
+
+And some more smaller changes
+6. To have a clearer indicator of when low on thinking time, have the normally yellow thinking time gauge flash red when 3 seconds or less are left, and have the circle in the central control panel flash between what it normally displays and big red text "3", "2", "1", aligning the "3", "2", and "1" with the beat of whole seconds remaining. Flash slow enough for a human player to notice
+7. Refactor the statistics, so that statistics of games played under standard settings, i.e. any matches with settings identical to the default settings in Room #0, except for Match Length and Thinking Time, appear separately from the statistics of matches played with any different settings, which now appear on a different page
+

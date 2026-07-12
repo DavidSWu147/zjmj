@@ -51,6 +51,8 @@ let panelOpen: 'settings' | 'help' | null = null;
 /** Autoplay: auto-discard the draw and pass claims, but always take a win. */
 let autoplay = false;
 let autoTimer: number | null = null;
+/** Low-thinking-time countdown loop (0.1.4 #6); one per rendered timer bar. */
+let lowTimeTimer: number | null = null;
 /** Situation key autoplay last acted on (never act twice on one state). */
 let autoKey = '';
 /** Matches the server's dummy-bot delay so autoplay feels the same. */
@@ -419,8 +421,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     const side = rel === 1 || rel === 3;
     label.className = 'quad-label' + (side ? ' side' : '');
     label.style.cssText = LABEL_POS[rel];
-    const eye = spec && rel === 0 ? '<span class="spec-eye">👁</span>' : '';
-    const windLine = `<span class="seat-letter">${SEAT_LETTERS[seat]}</span><span class="seat-zh">${SEAT_ZH[seat]}</span>${eye}`;
+    const windLine = `<span class="seat-letter">${SEAT_LETTERS[seat]}</span><span class="seat-zh">${SEAT_ZH[seat]}</span>`;
     label.innerHTML = side
       ? `<span class="wind-line">${windLine}</span><span class="seat-score">${view.seats[seat].score}</span>`
       : `${windLine}<span class="seat-score">${view.seats[seat].score}</span>`;
@@ -462,6 +463,10 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   board.appendChild(panel);
 
   // ── timer bar (in the gutter between panel and discards) ──────────
+  if (lowTimeTimer !== null) {
+    clearInterval(lowTimeTimer);
+    lowTimeTimer = null;
+  }
   if (view.deadline && view.phaseDuration && !view.gameResult && view.phase !== 'gameEnd') {
     const bar = document.createElement('div');
     bar.className = 'timerbar';
@@ -479,6 +484,39 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       fill.style.transition = `transform ${remainMs}ms linear`;
       fill.style.transform = 'scaleX(0)';
     });
+    // Low-time countdown (0.1.4 #6): once ≤3s remain, the gauge flashes red
+    // and the centre circle beats out big red 3·2·1 on the whole seconds.
+    if (view.phase === 'preDiscard' || view.phase === 'postDiscard' || view.phase === 'robbing') {
+      const flash = document.createElement('div');
+      flash.className = 'count-flash';
+      circle.appendChild(flash);
+      const deadlineAt = performance.now() + remainMs;
+      const id = window.setInterval(() => {
+        // A board rebuild replaced these elements: this loop is stale.
+        if (!bar.isConnected) {
+          clearInterval(id);
+          if (lowTimeTimer === id) lowTimeTimer = null;
+          return;
+        }
+        const rem = deadlineAt - performance.now();
+        if (rem <= 0) {
+          bar.classList.remove('low');
+          circle.classList.remove('counting');
+          clearInterval(id);
+          if (lowTimeTimer === id) lowTimeTimer = null;
+          return;
+        }
+        if (rem > 3000) return;
+        bar.classList.add('low');
+        const n = Math.ceil(rem / 1000); // 3, 2, 1
+        flash.textContent = String(n);
+        // The digit holds for the first ~600ms of its second, then the
+        // circle's normal face returns — slow enough to register.
+        const frac = rem / 1000 - (n - 1);
+        circle.classList.toggle('counting', frac > 0.4);
+      }, 80);
+      lowTimeTimer = id;
+    }
   }
 
   // ── discard zones (windmill, right edge aligned with the panel) ───

@@ -28,32 +28,41 @@ const fmt = (n: number, digits = 2): string =>
 const avg = (xs: number[]): string => (xs.length ? fmt(xs.reduce((a, b) => a + b, 0) / xs.length) : '—');
 const pct = (num: number, den: number): string => (den > 0 ? `${((100 * num) / den).toFixed(1)}%` : '—');
 
-export function renderStats(root: HTMLElement): void {
+export function renderStats(root: HTMLElement, scope: 'standard' | 'custom' = 'standard'): void {
+  const custom = scope === 'custom';
   const el = document.createElement('div');
   el.className = 'page';
   el.innerHTML = `
     <div class="page-head">
       <button id="back">← Home</button>
-      <h1>Statistics 統計</h1>
+      <h1>${custom ? 'Custom-Settings Statistics 自訂統計' : 'Statistics 統計'}</h1>
       <span class="spacer"></span>
+      <button id="scope" title="${
+        custom
+          ? 'Back to matches played under standard settings'
+          : 'Matches played under settings that differ from Room #0 defaults (length and thinking time aside)'
+      }">${custom ? '← Standard settings' : 'Custom settings →'}</button>
       <button id="reset" class="danger-btn" title="Start counting statistics from zero. Records are not affected.">Reset statistics</button>
     </div>
     <div class="page-body" id="body">Loading…</div>
   `;
   el.querySelector('#back')!.addEventListener('click', () => (location.hash = ''));
+  el.querySelector('#scope')!.addEventListener('click', () => {
+    location.hash = custom ? '#/stats' : '#/stats/custom';
+  });
   el.querySelector('#reset')!.addEventListener('click', () => {
     if (!confirm('Reset statistics? Counting starts over from zero. Your match records are kept.')) return;
     apiPost('/api/stats/reset')
       .then(() => {
         net.toast('Statistics reset.');
         root.innerHTML = '';
-        renderStats(root);
+        renderStats(root, scope);
       })
       .catch(() => net.toast('Could not reset statistics.'));
   });
   root.appendChild(el);
 
-  apiGet<StatsResponse>('/api/stats')
+  apiGet<StatsResponse>(`/api/stats?scope=${scope}`)
     .then((s: StatsResponse) => {
       const body = el.querySelector('#body')!;
       const N = s.games.total;

@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, ROOM_CAP, RoomSettings, RoomSummary } from '../../shared/src/protocol';
+import { BotDifficulty, DEFAULT_SETTINGS, ROOM_CAP, RoomSettings, RoomSummary } from '../../shared/src/protocol';
 import { MatchRecord } from '../../shared/src/records';
 import { Match, MatchPlayer } from './match';
 
@@ -31,6 +31,8 @@ export class Room {
   lastActivity = Date.now();
   /** 4-digit join code for private rooms; null for public ones. */
   code: string | null = null;
+  /** Brain for the bots filling empty seats; the host toggles it (0.1.4 #5). */
+  botDifficulty: BotDifficulty = 'dummy';
 
   constructor(id: number, settings: RoomSettings, code: string | null = null) {
     this.id = id;
@@ -62,6 +64,7 @@ export class Room {
       inGame: this.match !== null,
       isPrivate: this.code !== null,
       spectators: this.match && !this.match.finished ? this.match.spectatorCount : 0,
+      botDifficulty: this.botDifficulty,
     };
   }
 }
@@ -215,6 +218,18 @@ export class Rooms {
     this.delegate.onLobbyChanged();
   }
 
+  /** Host only: pick the brain for the bots that fill empty seats. */
+  setBotDifficulty(playerId: string, difficulty: BotDifficulty): string | null {
+    const room = this.roomOf(playerId);
+    if (!room) return 'Not in a room.';
+    if (room.host?.playerId !== playerId) return 'Only the host can change the bot difficulty.';
+    if (room.match) return 'Match in progress.';
+    room.botDifficulty = difficulty;
+    room.touch();
+    this.delegate.onLobbyChanged();
+    return null;
+  }
+
   deleteRoom(playerId: string): string | null {
     const room = this.roomOf(playerId);
     if (!room) return 'Not in a room.';
@@ -270,7 +285,7 @@ export class Rooms {
         }, aborted ? 0 : 20000);
         this.delegate.onLobbyChanged();
       },
-    }, { id: room.id, code: room.code });
+    }, { id: room.id, code: room.code }, room.botDifficulty);
     room.match = match;
     room.touch();
     this.delegate.onLobbyChanged();

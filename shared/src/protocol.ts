@@ -24,7 +24,24 @@ export const DEFAULT_SETTINGS: RoomSettings = {
   bonusTiles: 'none',
 };
 
+/**
+ * "Standard settings" for the statistics split (0.1.4 #7): identical to Room
+ * #0's defaults except that Match Length and Thinking Time are free. Matches
+ * played under anything else are counted on the separate custom-stats page.
+ */
+export function isStandardSettings(s: RoomSettings): boolean {
+  return (
+    s.chickenHand === DEFAULT_SETTINGS.chickenHand &&
+    s.par === DEFAULT_SETTINGS.par &&
+    (s.scoring ?? 'original') === DEFAULT_SETTINGS.scoring &&
+    (s.bonusTiles ?? 'none') === DEFAULT_SETTINGS.bonusTiles
+  );
+}
+
 export const ROOM_CAP = 24; // user-created rooms #1..#24, not counting room #0
+
+/** Brain used for the bots that fill a match's empty seats (0.1.4 #5). */
+export type BotDifficulty = 'dummy' | 'chicken';
 
 /**
  * The rebindable action hotkeys, as KeyboardEvent.key values (letters stored
@@ -94,6 +111,8 @@ export interface RoomSummary {
   isPrivate: boolean;
   /** Spectators currently watching the running match (cap 4). */
   spectators?: number;
+  /** Brain for the bots that fill empty seats (host-toggled). */
+  botDifficulty: BotDifficulty;
 }
 
 export interface MeldView {
@@ -259,6 +278,8 @@ export type ClientMsg =
   | { type: 'joinRoom'; roomId: number; code?: string }
   | { type: 'leaveRoom' }
   | { type: 'deleteRoom' }
+  /** Host only: pick the brain for the bots that fill empty seats. */
+  | { type: 'setBotDifficulty'; difficulty: BotDifficulty }
   | { type: 'startMatch' }
   | { type: 'leaveMatch' }
   /** Join a running match as a spectator (up to 4 per match). Watching a

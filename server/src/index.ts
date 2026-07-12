@@ -114,6 +114,14 @@ function handleMsg(session: Session, msg: ClientMsg): void {
       if (err) send(session, { type: 'toast', message: err });
       break;
     }
+    case 'setBotDifficulty': {
+      const err = rooms.setBotDifficulty(
+        session.playerId,
+        msg.difficulty === 'chicken' ? 'chicken' : 'dummy',
+      );
+      if (err) send(session, { type: 'toast', message: err });
+      break;
+    }
     case 'startMatch': {
       const err = rooms.startMatch(session.playerId, sendViewTo);
       if (err) send(session, { type: 'toast', message: err });

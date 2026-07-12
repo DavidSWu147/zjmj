@@ -183,6 +183,17 @@ function roomRow(room: RoomSummary, myRoom: number | null): HTMLElement {
     mk('Start Match', () => net.send({ type: 'startMatch' }), !iAmHost, 'start');
     mk('Leave', () => net.send({ type: 'leaveRoom' }), false, 'leave');
     if (room.id !== 0) mk('Delete', () => net.send({ type: 'deleteRoom' }), !iAmHost, 'delete');
+    // Empty seats are filled by bots; the host picks their brain (0.1.4 #5).
+    const diff = room.botDifficulty === 'chicken' ? 'Chicken' : 'Dummy';
+    mk(
+      `Bot Difficulty: ${diff}`,
+      () =>
+        net.send({
+          type: 'setBotDifficulty',
+          difficulty: room.botDifficulty === 'chicken' ? 'dummy' : 'chicken',
+        }),
+      !iAmHost,
+    );
   } else {
     const join = () => {
       if (room.isPrivate) {

@@ -18,6 +18,8 @@ function route(): void {
     renderPlay(app);
   } else if (hash === 'stats') {
     renderStats(app);
+  } else if (hash === 'stats/custom') {
+    renderStats(app, 'custom');
   } else if (hash === 'records') {
     renderRecords(app);
   } else if (hash === 'records/upload') {

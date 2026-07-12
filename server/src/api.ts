@@ -1,4 +1,5 @@
 import express from 'express';
+import { isStandardSettings } from '../../shared/src/protocol';
 import { matchToTxt } from '../../shared/src/records';
 import { PATTERN_IDS } from '../../shared/src/scoring';
 import { sessionFromRequest } from './auth';
@@ -25,7 +26,16 @@ export interface StatsResponse {
   };
 }
 
-export function computeStats(db: Db, playerId: string): StatsResponse {
+/**
+ * Statistics over the player's matches; 'standard' counts only matches whose
+ * settings match Room #0's defaults (length/thinking time aside), 'custom'
+ * counts everything else (0.1.4 #7).
+ */
+export function computeStats(
+  db: Db,
+  playerId: string,
+  scope: 'standard' | 'custom' = 'standard',
+): StatsResponse {
   const patternCounts: Record<string, number> = {};
   for (const id of PATTERN_IDS) patternCounts[id] = 0;
   const played = { '1': 0, '2': 0, '4': 0 };
@@ -45,6 +55,7 @@ export function computeStats(db: Db, playerId: string): StatsResponse {
   };
 
   for (const { record, startSeat, result } of db.matchesForStats(playerId)) {
+    if (isStandardSettings(record.settings) !== (scope === 'standard')) continue;
     const key = String(record.matchLength) as '1' | '2' | '4';
     played[key]++;
     if (result === 'WIN') won[key]++;
@@ -95,7 +106,9 @@ export function makeApi(db: Db): express.Router {
       res.status(401).json({ error: 'Not signed in.' });
       return;
     }
-    res.json(computeStats(db, session.playerId));
+    res.json(
+      computeStats(db, session.playerId, req.query.scope === 'custom' ? 'custom' : 'standard'),
+    );
   });
 
   /**
