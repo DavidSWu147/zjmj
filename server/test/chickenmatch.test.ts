@@ -68,4 +68,34 @@ describe('ChickenBot match simulation', () => {
     expect(wins).toBeGreaterThan(0);
     expect(claims).toBeGreaterThan(0);
   }, 90000);
+
+  it('gives a disconnected human a takeover at the match difficulty', async () => {
+    // Same setup as the dummy "all draws" test, but at chicken difficulty the
+    // takeover seat plays too — games get won instead of all drawing out.
+    let record: MatchRecord | null = null;
+    const match = new Match(
+      { ...settings, rounds: 1 },
+      [{ id: 'p1', name: 'Solo', isBot: false }],
+      {
+        sendView: () => {},
+        isConnected: () => false, // the lone human is gone: takeover drives the seat
+        onMatchEnd: (r) => {
+          record = r;
+        },
+        rng: mulberry32(7),
+        timing: FAST,
+      },
+      null,
+      'chicken',
+    );
+    match.start();
+    for (let i = 0; i < 8000 && !record; i++) await sleep(5);
+    match.dispose();
+    expect(record).not.toBeNull();
+    const rec = record! as MatchRecord;
+    expect(rec.games).toHaveLength(4);
+    const wins = rec.games.filter((g) => g.result.winnerSeat !== null).length;
+    expect(wins).toBeGreaterThan(0);
+    for (const g of rec.games) expect(replayGame(g)).toHaveLength(g.moves.length + 1);
+  }, 90000);
 });

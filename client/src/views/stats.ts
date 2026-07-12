@@ -1,4 +1,4 @@
-import { PATTERN_IDS, PATTERNS } from '../../../shared/src/scoring';
+import { OPTIONAL_PATTERN_IDS, PATTERN_IDS, PATTERNS } from '../../../shared/src/scoring';
 import { apiGet, apiPost } from '../account';
 import { net } from '../net';
 
@@ -82,7 +82,13 @@ export function renderStats(root: HTMLElement, scope: 'standard' | 'custom' = 's
         .join('');
 
       // Chicken Hand leads the table as 0.0 (issue: it is the non-pattern).
-      const orderedIds = ['chicken', ...PATTERN_IDS.filter((id) => id !== 'chicken')];
+      // Standard settings can never produce the four optional patterns
+      // (adjustedExtra only) or category-11 bonus patterns: hide their rows.
+      const orderedIds = ['chicken', ...PATTERN_IDS.filter((id) => id !== 'chicken')].filter(
+        (id) =>
+          custom ||
+          (!(OPTIONAL_PATTERN_IDS as readonly string[]).includes(id) && !id.startsWith('11.')),
+      );
       const patternRows = orderedIds.map((id) => {
         const p = PATTERNS[id];
         const label = id === 'chicken' ? '0.0' : id;

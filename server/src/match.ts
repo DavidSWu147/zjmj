@@ -70,6 +70,8 @@ export class Match {
 
   /** Hosting room, stamped onto every view (shows the private-room code). */
   private roomInfo: { id: number; code: string | null } | null;
+  /** Brain for fill-in bots AND for takeover of disconnected/departed humans. */
+  private botDifficulty: BotDifficulty;
 
   constructor(
     settings: RoomSettings,
@@ -81,6 +83,7 @@ export class Match {
     this.settings = settings;
     this.delegate = delegate;
     this.roomInfo = room;
+    this.botDifficulty = botDifficulty;
     this.timing = { ...DEFAULT_TIMING, ...delegate.timing };
     this.rng = delegate.rng ?? Math.random;
 
@@ -139,11 +142,11 @@ export class Match {
         const p = this.playerAt(seat);
         return p.isBot || this.leftIds.has(p.id) || !this.delegate.isConnected(p.id);
       },
-      // Actual bot players use their brain; a bot standing in for a departed
-      // or disconnected human stays a dummy.
+      // Actual bot players use their brain; the takeover of a departed or
+      // disconnected human plays at the match's bot difficulty too.
       botKind: (seat) => {
         const p = this.playerAt(seat);
-        return p.isBot ? (p.kind ?? 'dummy') : 'dummy';
+        return p.isBot ? (p.kind ?? 'dummy') : this.botDifficulty;
       },
       isBotPlayer: (seat) => this.playerAt(seat).isBot,
       nameOf: (seat) => this.playerAt(seat).name,
