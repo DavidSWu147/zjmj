@@ -103,9 +103,9 @@ const TILE_BACKS: { v: TileBack; label: string }[] = [
   { v: 'lavender', label: 'Lavender' },
   { v: 'pink', label: 'Pastel pink' },
 ];
-const FELTS: { v: TableFelt; label: string }[] = [
-  { v: 'green', label: 'Green' },
-  { v: 'navy', label: 'Navy blue' },
+const FELTS: { v: TableFelt; label: string; swatch: string }[] = [
+  { v: 'green', label: 'Green', swatch: '#1d4d38' },
+  { v: 'navy', label: 'Navy blue', swatch: '#1e2e4e' },
 ];
 
 /** Radio group names must be unique per rendered instance of the card. */
@@ -136,7 +136,7 @@ export function buildGraphicsSettings(container: HTMLElement, onChange?: () => v
     el: HTMLElement,
     label: string,
     name: string,
-    opts: { v: T; label: string }[],
+    opts: { v: T; label: string; swatch?: string }[],
     current: T,
     save: (v: T) => void,
   ): void => {
@@ -148,6 +148,7 @@ export function buildGraphicsSettings(container: HTMLElement, onChange?: () => v
           (o) => `
           <label class="radio-opt">
             <input type="radio" name="g${seq}-${name}" value="${o.v}" ${o.v === current ? 'checked' : ''} />
+            ${o.swatch ? `<span class="color-swatch" style="background:${o.swatch}"></span>` : ''}
             <span>${o.label}</span>
           </label>`,
         ).join('')}

@@ -376,6 +376,14 @@ dialog::backdrop {
   accent-color: var(--accent);
   cursor: pointer;
 }
+/* Inline color sample beside an option (felt colors). */
+.color-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid #fff5;
+  flex-shrink: 0;
+}
 .dialog-btns {
   display: flex;
   justify-content: flex-end;
