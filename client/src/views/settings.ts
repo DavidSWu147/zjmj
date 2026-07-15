@@ -6,7 +6,7 @@ import {
   TileStyle,
   TwoChoiceKeys,
 } from '../../../shared/src/protocol';
-import { getSettings, updateSettings } from '../settings';
+import { getSettings, onSettingsChange, updateSettings } from '../settings';
 import { tileEl } from '../tileui';
 import { buildRoomSliders } from './sliders';
 
@@ -69,6 +69,15 @@ export function buildTileSettings(container: HTMLElement, onChange?: () => void)
     for (const t of ['B3', 'C7', 'D5', 'E ', 'N ', 'R ', 'G ', 'O ']) preview.appendChild(tileEl(t));
   };
   renderPreview();
+  // A tile-style change elsewhere (the Graphics card) must swap these
+  // preview faces at once, not on the next indices-checkbox click.
+  const unsub = onSettingsChange(() => {
+    if (!preview.isConnected) {
+      unsub();
+      return;
+    }
+    renderPreview();
+  });
   indices.addEventListener('change', () => {
     updateSettings({ tileIndices: indices.checked });
     renderPreview();
@@ -99,6 +108,9 @@ const FELTS: { v: TableFelt; label: string }[] = [
   { v: 'navy', label: 'Navy blue' },
 ];
 
+/** Radio group names must be unique per rendered instance of the card. */
+let graphicsSeq = 0;
+
 /**
  * Graphics settings with a live tile preview, in spec order: tile style,
  * then tile back color, then table background (0.1.5 #10).
@@ -119,36 +131,44 @@ export function buildGraphicsSettings(container: HTMLElement, onChange?: () => v
   };
   renderPreview();
 
-  const slider = <T extends string>(
+  const seq = ++graphicsSeq;
+  const radios = <T extends string>(
     el: HTMLElement,
     label: string,
+    name: string,
     opts: { v: T; label: string }[],
     current: T,
     save: (v: T) => void,
   ): void => {
-    const idx = Math.max(0, opts.findIndex((o) => o.v === current));
-    el.className = 'slider-group';
+    el.className = 'radio-group';
     el.innerHTML = `
       <label>${label}</label>
-      <input type="range" min="0" max="${opts.length - 1}" step="1" value="${idx}" />
-      <div class="slider-value">${opts[idx].label}</div>
+      <div class="radio-opts">
+        ${opts.map(
+          (o) => `
+          <label class="radio-opt">
+            <input type="radio" name="g${seq}-${name}" value="${o.v}" ${o.v === current ? 'checked' : ''} />
+            <span>${o.label}</span>
+          </label>`,
+        ).join('')}
+      </div>
     `;
-    const input = el.querySelector<HTMLInputElement>('input')!;
-    input.addEventListener('input', () => {
-      const opt = opts[Number(input.value)];
-      el.querySelector('.slider-value')!.textContent = opt.label;
-      save(opt.v);
-      renderPreview();
-      onChange?.();
+    el.querySelectorAll<HTMLInputElement>('input').forEach((r) => {
+      r.addEventListener('change', () => {
+        if (!r.checked) return;
+        save(r.value as T);
+        renderPreview();
+        onChange?.();
+      });
     });
   };
   const s = getSettings();
-  slider(container.querySelector<HTMLElement>('#g-style')!, 'Tile style 牌面', TILE_STYLES, s.tileStyle,
-    (v) => updateSettings({ tileStyle: v }));
-  slider(container.querySelector<HTMLElement>('#g-back')!, 'Tile back color 牌背', TILE_BACKS, s.tileBack,
-    (v) => updateSettings({ tileBack: v }));
-  slider(container.querySelector<HTMLElement>('#g-felt')!, 'Background color 桌面', FELTS, s.tableFelt,
-    (v) => updateSettings({ tableFelt: v }));
+  radios(container.querySelector<HTMLElement>('#g-style')!, 'Tile style 牌面', 'style', TILE_STYLES,
+    s.tileStyle, (v) => updateSettings({ tileStyle: v }));
+  radios(container.querySelector<HTMLElement>('#g-back')!, 'Tile back color 牌背', 'back', TILE_BACKS,
+    s.tileBack, (v) => updateSettings({ tileBack: v }));
+  radios(container.querySelector<HTMLElement>('#g-felt')!, 'Background color 桌面', 'felt', FELTS,
+    s.tableFelt, (v) => updateSettings({ tableFelt: v }));
 }
 
 /**

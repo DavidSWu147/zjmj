@@ -350,6 +350,32 @@ dialog::backdrop {
   font-size: 14px;
   color: var(--text);
 }
+/* Radio option groups (0.1.5 graphics settings). */
+.radio-group {
+  margin: 14px 0;
+}
+.radio-group > label {
+  display: block;
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.radio-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+.radio-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.radio-opt input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 .dialog-btns {
   display: flex;
   justify-content: flex-end;

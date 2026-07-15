@@ -92,9 +92,11 @@ export function installTileHighlight(): void {
     for (const el of lit) el.classList.remove('tile-same');
     lit = [];
   };
-  // Scoring screens and the claim/variant preview bars don't count as
-  // "visible tiles": they neither trigger nor receive the highlight.
-  const excluded = (el: HTMLElement) => el.closest('.result-card, .variant-bar') !== null;
+  // Scoring screens, the claim/variant preview bars, and the settings
+  // previews don't count as "visible tiles": they neither trigger nor
+  // receive the highlight.
+  const excluded = (el: HTMLElement) =>
+    el.closest('.result-card, .variant-bar, .tile-preview') !== null;
   document.addEventListener('pointerover', (e) => {
     const target = e.target as HTMLElement | null;
     const tile = target?.closest?.<HTMLElement>('.tile[data-t]') ?? null;
