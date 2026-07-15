@@ -445,9 +445,26 @@ dialog::backdrop {
   object-fit: contain;
   pointer-events: none;
 }
+/* Tile back colors (0.1.5 #9): beige default, pastels via data-tileback. */
+:root {
+  --tile-back: #e3d3ae;
+  --tile-back-border: #c4b58f;
+}
+:root[data-tileback='blue'] {
+  --tile-back: #b9d4ea;
+  --tile-back-border: #8fb3ce;
+}
+:root[data-tileback='lavender'] {
+  --tile-back: #d3c5e8;
+  --tile-back-border: #ab98cc;
+}
+:root[data-tileback='pink'] {
+  --tile-back: #f0c6d3;
+  --tile-back-border: #d29cae;
+}
 .tile-back {
-  background: #e3d3ae; /* simple beige tile back */
-  border-color: #c4b58f;
+  background: var(--tile-back);
+  border-color: var(--tile-back-border);
 }
 /* Dead-wall tiles: gray backs so the reserved 14 read at a glance. */
 .tile-dead .tile-back {
@@ -566,6 +583,10 @@ dialog::backdrop {
   touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
+}
+/* Navy felt (0.1.5 #8): only the match table changes; menus stay green. */
+:root[data-felt='navy'] .board {
+  background: radial-gradient(ellipse at center, #26395e 0%, #1e2e4e 55%, #141f38 100%);
 }
 .board .abs {
   position: absolute;
@@ -935,6 +956,7 @@ dialog::backdrop {
   align-items: center;
 }
 .action-btn {
+  position: relative; /* anchors the floating hotkey cap */
   font-size: 17px;
   font-weight: 800;
   letter-spacing: 0.06em;
@@ -944,6 +966,26 @@ dialog::backdrop {
   color: #fff;
   text-shadow: 0 1px 2px #0008;
   background: #333;
+}
+
+/* Floating hotkey caps (0.1.5 #6): the key that triggers the element it
+   sits on, shown only while hotkeys are enabled (and, over the hand, only
+   while a discard is possible). White with a dark halo so it reads on any
+   tile face or felt color. */
+.hk-label {
+  position: absolute;
+  top: -19px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  color: #fff;
+  text-shadow:
+    0 1px 3px #000,
+    0 0 4px #000;
+  pointer-events: none;
+  z-index: 6;
 }
 .action-btn .zh {
   font-size: 13px;
@@ -977,6 +1019,7 @@ dialog::backdrop {
   border-radius: 12px;
 }
 .variant-opt {
+  position: relative; /* anchors the floating hotkey cap */
   display: flex;
   gap: 2px;
   cursor: pointer;
@@ -1023,7 +1066,8 @@ dialog::backdrop {
   color: #b9c4bd;
 }
 .top-btn.helpq {
-  color: var(--kw-pung);
+  /* Cyan for contrast against both felt colors (0.1.5 #8). */
+  color: #3fd6f2;
 }
 .top-btn.active {
   background: var(--kw-mahjong);

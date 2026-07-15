@@ -98,6 +98,7 @@ export class Rooms {
       if (room.isDefault) {
         if (memberIds.length > 0 && idle > ROOM0_IDLE_MS) {
           room.members = [];
+          room.botDifficulty = 'dummy'; // room #0 always reverts (0.1.5 #4)
           room.touch();
           this.delegate.notify(memberIds, 'Removed from Room #0 after 5 minutes of inactivity.');
           changed = true;
@@ -211,9 +212,14 @@ export class Rooms {
     if (room.match && !room.match.finished) {
       room.match.leave(playerId);
     }
-    if (!room.isDefault && room.members.length === 0) {
-      room.match?.dispose();
-      this.rooms.delete(room.id);
+    if (room.members.length === 0) {
+      if (room.isDefault) {
+        // Room #0 never persists a Chicken setting once deserted (0.1.5 #4).
+        room.botDifficulty = 'dummy';
+      } else {
+        room.match?.dispose();
+        this.rooms.delete(room.id);
+      }
     }
     this.delegate.onLobbyChanged();
   }
@@ -273,6 +279,8 @@ export class Rooms {
           room.match.dispose();
           room.match = null;
           if (room.isDefault) {
+            // A Chicken setting never outlives the match in room #0 (0.1.5 #4).
+            room.botDifficulty = 'dummy';
             room.touch();
           } else {
             this.rooms.delete(room.id);

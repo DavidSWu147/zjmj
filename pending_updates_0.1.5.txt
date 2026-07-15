@@ -1,2 +1,18 @@
 Updates to the chicken bot
-1. 
+1. Have the check for Seven Pairs (5+ Pairs) occur before the check for Thirteen Terminals (9+ distinct 1s/9s/Honors). This way, a hand with 5 pairs of 1s/9s/Honors and 4 unpaired 1s/9s/Honors will go for Seven Pairs instead of the much harder Thirteen Terminals
+2. Unless the bot is specifically going for Seven Pairs or Thirteen Terminals, do not factor "Distance from Ready for Seven Pairs" (or "Distance from Ready for Thirteen Terminals"). The Distance from Ready function should solely take into account how far the bot is from making a regular Mahjong hand
+3. If the bot is going for Seven Pairs, keep the current tiebreakers when "Distance Reducing Outs" are equal, but if going for a regular hand or Thirteen Terminals, prefer to discard Honors before number tiles, and within the number tiles discard in the reverse order from Seven Pairs
+So the discard order for when going for a regular hand changes to Honors, then 9D, 9C, 9B, 1D, 1C, 1B, 8D, ..., 6B, 4D, 4C, 4B, 5D, 5C, 5B, when everything else is equal
+Discard order within the Honors is unchanged and still based on the bot's current seat wind
+
+Gameplay updates
+4. Room #0 should always start off with the bot difficulty set to Dummy. Someone changing Room #0 setting to Chicken should not have it persist as Chicken after the match is over, and in fact the moment Room #0 becomes empty because everyone left, the setting should always revert from Chicken to Dummy
+5. For a guest user, start with hotkeys disabled by default. Newly registered user can carry over settings for hotkeys like every other saved setting
+6. When hotkeys are enabled, add text support for hotkeys. On every claim button, like "Chow", "Pung", include a small capital letter or symbol floating above the button corresponding to the hotkey in white text, and similarly for the tiles in hand, floating over the tile, and during an ambiguous Chow/Kong
+7. Change the behavior of the default Q, W, and E hotkeys to refer to left, middle, and right. In settings, for the option "Selecting from two ambiguous Chows/Kongs", add a slider with 3 options, "Left and Middle", "Left and Right", and "Middle and Right". Default is "Middle and Right" (the current behavior), which is returned to by "Reset to Default"
+
+Graphics settings updates
+8. Add an option in settings for choosing between background colors: the current green, and navy blue. Default is green. Change the color of the help button to cyan blue for better contrast.
+9. Add an option in settings for choosing between tile back colors: the current beige, pastel blue, lavender, pastel pink. Default is beige
+10. Finally, new Japanese style tile graphics were committed under the folder tiles2. Note that the White Dragon is actually traditionally a completely blank tile in the Japanese Style. So instead of using O.svg, use a completely blank svg. Add an option to use these Japanese style tiles, but the default is still the pre-existing Chinese style tiles. Put this option before the option for tile back colors, which go before the option for background colors
+11. If these new settings take up too much space on the settings menu in the middle of a match, start a new page in the mid-match settings menu for the above settings

@@ -10,8 +10,9 @@
  *   hand needs before it waits on a winning tile. Computed by filling the
  *   3-3-3-3-2 frame — melds contribute 3, pairs/partial melds 2, singles 1,
  *   and the final slot must hold a pair or a single — then subtracting the
- *   maximum total contribution from 13. Seven Pairs and Thirteen Terminals
- *   variants apply while no melds are declared.
+ *   maximum total contribution from 13. The Seven Pairs and Thirteen
+ *   Terminals variants apply only while the bot is committed to that shape
+ *   (0.1.5 #2): a normal-mode hand is judged by the regular frame alone.
  * - "Distance reducing outs": the number of unseen tiles (copies, not types)
  *   whose draw lets some discard take the hand one step closer; for a ready
  *   hand, the unseen copies of its winning tiles.
@@ -139,31 +140,26 @@ export function thirteenDistance(counts: number[]): number {
   return Math.max(0, 13 - unique - (paired ? 1 : 0));
 }
 
-/** Overall distance from ready: the nearest of all applicable targets. */
-export function distanceFromReady(counts: number[], meldCount: number): number {
-  let d = regularDistance(counts, meldCount);
-  if (meldCount === 0) {
-    d = Math.min(d, sevenPairsDistance(counts), thirteenDistance(counts));
-  }
-  return d;
-}
-
-/** Spec 4.2/4.3: which shape the bot commits to for this decision. */
+/**
+ * Spec 4.2/4.3: which shape the bot commits to for this decision. Seven
+ * Pairs is checked first (0.1.5 #1): a hand qualifying for both (5+ pairs of
+ * terminals/honors) goes for the far easier Seven Pairs.
+ */
 export function chickenMode(counts: number[], meldCount: number): ChickenMode {
   if (meldCount > 0) return 'normal';
-  let unique = 0;
-  for (const i of THIRTEEN_IDX) if (counts[i] >= 1) unique++;
-  if (unique >= 9) return 'thirteen';
   let pairs = 0;
   for (let i = 0; i < 34; i++) pairs += Math.floor(counts[i] / 2);
   if (pairs >= 5) return 'pairs';
+  let unique = 0;
+  for (const i of THIRTEEN_IDX) if (counts[i] >= 1) unique++;
+  if (unique >= 9) return 'thirteen';
   return 'normal';
 }
 
 function modalDistance(counts: number[], meldCount: number, mode: ChickenMode): number {
   if (mode === 'thirteen') return thirteenDistance(counts);
   if (mode === 'pairs') return sevenPairsDistance(counts);
-  return distanceFromReady(counts, meldCount);
+  return regularDistance(counts, meldCount);
 }
 
 /**
@@ -215,8 +211,8 @@ export function distanceReducingOuts(
 }
 
 /**
- * Spec 4.4.1: number tiles go before honors, middle ranks first —
- * B5,C5,D5, B4,C4,D4, B6,C6,D6, … B9,C9,D9. Lower value = discard sooner.
+ * Spec 4.4.1 (Seven Pairs mode): number tiles go before honors, middle ranks
+ * first — B5,C5,D5, B4,C4,D4, B6,C6,D6, … B9,C9,D9. Lower = discard sooner.
  */
 const NUM_ORDER: number[] = (() => {
   const out: number[] = [];
@@ -226,6 +222,13 @@ const NUM_ORDER: number[] = (() => {
   return out;
 })();
 
+/**
+ * 0.1.5 #3 (normal / Thirteen Terminals mode): honors go first, then the
+ * numbers in the exact reverse — 9D,9C,9B, 1D,1C,1B, … 4D,4C,4B, 5D,5C,5B —
+ * shedding terminals early and hoarding the middle ranks.
+ */
+const NUM_ORDER_REV: number[] = [...NUM_ORDER].reverse();
+
 /** Spec 4.4.2: honor discard order per own seat wind (E/S/W/N). */
 const HONOR_ORDER: number[][] = [
   [28, 29, 30, 31, 32, 33, 27], // East:  S W N R G O E
@@ -234,10 +237,18 @@ const HONOR_ORDER: number[][] = [
   [27, 28, 29, 33, 32, 31, 30], // North: E S W O G R N
 ];
 
-/** Position in the seat's discard preference order; lower discards first. */
-export function discardPriority(tileIdx: number, seat: number): number {
-  if (!isHonorIdx(tileIdx)) return NUM_ORDER.indexOf(tileIdx);
-  return 27 + HONOR_ORDER[seat % 4].indexOf(tileIdx);
+/**
+ * Position in the seat's discard preference order for the current hand plan;
+ * lower discards first. Seven Pairs keeps the middle-out order with honors
+ * last; normal and Thirteen Terminals shed honors first, then terminals
+ * inward (0.1.5 #3). The honor order itself always follows the seat wind.
+ */
+export function discardPriority(tileIdx: number, seat: number, mode: ChickenMode): number {
+  const honorPos = HONOR_ORDER[seat % 4].indexOf(tileIdx);
+  if (mode === 'pairs') {
+    return isHonorIdx(tileIdx) ? 27 + honorPos : NUM_ORDER.indexOf(tileIdx);
+  }
+  return isHonorIdx(tileIdx) ? honorPos : 7 + NUM_ORDER_REV.indexOf(tileIdx);
 }
 
 export interface HandContext {
@@ -294,7 +305,7 @@ export function chooseDiscard(ctx: HandContext & { drawn: Tile | null }): {
     }
     pool = outsPool;
   }
-  pool.sort((a, b) => discardPriority(a, ctx.seat) - discardPriority(b, ctx.seat));
+  pool.sort((a, b) => discardPriority(a, ctx.seat, mode) - discardPriority(b, ctx.seat, mode));
   const tile = tileFromIndex(pool[0]);
   return { tile, fromDrawn: ctx.drawn === tile };
 }
@@ -323,14 +334,14 @@ export function wantsOwnKong(
   const ti = tileIndex(option.tile);
   if (option.variant === 'concealed') {
     counts[ti] -= 4;
-    const after = distanceFromReady(counts, ctx.meldCount + 1);
+    const after = regularDistance(counts, ctx.meldCount + 1);
     counts[ti] += 4;
     return after <= n;
   }
   // Small kong: the pung meld keeps its contribution of 3, so only the
   // pocketed 4th copy leaves the concealed tiles.
   counts[ti] -= 1;
-  const after = distanceFromReady(counts, ctx.meldCount);
+  const after = regularDistance(counts, ctx.meldCount);
   counts[ti] += 1;
   return after <= n;
 }
@@ -356,7 +367,7 @@ export function chooseClaim(
   const counts = new Array(34).fill(0);
   for (const t of ctx.hand) counts[tileIndex(t)]++;
   if (chickenMode(counts, ctx.meldCount) !== 'normal') return null;
-  const n = distanceFromReady(counts, ctx.meldCount);
+  const n = regularDistance(counts, ctx.meldCount);
   const ti = tileIndex(tile);
 
   interface Option {
@@ -376,7 +387,7 @@ export function chooseClaim(
     for (let d = 0; d < 34; d++) {
       if (counts[d] === 0) continue;
       counts[d]--;
-      const v = distanceFromReady(counts, ctx.meldCount + 1);
+      const v = regularDistance(counts, ctx.meldCount + 1);
       counts[d]++;
       if (v < dist) {
         dist = v;
@@ -391,7 +402,10 @@ export function chooseClaim(
       counts[d]--;
       const o = distanceReducingOuts(counts, ctx.meldCount + 1, 'normal', ctx.unseen);
       counts[d]++;
-      if (o > outs || (o === outs && discardPriority(d, ctx.seat) < discardPriority(discard, ctx.seat))) {
+      if (
+        o > outs ||
+        (o === outs && discardPriority(d, ctx.seat, 'normal') < discardPriority(discard, ctx.seat, 'normal'))
+      ) {
         outs = o;
         discard = d;
       }
@@ -422,7 +436,7 @@ export function chooseClaim(
 
   if (avail.kong) {
     counts[ti] -= 3;
-    const after = distanceFromReady(counts, ctx.meldCount + 1);
+    const after = regularDistance(counts, ctx.meldCount + 1);
     counts[ti] += 3;
     if (after <= n) return { kind: 'kong' };
   }

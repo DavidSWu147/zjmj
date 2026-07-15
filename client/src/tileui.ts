@@ -23,12 +23,16 @@ function tileIndexLabel(t: Tile): string | null {
 }
 
 export function tileSrc(t: Tile): string {
+  const base = getSettings().tileStyle === 'japanese' ? '/tiles2' : '/tiles';
   const suit = t[0];
   if (t[1] !== ' ') {
-    return `/tiles/${SUIT_DIR[suit]}/0${t[1]}.svg`;
+    return `${base}/${SUIT_DIR[suit]}/0${t[1]}.svg`;
   }
-  if (WINDS.includes(suit)) return `/tiles/wind/${suit}.svg`;
-  return `/tiles/dragon/${suit}.svg`;
+  if (WINDS.includes(suit)) return `${base}/wind/${suit}.svg`;
+  // The Japanese white dragon is traditionally a completely blank tile
+  // (0.1.5 #10): a blank svg stands in for tiles2's O.svg.
+  if (suit === 'O' && base === '/tiles2') return '/tiles2/dragon/blank.svg';
+  return `${base}/dragon/${suit}.svg`;
 }
 
 export interface TileOpts {

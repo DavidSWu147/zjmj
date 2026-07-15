@@ -5,7 +5,6 @@ import {
   chooseClaim,
   chooseDiscard,
   discardPriority,
-  distanceFromReady,
   distanceReducingOuts,
   regularDistance,
   sevenPairsDistance,
@@ -68,12 +67,10 @@ describe('distance from ready', () => {
     expect(thirteenDistance(counts('B1 B1 B9 C1 C9 D1 D9 E S W N R B5'))).toBe(1);
   });
 
-  it('overall distance takes the nearest applicable target', () => {
-    // Six pairs + odd tile: Seven Pairs ready even though the regular
-    // decomposition is far away.
-    expect(distanceFromReady(counts('B1 B1 C2 C2 D3 D3 E E R R B5 B5 C7'), 0)).toBe(0);
-    // With a meld declared, Seven Pairs/Thirteen Terminals no longer apply.
-    expect(distanceFromReady(counts('B1 B1 C2 C2 D3 D3 E E R R'), 1)).toBeGreaterThan(0);
+  it('never credits Seven Pairs/Thirteen Terminals to a regular hand (0.1.5 #2)', () => {
+    // Six pairs + odd tile: Seven Pairs would be ready, but the regular
+    // frame reads it as three pairs short of 4 sets + a pair.
+    expect(regularDistance(counts('B1 B1 C2 C2 D3 D3 E E R R B5 B5 C7'), 0)).toBe(3);
   });
 });
 
@@ -83,6 +80,11 @@ describe('chicken mode (spec 4.2/4.3)', () => {
   });
   it('commits to Seven Pairs at 5+ pairs', () => {
     expect(chickenMode(counts('B2 B2 C3 C3 D4 D4 E E G G B7 C8 D6'), 0)).toBe('pairs');
+  });
+  it('prefers Seven Pairs when a hand also qualifies for Thirteen Terminals (0.1.5 #1)', () => {
+    // 5 terminal/honor pairs + 4 loose terminals/honors (14 tiles, post-draw):
+    // 9 unique types reach the Thirteen Terminals threshold too.
+    expect(chickenMode(counts('B1 B1 B9 B9 C1 C1 C9 C9 D1 D1 D9 E S W'), 0)).toBe('pairs');
   });
   it('plays normally otherwise, and always once melded', () => {
     expect(chickenMode(counts('B2 B3 B4 C3 C3 D4 D5 E E G B7 C8 D9'), 0)).toBe('normal');
@@ -142,13 +144,28 @@ describe('discard choice (spec 4.4)', () => {
     expect(chooseDiscard({ ...ctx, seat: 1 }).tile).toBe('W ');
   });
 
-  it('follows the middle-first number order (4.4.1)', () => {
+  it('follows the middle-first number order in Seven Pairs mode (4.4.1)', () => {
     // Priority list starts B5, C5, D5, B4 … numbers always before honors.
-    expect(discardPriority(4, 0)).toBe(0); // B5
-    expect(discardPriority(13, 0)).toBe(1); // C5
-    expect(discardPriority(22, 0)).toBe(2); // D5
-    expect(discardPriority(3, 0)).toBe(3); // B4
-    expect(discardPriority(8, 0)).toBeLessThan(discardPriority(27, 0)); // B9 < any honor
+    expect(discardPriority(4, 0, 'pairs')).toBe(0); // B5
+    expect(discardPriority(13, 0, 'pairs')).toBe(1); // C5
+    expect(discardPriority(22, 0, 'pairs')).toBe(2); // D5
+    expect(discardPriority(3, 0, 'pairs')).toBe(3); // B4
+    expect(discardPriority(8, 0, 'pairs')).toBeLessThan(discardPriority(27, 0, 'pairs')); // B9 < honors
+  });
+
+  it('sheds honors first, then terminals inward, in normal mode (0.1.5 #3)', () => {
+    // Honors take positions 0–6 (seat-wind order), then 9D,9C,9B, 1D,1C,1B,
+    // … down to 5D,5C,5B.
+    expect(discardPriority(28, 0, 'normal')).toBe(0); // East sheds S first
+    expect(discardPriority(27, 0, 'normal')).toBe(6); // own wind E last honor
+    expect(discardPriority(26, 0, 'normal')).toBe(7); // D9 heads the numbers
+    expect(discardPriority(17, 0, 'normal')).toBe(8); // C9
+    expect(discardPriority(8, 0, 'normal')).toBe(9); // B9
+    expect(discardPriority(18, 0, 'normal')).toBe(10); // D1
+    expect(discardPriority(4, 0, 'normal')).toBe(33); // B5 goes very last
+    // Thirteen Terminals mode uses the same order.
+    expect(discardPriority(28, 0, 'thirteen')).toBe(0);
+    expect(discardPriority(26, 0, 'thirteen')).toBe(7);
   });
 
   it('prefers the drawn copy of the chosen type (4.4.3)', () => {

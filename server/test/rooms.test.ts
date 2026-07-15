@@ -77,6 +77,46 @@ describe('idle room cleanup', () => {
   });
 });
 
+describe('room #0 bot difficulty (0.1.5 #4)', () => {
+  it('reverts to Dummy when everyone leaves', () => {
+    const { rooms } = makeRooms();
+    rooms.join(session('p1'), 0);
+    expect(rooms.setBotDifficulty('p1', 'chicken')).toBeNull();
+    expect(rooms.get(0)!.botDifficulty).toBe('chicken');
+    rooms.leave('p1');
+    expect(rooms.get(0)!.botDifficulty).toBe('dummy');
+  });
+
+  it('reverts to Dummy when the idle sweep ejects everyone', () => {
+    const { rooms } = makeRooms();
+    rooms.join(session('p1'), 0);
+    rooms.setBotDifficulty('p1', 'chicken');
+    sweep(rooms, Date.now() + ROOM0_IDLE_MS + 1000);
+    expect(rooms.get(0)!.members).toHaveLength(0);
+    expect(rooms.get(0)!.botDifficulty).toBe('dummy');
+  });
+
+  it('does not persist Chicken past the end of a match', async () => {
+    const { rooms } = makeRooms();
+    rooms.join(session('p1'), 0);
+    rooms.setBotDifficulty('p1', 'chicken');
+    expect(rooms.startMatch('p1', () => {})).toBeNull();
+    rooms.leave('p1'); // the match aborts; room #0 cleanup runs immediately
+    await new Promise((r) => setTimeout(r, 10));
+    expect(rooms.get(0)!.match).toBeNull();
+    expect(rooms.get(0)!.botDifficulty).toBe('dummy');
+  });
+
+  it('survives matches in user rooms untouched', () => {
+    const { rooms } = makeRooms();
+    const room = rooms.create(session('host'), { ...DEFAULT_SETTINGS }) as Room;
+    rooms.setBotDifficulty('host', 'chicken');
+    expect(rooms.startMatch('host', () => {})).toBeNull();
+    expect(room.botDifficulty).toBe('chicken');
+    room.match?.dispose();
+  });
+});
+
 describe('spectating', () => {
   it('watch joins a running match only, from outside any room', () => {
     const { rooms } = makeRooms();

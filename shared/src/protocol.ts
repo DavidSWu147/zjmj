@@ -52,14 +52,28 @@ export interface KeyBindings {
   chow: string;
   pung: string;
   kong: string;
-  /** Rightmost option of an ambiguous chow/kong choice. */
+  /** Right option of an ambiguous chow/kong choice (0.1.5 #7). */
   optRight: string;
-  /** Second-rightmost option. */
+  /** Middle option. */
   optMid: string;
-  /** Leftmost option when there are 3 choices. */
+  /** Left option. */
   optLeft: string;
   mahjong: string;
 }
+
+/**
+ * Which two of the left/middle/right choice keys (default Q/W/E) act when an
+ * ambiguous chow/kong offers exactly two options (0.1.5 #7). The first named
+ * key picks the left on-screen option, the second the right one.
+ */
+export type TwoChoiceKeys = 'left-mid' | 'left-right' | 'mid-right';
+
+/** Tile face art: the classic Chinese set, or the Japanese set under /tiles2 (0.1.5 #10). */
+export type TileStyle = 'chinese' | 'japanese';
+/** Tile back color (0.1.5 #9). */
+export type TileBack = 'beige' | 'blue' | 'lavender' | 'pink';
+/** Match table felt color; lobby/menus are unaffected (0.1.5 #8). */
+export type TableFelt = 'green' | 'navy';
 
 export const DEFAULT_KEY_BINDINGS: KeyBindings = {
   chow: 'A',
@@ -79,7 +93,19 @@ export interface PlayerSettings {
   physicalWalls: boolean;
   /** In-match keyboard hotkeys (desktop). */
   hotkeys: boolean;
+  /**
+   * Guests start with hotkeys off (0.1.5 #5). Set once the off-default has
+   * been applied to this settings blob, so a guest who re-enables hotkeys
+   * is never flipped back; registering carries the blob (and flag) over.
+   */
+  guestHotkeysDefaulted: boolean;
   keyBindings: KeyBindings;
+  /** Key pair for two-option chow/kong choices; 'mid-right' matches Q/W/E semantics pre-0.1.5. */
+  twoChoiceKeys: TwoChoiceKeys;
+  /** Graphics (0.1.5 #8–10). */
+  tileStyle: TileStyle;
+  tileBack: TileBack;
+  tableFelt: TableFelt;
   /** Slider defaults used when creating a new room. */
   defaultRoom: RoomSettings;
 }
@@ -88,7 +114,12 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
   tileIndices: false,
   physicalWalls: true,
   hotkeys: true,
+  guestHotkeysDefaulted: false,
   keyBindings: { ...DEFAULT_KEY_BINDINGS },
+  twoChoiceKeys: 'mid-right',
+  tileStyle: 'chinese',
+  tileBack: 'beige',
+  tableFelt: 'green',
   defaultRoom: { ...DEFAULT_SETTINGS },
 };
 

@@ -9,6 +9,16 @@ const listeners = new Set<Listener>();
 let cache: PlayerSettings = load();
 let saveTimer: number | null = null;
 
+/**
+ * Stamps the graphics choices on <html> so plain CSS restyles the tile
+ * backs and the match felt (0.1.5 #8/#9); tile FACES are read per-render.
+ */
+function applyGraphics(): void {
+  document.documentElement.dataset.tileback = cache.tileBack;
+  document.documentElement.dataset.felt = cache.tableFelt;
+}
+applyGraphics();
+
 function load(): PlayerSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
@@ -47,6 +57,7 @@ export function getSettings(): PlayerSettings {
 export function updateSettings(patch: Partial<PlayerSettings>): void {
   cache = merge({ ...cache, ...patch });
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(cache));
+  applyGraphics();
   for (const fn of listeners) fn();
   if (saveTimer !== null) clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => {
@@ -78,9 +89,16 @@ export async function syncSettingsFromServer(): Promise<void> {
     if (json.settings) {
       cache = merge(json.settings);
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(cache));
+      applyGraphics();
       for (const fn of listeners) fn();
     }
   } catch {
     // offline: local cache is fine
+  }
+  // Guests start with hotkeys off (0.1.5 #5) — applied once per settings
+  // blob, after the sync so a stale server copy cannot resurrect the old
+  // default. Runs for existing guests too; re-enabling afterwards sticks.
+  if (auth.kind === 'guest' && !cache.guestHotkeysDefaulted) {
+    updateSettings({ hotkeys: false, guestHotkeysDefaulted: true });
   }
 }

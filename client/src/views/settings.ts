@@ -1,4 +1,11 @@
-import { DEFAULT_KEY_BINDINGS, KeyBindings } from '../../../shared/src/protocol';
+import {
+  DEFAULT_KEY_BINDINGS,
+  KeyBindings,
+  TableFelt,
+  TileBack,
+  TileStyle,
+  TwoChoiceKeys,
+} from '../../../shared/src/protocol';
 import { getSettings, updateSettings } from '../settings';
 import { tileEl } from '../tileui';
 import { buildRoomSliders } from './sliders';
@@ -17,10 +24,17 @@ const BINDABLE: { key: keyof KeyBindings; label: string }[] = [
   { key: 'chow', label: 'Chow 吃' },
   { key: 'pung', label: 'Pung 碰' },
   { key: 'kong', label: 'Kong 槓' },
-  { key: 'optRight', label: 'Choice: rightmost option' },
-  { key: 'optMid', label: 'Choice: 2nd rightmost option' },
-  { key: 'optLeft', label: 'Choice: leftmost option (of 3)' },
+  { key: 'optLeft', label: 'Choice: left option' },
+  { key: 'optMid', label: 'Choice: middle option' },
+  { key: 'optRight', label: 'Choice: right option' },
   { key: 'mahjong', label: 'Mahjong / Self-Draw 和' },
+];
+
+/** 0.1.5 #7: which two choice keys act when exactly two chows/kongs are offered. */
+const TWO_CHOICE: { v: TwoChoiceKeys; label: string }[] = [
+  { v: 'left-mid', label: 'Left and Middle' },
+  { v: 'left-right', label: 'Left and Right' },
+  { v: 'mid-right', label: 'Middle and Right' },
 ];
 
 /** Normalizes a KeyboardEvent.key for storage/matching ('a' -> 'A'). */
@@ -69,11 +83,82 @@ export function buildTileSettings(container: HTMLElement, onChange?: () => void)
   });
 }
 
+// ── Graphics (0.1.5 #8–10): tile style, tile back color, felt color ──
+const TILE_STYLES: { v: TileStyle; label: string }[] = [
+  { v: 'chinese', label: 'Chinese style 中式' },
+  { v: 'japanese', label: 'Japanese style 日式' },
+];
+const TILE_BACKS: { v: TileBack; label: string }[] = [
+  { v: 'beige', label: 'Beige' },
+  { v: 'blue', label: 'Pastel blue' },
+  { v: 'lavender', label: 'Lavender' },
+  { v: 'pink', label: 'Pastel pink' },
+];
+const FELTS: { v: TableFelt; label: string }[] = [
+  { v: 'green', label: 'Green' },
+  { v: 'navy', label: 'Navy blue' },
+];
+
+/**
+ * Graphics settings with a live tile preview, in spec order: tile style,
+ * then tile back color, then table background (0.1.5 #10).
+ */
+export function buildGraphicsSettings(container: HTMLElement, onChange?: () => void): void {
+  container.innerHTML = `
+    <div id="g-style"></div>
+    <div class="tile-preview" id="g-preview" style="--tw: 44px"></div>
+    <div id="g-back"></div>
+    <div id="g-felt"></div>
+  `;
+  const preview = container.querySelector<HTMLElement>('#g-preview')!;
+  const renderPreview = () => {
+    preview.innerHTML = '';
+    // O last: the Japanese white dragon renders as a completely blank tile.
+    for (const t of ['B3', 'C7', 'D5', 'E ', 'R ', 'G ', 'O ']) preview.appendChild(tileEl(t));
+    preview.appendChild(tileEl(null, { back: true }));
+  };
+  renderPreview();
+
+  const slider = <T extends string>(
+    el: HTMLElement,
+    label: string,
+    opts: { v: T; label: string }[],
+    current: T,
+    save: (v: T) => void,
+  ): void => {
+    const idx = Math.max(0, opts.findIndex((o) => o.v === current));
+    el.className = 'slider-group';
+    el.innerHTML = `
+      <label>${label}</label>
+      <input type="range" min="0" max="${opts.length - 1}" step="1" value="${idx}" />
+      <div class="slider-value">${opts[idx].label}</div>
+    `;
+    const input = el.querySelector<HTMLInputElement>('input')!;
+    input.addEventListener('input', () => {
+      const opt = opts[Number(input.value)];
+      el.querySelector('.slider-value')!.textContent = opt.label;
+      save(opt.v);
+      renderPreview();
+      onChange?.();
+    });
+  };
+  const s = getSettings();
+  slider(container.querySelector<HTMLElement>('#g-style')!, 'Tile style 牌面', TILE_STYLES, s.tileStyle,
+    (v) => updateSettings({ tileStyle: v }));
+  slider(container.querySelector<HTMLElement>('#g-back')!, 'Tile back color 牌背', TILE_BACKS, s.tileBack,
+    (v) => updateSettings({ tileBack: v }));
+  slider(container.querySelector<HTMLElement>('#g-felt')!, 'Background color 桌面', FELTS, s.tableFelt,
+    (v) => updateSettings({ tableFelt: v }));
+}
+
 /**
  * Hotkeys on/off toggle; with `bindings` (settings page only, not in-match)
  * also the custom key binding editor for the 7 rebindable actions.
  */
-export function buildHotkeySettings(container: HTMLElement, opts: { bindings: boolean }): void {
+export function buildHotkeySettings(
+  container: HTMLElement,
+  opts: { bindings: boolean; onChange?: () => void },
+): void {
   container.innerHTML = `
     <label class="toggle-row">
       <input type="checkbox" id="hotkeys-on" />
@@ -85,7 +170,10 @@ export function buildHotkeySettings(container: HTMLElement, opts: { bindings: bo
   `;
   const toggle = container.querySelector<HTMLInputElement>('#hotkeys-on')!;
   toggle.checked = getSettings().hotkeys;
-  toggle.addEventListener('change', () => updateSettings({ hotkeys: toggle.checked }));
+  toggle.addEventListener('change', () => {
+    updateSettings({ hotkeys: toggle.checked });
+    opts.onChange?.();
+  });
 
   if (!opts.bindings) return;
   const bindings = container.querySelector<HTMLElement>('#bindings')!;
@@ -93,6 +181,7 @@ export function buildHotkeySettings(container: HTMLElement, opts: { bindings: bo
 
   const renderBindings = () => {
     const kb = getSettings().keyBindings;
+    const twoIdx = Math.max(0, TWO_CHOICE.findIndex((o) => o.v === getSettings().twoChoiceKeys));
     bindings.innerHTML = `
       <div class="form-hint" style="margin-top:8px">Action keys — click one to rebind it.
         The fixed keys above cannot be assigned.</div>
@@ -105,7 +194,12 @@ export function buildHotkeySettings(container: HTMLElement, opts: { bindings: bo
           </button>
         </div>`,
       ).join('')}
-      <div style="margin-top:10px"><button id="reset-keys">Reset to defaults (A S D · E W Q · ⏎)</button></div>
+      <div class="slider-group" style="margin-top:10px">
+        <label>Selecting from two ambiguous Chows/Kongs</label>
+        <input id="two-choice" type="range" min="0" max="${TWO_CHOICE.length - 1}" step="1" value="${twoIdx}" />
+        <div class="slider-value" id="two-choice-value">${TWO_CHOICE[twoIdx].label}</div>
+      </div>
+      <div style="margin-top:10px"><button id="reset-keys">Reset to defaults (A S D · Q W E · ⏎)</button></div>
     `;
     bindings.querySelectorAll<HTMLButtonElement>('[data-bind]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -113,9 +207,15 @@ export function buildHotkeySettings(container: HTMLElement, opts: { bindings: bo
         renderBindings();
       });
     });
+    const two = bindings.querySelector<HTMLInputElement>('#two-choice')!;
+    two.addEventListener('input', () => {
+      const opt = TWO_CHOICE[Number(two.value)];
+      bindings.querySelector('#two-choice-value')!.textContent = opt.label;
+      updateSettings({ twoChoiceKeys: opt.v });
+    });
     bindings.querySelector('#reset-keys')!.addEventListener('click', () => {
       listening = null;
-      updateSettings({ keyBindings: { ...DEFAULT_KEY_BINDINGS } });
+      updateSettings({ keyBindings: { ...DEFAULT_KEY_BINDINGS }, twoChoiceKeys: 'mid-right' });
       renderBindings();
     });
   };
@@ -177,6 +277,11 @@ export function renderSettings(root: HTMLElement): void {
         </section>
 
         <section class="settings-card">
+          <h2>Graphics 畫面</h2>
+          <div id="graphics-settings"></div>
+        </section>
+
+        <section class="settings-card">
           <h2>Hotkeys 快捷鍵</h2>
           <div id="hotkey-settings"></div>
         </section>
@@ -197,6 +302,7 @@ export function renderSettings(root: HTMLElement): void {
   el.querySelector('#back')!.addEventListener('click', () => (location.hash = ''));
 
   buildTileSettings(el.querySelector<HTMLElement>('#tile-settings')!);
+  buildGraphicsSettings(el.querySelector<HTMLElement>('#graphics-settings')!);
   buildHotkeySettings(el.querySelector<HTMLElement>('#hotkey-settings')!, { bindings: true });
 
   // Default room sliders, saved on every move.

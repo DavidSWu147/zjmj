@@ -1,4 +1,4 @@
-import { GameAction, GameView } from '../../../shared/src/protocol';
+import { GameAction, GameView, KeyBindings } from '../../../shared/src/protocol';
 import { Tile } from '../../../shared/src/tiles';
 import {
   animateTransition,
@@ -14,7 +14,13 @@ import { net } from '../net';
 import { getSettings } from '../settings';
 import { meldEl, orientedTile, tileEl, Deg } from '../tileui';
 import { buildHelpContent } from './help';
-import { buildHotkeySettings, buildTileSettings, normalizeKey, soundSettingsHtml } from './settings';
+import {
+  buildGraphicsSettings,
+  buildHotkeySettings,
+  buildTileSettings,
+  normalizeKey,
+  soundSettingsHtml,
+} from './settings';
 import { escapeHtml } from './play';
 
 /** Seat colors by current seat wind (spec: E green, S vermilion, W cream, N blue). */
@@ -158,19 +164,47 @@ function togglePanel(kind: 'settings' | 'help'): void {
 
   if (next === 'settings') {
     // Everything from the main Settings page except the new-room defaults
-    // (not relevant mid-match).
+    // (not relevant mid-match) and the key binding editor. Two pages
+    // (0.1.5 #11): the 0.1.5 graphics options would overflow a single one.
+    const tabRow = document.createElement('div');
+    tabRow.className = 'help-tabs';
+    tabRow.innerHTML = `
+      <button data-tab="general">General 一般</button>
+      <button data-tab="graphics">Graphics 畫面</button>
+    `;
+    // Tabs live in the head row (like the title) so page 1 keeps exactly
+    // its pre-0.1.5 height.
+    head.insertBefore(tabRow, close);
+    const content = document.createElement('div');
+    content.style.display = 'flex';
+    content.style.flexDirection = 'column';
+    content.style.gap = '12px';
+    body.append(content);
+    const tabs = tabRow.querySelectorAll<HTMLButtonElement>('button');
     const section = (title: string): HTMLElement => {
       const card = document.createElement('section');
       card.className = 'settings-card';
       card.innerHTML = `<h2>${title}</h2>`;
       const inner = document.createElement('div');
       card.appendChild(inner);
-      body.appendChild(card);
+      content.appendChild(card);
       return inner;
     };
-    buildTileSettings(section('Tiles 牌面'), forceRerender);
-    buildHotkeySettings(section('Hotkeys 快捷鍵'), { bindings: false });
-    section('Sound 音效').innerHTML = soundSettingsHtml();
+    const show = (tab: string): void => {
+      tabs.forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+      content.innerHTML = '';
+      if (tab === 'general') {
+        buildTileSettings(section('Tiles 牌面'), forceRerender);
+        // Toggling hotkeys shows/hides the floating key caps at once (0.1.5 #6).
+        buildHotkeySettings(section('Hotkeys 快捷鍵'), { bindings: false, onChange: forceRerender });
+        section('Sound 音效').innerHTML = soundSettingsHtml();
+      } else {
+        buildGraphicsSettings(section('Graphics 畫面'), forceRerender);
+      }
+      body.scrollTop = 0;
+    };
+    tabs.forEach((b) => b.addEventListener('click', () => show(b.dataset.tab!)));
+    show('general');
   } else {
     buildHelpContent(body);
   }
@@ -182,6 +216,40 @@ function togglePanel(kind: 'settings' | 'help'): void {
 // Hand keys mirror the top keyboard row right-to-left: '=' is the tile next
 // to the drawn tile, '`' the 13th over (the leftmost of a meld-free hand).
 const HAND_KEYS = ['=', '-', '0', '9', '8', '7', '6', '5', '4', '3', '2', '1', '`'];
+
+/**
+ * Which choice-key action picks option `i` of `n` in an ambiguous chow/kong
+ * bar (0.1.5 #7): left/middle/right with 3 options, the configured pair with
+ * 2 (the third key is a no-op). n never exceeds 3: chows are bounded by the
+ * three run shapes, and every new kong option claims 4 of the turn's 14
+ * tiles (4 concealed, or an exposed pung's 3 + the pocketed 4th), so three
+ * options already use 12 — the 2 leftovers can't form a fourth.
+ */
+function choiceKeyForOption(i: number, n: number): keyof KeyBindings | null {
+  if (n >= 3) {
+    if (i === 0) return 'optLeft';
+    if (i === n - 1) return 'optRight';
+    return n === 3 ? 'optMid' : null;
+  }
+  if (n === 2) {
+    const pair = getSettings().twoChoiceKeys;
+    if (pair === 'left-mid') return i === 0 ? 'optLeft' : 'optMid';
+    if (pair === 'left-right') return i === 0 ? 'optLeft' : 'optRight';
+    return i === 0 ? 'optMid' : 'optRight';
+  }
+  return i === 0 ? 'optRight' : null;
+}
+
+/** Small white key cap floating above a button/tile/option (0.1.5 #6). */
+function hkLabel(text: string): HTMLElement {
+  const s = document.createElement('span');
+  s.className = 'hk-label';
+  s.textContent = text;
+  return s;
+}
+
+/** Display glyph for a bound key; symbols, never spelled-out words. */
+const keyGlyph = (k: string): string => (k === 'Enter' ? '⏎' : k);
 
 function onGameKey(e: KeyboardEvent): void {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -202,17 +270,16 @@ function onGameKey(e: KeyboardEvent): void {
   if (!getSettings().hotkeys || !kbCtx) return;
   const kb = getSettings().keyBindings;
 
-  // An open chow/kong choice bar: E/W/Q (rightmost / 2nd / leftmost-of-3).
+  // An open chow/kong choice bar: Q/W/E read left/middle/right (0.1.5 #7).
   if (variantFns && variantFns.length > 0) {
     const n = variantFns.length;
-    let fn: (() => void) | undefined;
-    if (k === kb.optRight) fn = variantFns[n - 1];
-    else if (k === kb.optMid && n >= 2) fn = variantFns[n - 2];
-    else if (k === kb.optLeft && n === 3) fn = variantFns[0];
-    if (fn) {
-      e.preventDefault();
-      fn();
-      return;
+    for (let i = 0; i < n; i++) {
+      const action = choiceKeyForOption(i, n);
+      if (action && k === kb[action]) {
+        e.preventDefault();
+        variantFns[i]();
+        return;
+      }
     }
   }
 
@@ -853,6 +920,9 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       handWrap.appendChild(ph);
     }
   } else {
+    // Key caps float over the tiles only while a discard is actually
+    // possible (0.1.5 #6) — a permanent row of 14 glyphs is just noise.
+    const showKeys = getSettings().hotkeys && canDiscard;
     view.myHand.forEach((t, i) => {
       const key = `h${i}`;
       const tile = tileEl(t, { selected: selKey === key });
@@ -861,6 +931,8 @@ export function renderGame(el: HTMLElement, view: GameView): void {
         e.preventDefault();
         clickTile(key, t, false, tile);
       });
+      const hk = HAND_KEYS[view.myHand.length - 1 - i];
+      if (showKeys && hk) tile.appendChild(hkLabel(hk));
       handTileEls.push(tile);
       handWrap.appendChild(tile);
     });
@@ -877,6 +949,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
         e.preventDefault();
         clickTile('drawn', view.myDrawn!, true, tile);
       });
+      if (showKeys) tile.appendChild(hkLabel('⌫'));
       drawnEl = tile;
       handWrap.appendChild(tile);
     } else {
@@ -1082,6 +1155,13 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     b.className = `action-btn ${cls}`;
     b.innerHTML = `${en}<span class="zh">${zh}</span>`;
     b.addEventListener('click', fn);
+    if (getSettings().hotkeys && !spec) {
+      // Its hotkey floats above every claim button (0.1.5 #6): the bound
+      // letter, ␣ for pass/cancel (Space).
+      const kb = getSettings().keyBindings;
+      const key = cls === 'pass' ? '␣' : kb[cls as keyof KeyBindings];
+      b.appendChild(hkLabel(keyGlyph(key)));
+    }
     bar.appendChild(b);
     // The keyboard layer presses buttons by role; CANCEL shares PASS's slot
     // (both live on Space, "PASS or CANCEL depending on context").
@@ -1097,7 +1177,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     vb.style.bottom = `${th + 96}px`;
     vb.style.setProperty('--tw', `${tw * 0.72}px`);
     const fns: (() => void)[] = [];
-    for (const it of items) {
+    items.forEach((it, i) => {
       const choose = () => {
         vb.remove();
         variantFns = null;
@@ -1108,9 +1188,15 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       opt.className = 'variant-opt';
       opt.appendChild(it.label);
       opt.addEventListener('click', choose);
+      if (getSettings().hotkeys) {
+        // Each option wears the key that picks it (0.1.5 #6/#7) — with two
+        // options that is the configured pair, so the unused key shows nowhere.
+        const action = choiceKeyForOption(i, items.length);
+        if (action) opt.appendChild(hkLabel(keyGlyph(getSettings().keyBindings[action])));
+      }
       vb.appendChild(opt);
-    }
-    // Ambiguous-choice hotkeys (E/W/Q) pick from the same list, left-to-right.
+    });
+    // The left/middle/right choice hotkeys pick from the same list.
     variantFns = fns;
     board.appendChild(vb);
   };
