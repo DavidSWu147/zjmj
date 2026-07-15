@@ -11,15 +11,17 @@ const SUIT_DIR: Record<string, string> = {
 };
 const WINDS = ['E', 'S', 'W', 'N'];
 
-/** Corner index (English) for a tile; white dragon 'O ' stays unmarked. */
+/**
+ * Corner index (English) for a tile: only characters (whose rank is a
+ * kanji numeral) and winds carry one. Bamboo/dot ranks are countable at a
+ * glance, dragons are told apart by color — and on those tiles the label
+ * can clash with the artwork (high bamboos/dots, the green dragon).
+ */
 function tileIndexLabel(t: Tile): string | null {
   if (t[1] !== ' ') {
-    // Number tiles 1–9; bonus tiles (F/A) carry their own numeral already.
-    return t[0] === 'F' || t[0] === 'A' ? null : t[1];
+    return t[0] === 'C' ? t[1] : null; // characters 1–9
   }
-  if (WINDS.includes(t[0])) return t[0]; // winds: ESWN
-  if (t[0] === 'R' || t[0] === 'G') return t[0]; // red/green dragon
-  return null;
+  return WINDS.includes(t[0]) ? t[0] : null; // winds: ESWN
 }
 
 export function tileSrc(t: Tile): string {

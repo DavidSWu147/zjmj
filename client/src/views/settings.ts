@@ -52,7 +52,7 @@ export function buildTileSettings(container: HTMLElement, onChange?: () => void)
     <label class="toggle-row">
       <input type="checkbox" id="tile-indices" />
       <span>English indices on tiles<br/>
-        <small>1–9 on number tiles, ESWN on winds, R/G on dragons</small></span>
+        <small>1–9 on character tiles, ESWN on winds</small></span>
     </label>
     <div class="tile-preview" id="tile-preview" style="--tw: 44px"></div>
     <label class="toggle-row">
