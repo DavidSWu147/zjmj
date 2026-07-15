@@ -126,7 +126,11 @@ export function buildGraphicsSettings(container: HTMLElement, onChange?: () => v
   const renderPreview = () => {
     preview.innerHTML = '';
     // O last: the Japanese white dragon renders as a completely blank tile.
-    for (const t of ['B3', 'C7', 'D5', 'E ', 'R ', 'G ', 'O ']) preview.appendChild(tileEl(t));
+    // This preview is about the artwork, so the English indices never show
+    // here — they are demoed by the Tiles card's own preview.
+    for (const t of ['B3', 'C7', 'D5', 'E ', 'R ', 'G ', 'O ']) {
+      preview.appendChild(tileEl(t, { noIndex: true }));
+    }
     preview.appendChild(tileEl(null, { back: true }));
   };
   renderPreview();

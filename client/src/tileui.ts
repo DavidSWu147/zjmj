@@ -40,6 +40,8 @@ export interface TileOpts {
   selected?: boolean;
   dimmed?: boolean;
   highlight?: boolean;
+  /** Suppress the English corner index even when the setting is on. */
+  noIndex?: boolean;
 }
 
 /** Builds a tile element; size comes from the CSS var --tw on an ancestor. */
@@ -58,7 +60,7 @@ export function tileEl(t: Tile | null, opts: TileOpts = {}): HTMLElement {
     img.alt = t.trim();
     img.draggable = false;
     el.appendChild(img);
-    if (getSettings().tileIndices) {
+    if (getSettings().tileIndices && !opts.noIndex) {
       const label = tileIndexLabel(t);
       if (label) {
         const idx = document.createElement('span');
