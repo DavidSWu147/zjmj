@@ -10,6 +10,7 @@ import { makeAuthApi } from './auth';
 import { Db } from './db';
 import { loadDotEnv, playFabEnabled } from './playfab';
 import { Rooms } from './rooms';
+import { currentWeekId, previousWeekId } from './tourney';
 
 loadDotEnv();
 
@@ -32,6 +33,41 @@ const rooms = new Rooms({
   onLobbyChanged: () => broadcastLobby(),
   onMatchFinished: (record, aborted) => {
     if (!aborted) db.saveMatch(record);
+    // Weekly Tournament (v0.2): persist Rank Points; leaving early (or being
+    // in system-set Auto Mode / disconnected at the end) scores 0 and bars
+    // the player from next week's tournament.
+    if (record.tournamentWeek) {
+      const leavers = new Set([
+        ...record.abandonedBy,
+        ...(record.systemAutoAtEnd ?? []),
+        ...(record.disconnectedAtEnd ?? []),
+      ]);
+      record.players.forEach((p, seat) => {
+        if (p.isBot) return;
+        db.recordTournamentResult(
+          record.tournamentWeek!,
+          p.id,
+          record.rankPoints?.[seat] ?? 0,
+          leavers.has(p.id),
+        );
+      });
+    }
+    // "Breaking the Wall" (v0.2): a match played to the end by four
+    // registered humans — nobody left, nobody on system-set Auto Mode or
+    // disconnected at the end.
+    if (
+      !aborted &&
+      record.players.length === 4 &&
+      record.players.every((p) => !p.isBot && p.registered) &&
+      record.abandonedBy.length === 0 &&
+      (record.systemAutoAtEnd ?? []).length === 0 &&
+      (record.disconnectedAtEnd ?? []).length === 0
+    ) {
+      const newly = record.players
+        .filter((p) => db.awardAchievement(p.id, 'breaking-the-wall'))
+        .map((p) => p.id);
+      if (newly.length > 0) return { newlyAchieved: newly };
+    }
   },
   isConnected: (playerId) => {
     const s = sessions.get(playerId);
@@ -42,6 +78,19 @@ const rooms = new Rooms({
       const s = sessions.get(pid);
       if (s) send(s, { type: 'toast', message });
     }
+  },
+  sendView: (playerId, view) => sendViewTo(playerId, view),
+  tournamentJoinError: (playerId) => {
+    if (db.hasPlayedTournament(playerId, currentWeekId())) {
+      return "You have already played in this week's tournament. Come back next week!";
+    }
+    if (db.leftTournamentEarly(playerId, previousWeekId())) {
+      return "You left last week's tournament match early, so you cannot play in this week's tournament.";
+    }
+    return null;
+  },
+  onTournamentMatchStart: (week, matchId, players) => {
+    db.recordTournamentStart(week, matchId, players);
   },
 });
 
@@ -61,7 +110,7 @@ function lobbyMsgFor(session: Session): ServerMsg {
   const isMember = !!room?.members.some((m) => m.playerId === session.playerId);
   return {
     type: 'lobby',
-    rooms: rooms.list(),
+    rooms: rooms.list(session.playerId),
     myRoom: room ? room.id : null,
     myRoomCode: isMember ? (room?.code ?? null) : null,
     // Spectators count as "in a match" so lobby refreshes never tear down
@@ -123,8 +172,15 @@ function handleMsg(session: Session, msg: ClientMsg): void {
       break;
     }
     case 'startMatch': {
-      const err = rooms.startMatch(session.playerId, sendViewTo);
+      const err = rooms.startMatch(session.playerId);
       if (err) send(session, { type: 'toast', message: err });
+      break;
+    }
+    case 'systemAuto': {
+      const room = rooms.roomOf(session.playerId);
+      if (room?.match && !room.match.finished) {
+        room.match.setSystemAuto(session.playerId, msg.on === true);
+      }
       break;
     }
     case 'watchMatch': {
@@ -155,6 +211,9 @@ function sessionLike(session: Session) {
     get connected() {
       const s = sessions.get(session.playerId);
       return !!s?.ws && s.ws.readyState === WebSocket.OPEN;
+    },
+    get kind() {
+      return sessions.get(session.playerId)?.kind ?? session.kind;
     },
   };
 }

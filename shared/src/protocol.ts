@@ -40,6 +40,13 @@ export function isStandardSettings(s: RoomSettings): boolean {
 
 export const ROOM_CAP = 24; // user-created rooms #1..#24, not counting room #0
 
+/** Weekly Tournament rooms (v0.2): system rooms #25..#28, Saturdays only. */
+export const TOURNAMENT_ROOM_FIRST = ROOM_CAP + 1;
+export const TOURNAMENT_ROOM_COUNT = 4;
+export function isTournamentRoomId(id: number): boolean {
+  return id >= TOURNAMENT_ROOM_FIRST && id < TOURNAMENT_ROOM_FIRST + TOURNAMENT_ROOM_COUNT;
+}
+
 /** Brain used for the bots that fill a match's empty seats (0.1.4 #5). */
 export type BotDifficulty = 'dummy' | 'chicken';
 
@@ -144,6 +151,12 @@ export interface RoomSummary {
   spectators?: number;
   /** Brain for the bots that fill empty seats (host-toggled). */
   botDifficulty: BotDifficulty;
+  /** Weekly Tournament room (v0.2): system-created, Saturdays only. */
+  tournament?: boolean;
+  /** Tournament rooms: only the first open one accepts joins; others hide Join. */
+  joinable?: boolean;
+  /** Tournament auto-start countdown: seconds until the match begins. */
+  startsIn?: number;
 }
 
 export interface MeldView {
@@ -216,9 +229,18 @@ export interface GameResultView {
 
 export interface MatchResultView {
   /** Sorted by final score, highest first. */
-  standings: { name: string; isBot: boolean; score: number; result: 'WIN' | 'LOSE' | 'DRAW' }[];
+  standings: {
+    name: string;
+    isBot: boolean;
+    score: number;
+    result: 'WIN' | 'LOSE' | 'DRAW';
+    /** Tournament matches only (v0.2): max(50, score + 500), 0 for leavers. */
+    rankPoints?: number;
+  }[];
   /** Epoch ms (server clock) when the match screen closes. */
   endsAt: number;
+  /** Stamped per viewer: an achievement newly earned by this match (v0.2). */
+  newAchievement?: { id: string; name: string };
 }
 
 export interface GameView {
@@ -318,6 +340,9 @@ export type ClientMsg =
   | { type: 'watchMatch'; roomId: number; code?: string }
   /** Spectator only: switch the viewing perspective to this current seat. */
   | { type: 'spectateSeat'; seat: number }
+  /** The client's inactivity detection put this player in/out of system-set
+   *  Auto Mode (v0.2): being in it when a match ends counts as leaving. */
+  | { type: 'systemAuto'; on: boolean }
   | { type: 'action'; action: GameAction };
 
 export type ServerMsg =

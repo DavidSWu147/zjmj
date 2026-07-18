@@ -476,6 +476,68 @@ describe('adjusted scoring and optional patterns', () => {
     };
     expect(scoreWin(noMiddle, 1, 'adjustedExtra').patterns.map((p) => p.id)).not.toContain('8.3');
   });
+
+  // v0.2: the fourth meld may also be a dragon triplet, with its own pair
+  // restrictions — the pair must be the Seat Wind or an unused number tile.
+  it('8.3 accepts a dragon meld with a Seat Wind pair (v0.2)', () => {
+    // 123B 789C 456D RRR + SS (seat wind: South)
+    const input = {
+      melds: [{ kind: 'pung' as const, tile: 'R ' }],
+      concealed: ['B1', 'B2', 'B3', 'C7', 'C8', 'C9', 'D4', 'D5', 'D6', 'S '],
+      winTile: 'S ',
+      winBy: 'discard' as const,
+      ...base,
+    };
+    expect(scoreWin(input, 1, 'adjustedExtra').patterns.map((p) => p.id)).toContain('8.3');
+  });
+
+  it('8.3 accepts a dragon meld with a number pair no sequence uses (v0.2)', () => {
+    // 123B 789C 456D RRR + 55B
+    const input = {
+      melds: [{ kind: 'pung' as const, tile: 'R ' }],
+      concealed: ['B1', 'B2', 'B3', 'C7', 'C8', 'C9', 'D4', 'D5', 'D6', 'B5'],
+      winTile: 'B5',
+      winBy: 'discard' as const,
+      ...base,
+    };
+    expect(scoreWin(input, 1, 'adjustedExtra').patterns.map((p) => p.id)).toContain('8.3');
+  });
+
+  it('8.3 rejects a dragon meld with a dragon pair or a used number pair (v0.2)', () => {
+    // 123B 789C 456D RRR + GG: the pair may not be a dragon in the dragon case
+    const dragonPair = {
+      melds: [{ kind: 'pung' as const, tile: 'R ' }],
+      concealed: ['B1', 'B2', 'B3', 'C7', 'C8', 'C9', 'D4', 'D5', 'D6', 'G '],
+      winTile: 'G ',
+      winBy: 'discard' as const,
+      ...base,
+    };
+    expect(scoreWin(dragonPair, 1, 'adjustedExtra').patterns.map((p) => p.id)).not.toContain('8.3');
+    // 123B 789C 456D RRR + 22B: B2 sits inside 123B
+    const usedPair = {
+      melds: [{ kind: 'pung' as const, tile: 'R ' }],
+      concealed: ['B1', 'B2', 'B3', 'C7', 'C8', 'C9', 'D4', 'D5', 'D6', 'B2'],
+      winTile: 'B2',
+      winBy: 'discard' as const,
+      ...base,
+    };
+    expect(scoreWin(usedPair, 1, 'adjustedExtra').patterns.map((p) => p.id)).not.toContain('8.3');
+  });
+
+  it('8.3 rejects two honor melds (v0.2)', () => {
+    // 111B 999C EEE RRR + 55D: no middle meld and two honor triplets
+    const input = {
+      melds: [
+        { kind: 'pung' as const, tile: 'E ' },
+        { kind: 'pung' as const, tile: 'R ' },
+      ],
+      concealed: ['B1', 'B1', 'B1', 'C9', 'C9', 'C9', 'D5'],
+      winTile: 'D5',
+      winBy: 'discard' as const,
+      ...base,
+    };
+    expect(scoreWin(input, 1, 'adjustedExtra').patterns.map((p) => p.id)).not.toContain('8.3');
+  });
 });
 
 describe('payments', () => {

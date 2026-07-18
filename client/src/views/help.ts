@@ -16,7 +16,7 @@ const OPTIONAL_PATTERNS: { id: string; name: string; zh: string; points: number;
   },
   {
     id: '8.3', name: 'Four Unlike', zh: '四不像', points: 10,
-    desc: 'One meld with a 1, one meld with a 9, one middle-number meld, one wind meld; the pair must not be winds or a number already used by a sequence. Incompatible with Seven Pairs.',
+    desc: 'One meld with a 1, one meld with a 9, one middle-number meld, and one wind or dragon meld. With a wind meld the pair must not be winds or a number already used by a sequence meld (dragons always OK); with a dragon meld the pair must be your Seat Wind or a number not used by a sequence meld. Incompatible with Seven Pairs.',
   },
 ];
 

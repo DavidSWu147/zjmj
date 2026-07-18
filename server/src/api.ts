@@ -2,8 +2,10 @@ import express from 'express';
 import { isStandardSettings } from '../../shared/src/protocol';
 import { matchToTxt } from '../../shared/src/records';
 import { PATTERN_IDS } from '../../shared/src/scoring';
+import { ACHIEVEMENTS } from '../../shared/src/achievements';
 import { sessionFromRequest } from './auth';
 import { Db } from './db';
+import { currentMonthPrefix, currentWeekId } from './tourney';
 
 export interface StatsResponse {
   patternCounts: Record<string, number>;
@@ -123,6 +125,45 @@ export function makeApi(db: Db): express.Router {
     }
     db.resetStats(session.playerId);
     res.json({ ok: true });
+  });
+
+  /**
+   * Weekly Tournament leaderboards (v0.2): Rank Points totals for the
+   * current week (starts Saturday midnight UTC-7), the current calendar
+   * month, and all time. Guests may view; only registered users appear.
+   */
+  router.get('/leaderboards', (req, res) => {
+    const session = sessionFromRequest(db, req);
+    if (!session) {
+      res.status(401).json({ error: 'Not signed in.' });
+      return;
+    }
+    res.json({
+      week: currentWeekId(),
+      month: currentMonthPrefix(),
+      weekly: db.leaderboard({ week: currentWeekId() }),
+      monthly: db.leaderboard({ monthPrefix: currentMonthPrefix() }),
+      allTime: db.leaderboard({}),
+    });
+  });
+
+  /** The achievement catalogue with this player's earned timestamps (v0.2). */
+  router.get('/achievements', (req, res) => {
+    const session = sessionFromRequest(db, req);
+    if (!session) {
+      res.status(401).json({ error: 'Not signed in.' });
+      return;
+    }
+    const earned = new Map(
+      db.achievementsFor(session.playerId).map((a) => [a.achievementId, a.earnedAt]),
+    );
+    res.json({
+      registered: session.kind === 'account',
+      achievements: ACHIEVEMENTS.map((a) => ({
+        ...a,
+        earnedAt: earned.get(a.id) ?? null,
+      })),
+    });
   });
 
   router.get('/records', (req, res) => {

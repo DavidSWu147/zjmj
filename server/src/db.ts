@@ -74,6 +74,22 @@ export class Db {
         player_id TEXT PRIMARY KEY,
         stats_reset_at INTEGER NOT NULL DEFAULT 0
       );
+      CREATE TABLE IF NOT EXISTS tournament_results (
+        week TEXT NOT NULL,
+        player_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        rank_points INTEGER NOT NULL DEFAULT 0,
+        left_early INTEGER NOT NULL DEFAULT 0,
+        match_id INTEGER,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (week, player_id)
+      );
+      CREATE TABLE IF NOT EXISTS achievements (
+        player_id TEXT NOT NULL,
+        achievement_id TEXT NOT NULL,
+        earned_at INTEGER NOT NULL,
+        PRIMARY KEY (player_id, achievement_id)
+      );
     `);
     // v0.1.3: per-player record deletion hides the row from that player's
     // Records list (the match itself stays for the other participants).
@@ -142,6 +158,12 @@ export class Db {
     this.db.prepare('UPDATE sessions SET player_id = ? WHERE player_id = ?').run(to, from);
     this.db
       .prepare('UPDATE OR REPLACE player_meta SET player_id = ? WHERE player_id = ?')
+      .run(to, from);
+    this.db
+      .prepare('UPDATE OR REPLACE tournament_results SET player_id = ? WHERE player_id = ?')
+      .run(to, from);
+    this.db
+      .prepare('UPDATE OR REPLACE achievements SET player_id = ? WHERE player_id = ?')
       .run(to, from);
   }
 
@@ -264,6 +286,102 @@ export class Db {
       startSeat: r.start_seat,
       result: r.result,
     }));
+  }
+
+  // ── Weekly Tournaments (v0.2) ─────────────────────────────────────────
+
+  /** Has this player entered (started) a tournament match this week? */
+  hasPlayedTournament(playerId: string, week: string): boolean {
+    return (
+      this.db
+        .prepare('SELECT 1 FROM tournament_results WHERE week = ? AND player_id = ?')
+        .get(week, playerId) !== undefined
+    );
+  }
+
+  /** Did this player leave a tournament match early in the given week? */
+  leftTournamentEarly(playerId: string, week: string): boolean {
+    const row = this.db
+      .prepare('SELECT left_early FROM tournament_results WHERE week = ? AND player_id = ?')
+      .get(week, playerId) as { left_early: number } | undefined;
+    return !!row && row.left_early !== 0;
+  }
+
+  /**
+   * A tournament match started: each player is committed to this week (a row
+   * exists from the moment of the deal, so leaving mid-match cannot free up
+   * another entry).
+   */
+  recordTournamentStart(
+    week: string,
+    matchId: number,
+    players: { id: string; name: string }[],
+  ): void {
+    const ins = this.db.prepare(
+      `INSERT OR IGNORE INTO tournament_results
+       (week, player_id, name, rank_points, left_early, match_id, updated_at)
+       VALUES (?, ?, ?, 0, 0, ?, ?)`,
+    );
+    const now = Date.now();
+    for (const p of players) ins.run(week, p.id, p.name, matchId, now);
+  }
+
+  recordTournamentResult(
+    week: string,
+    playerId: string,
+    rankPoints: number,
+    leftEarly: boolean,
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE tournament_results SET rank_points = ?, left_early = ?, updated_at = ?
+         WHERE week = ? AND player_id = ?`,
+      )
+      .run(rankPoints, leftEarly ? 1 : 0, Date.now(), week, playerId);
+  }
+
+  /** Top Rank Points holders; scope is a week id, a 'YYYY-MM' month, or all. */
+  leaderboard(scope: { week?: string; monthPrefix?: string }, limit = 100): {
+    name: string;
+    points: number;
+  }[] {
+    const where = scope.week
+      ? 'WHERE week = ?'
+      : scope.monthPrefix
+        ? "WHERE week LIKE ? || '%'"
+        : '';
+    const args: (string | number)[] = scope.week
+      ? [scope.week, limit]
+      : scope.monthPrefix
+        ? [scope.monthPrefix, limit]
+        : [limit];
+    const rows = this.db
+      .prepare(
+        `SELECT MAX(name) AS name, SUM(rank_points) AS points
+         FROM tournament_results ${where}
+         GROUP BY player_id ORDER BY points DESC, name ASC LIMIT ?`,
+      )
+      .all(...args) as { name: string; points: number }[];
+    return rows;
+  }
+
+  // ── Achievements (v0.2) ───────────────────────────────────────────────
+
+  /** Awards an achievement; returns true only if it was newly earned. */
+  awardAchievement(playerId: string, achievementId: string): boolean {
+    const res = this.db
+      .prepare(
+        'INSERT OR IGNORE INTO achievements (player_id, achievement_id, earned_at) VALUES (?, ?, ?)',
+      )
+      .run(playerId, achievementId, Date.now());
+    return res.changes > 0;
+  }
+
+  achievementsFor(playerId: string): { achievementId: string; earnedAt: number }[] {
+    const rows = this.db
+      .prepare('SELECT achievement_id, earned_at FROM achievements WHERE player_id = ?')
+      .all(playerId) as { achievement_id: string; earned_at: number }[];
+    return rows.map((r) => ({ achievementId: r.achievement_id, earnedAt: r.earned_at }));
   }
 
   close(): void {

@@ -354,11 +354,15 @@ function evalRegular(sets: ASet[], pairIdx: number, ctx: Ctx): PatternHit[] {
   }
   if (terminalPts > 0) hits.push(hit(terminalId));
 
-  // 8.3 Four Unlike (optional): one meld with a 1, one with a 9, one middle
-  // meld, one wind meld; the pair is neither a wind nor a number tile that a
-  // sequence meld already uses (dragons always fine).
-  if (ctx.extraPatterns && tris.filter((s) => isWindIdx(s.idx)).length === 1) {
-    const rest = sets.filter((s) => !isWindIdx(s.idx));
+  // 8.3 Four Unlike (optional, v0.2 definition): one meld with a 1, one with
+  // a 9, one middle meld, and one honor triplet. With a WIND triplet the pair
+  // must not be a wind nor a number tile a sequence meld already uses
+  // (dragons always fine); with a DRAGON triplet the pair must be the Seat
+  // Wind, or a number tile no sequence meld uses.
+  const honorTris = tris.filter((s) => isHonorIdx(s.idx));
+  if (ctx.extraPatterns && honorTris.length === 1) {
+    const honor = honorTris[0];
+    const rest = sets.filter((s) => s !== honor);
     const has1 = (s: ASet) => s.idx % 9 === 0;
     const has9 = (s: ASet) => s.idx % 9 === (s.kind === 'seq' ? 6 : 8);
     const middle = (s: ASet) => s.idx % 9 >= 1 && s.idx % 9 <= (s.kind === 'seq' ? 5 : 7);
@@ -368,9 +372,11 @@ function evalRegular(sets: ASet[], pairIdx: number, ctx: Ctx): PatternHit[] {
       [
         [0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0],
       ].some(([a, b, c]) => has1(rest[a]) && has9(rest[b]) && middle(rest[c]));
-    const pairOk =
-      isDragonIdx(pairIdx) ||
-      (pairIdx < 27 && !seqs.some((s) => pairIdx >= s.idx && pairIdx <= s.idx + 2));
+    const numberPairFree =
+      pairIdx < 27 && !seqs.some((s) => pairIdx >= s.idx && pairIdx <= s.idx + 2);
+    const pairOk = isWindIdx(honor.idx)
+      ? isDragonIdx(pairIdx) || numberPairFree
+      : pairIdx === ctx.seatWindIdx || numberPairFree;
     if (slotsOk && pairOk) hits.push(hit('8.3'));
   }
 

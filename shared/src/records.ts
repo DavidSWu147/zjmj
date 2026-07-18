@@ -62,12 +62,20 @@ export interface MatchRecord {
   matchLength: 1 | 2 | 4;
   settings: RoomSettings;
   /** Indexed by starting seat (E,S,W,N). */
-  players: { id: string; name: string; isBot: boolean }[];
+  players: { id: string; name: string; isBot: boolean; registered?: boolean }[];
   games: GameRecord[];
   /** By starting seat. */
   finalScores: number[];
   /** Player ids who left before the match finished. */
   abandonedBy: string[];
+  /** Player ids in system-set Auto Mode when the match ended (v0.2). */
+  systemAutoAtEnd?: string[];
+  /** Player ids disconnected when the match ended (v0.2). */
+  disconnectedAtEnd?: string[];
+  /** Weekly Tournament matches only (v0.2). */
+  tournamentWeek?: string;
+  /** Rank Points by starting seat (tournament matches only). */
+  rankPoints?: number[];
 }
 
 const SEAT_NAMES = ['EAST', 'SOUTH', 'WEST', 'NORTH'];

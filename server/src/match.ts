@@ -10,6 +10,8 @@ export interface MatchPlayer {
   isBot: boolean;
   /** Bot brain; only meaningful when isBot (humans default to dummy takeover). */
   kind?: BotKind;
+  /** Humans only: signed in with a registered account (v0.2 achievements). */
+  registered?: boolean;
 }
 
 export interface MatchTiming {
@@ -34,8 +36,12 @@ export const SPECTATOR_CAP = 4;
 export interface MatchDelegate {
   /** Push a view to a (human) player. */
   sendView(playerId: string, view: GameView): void;
-  /** Called once when the match is over or aborted. */
-  onMatchEnd(record: MatchRecord, aborted: boolean): void;
+  /**
+   * Called once when the match is over or aborted. May return the ids of
+   * players who just earned an achievement from this match (v0.2): the final
+   * standings screen shows them a congratulation banner.
+   */
+  onMatchEnd(record: MatchRecord, aborted: boolean): void | { newlyAchieved?: string[] };
   isConnected(playerId: string): boolean;
   rng?: () => number;
   timing?: Partial<MatchTiming>;
@@ -61,6 +67,10 @@ export class Match {
   private resultView: GameResultView | null = null;
   private matchResultView: MatchResultView | null = null;
   private leftIds = new Set<string>();
+  /** Players currently in system-set Auto Mode (client-reported, v0.2). */
+  private systemAuto = new Set<string>();
+  /** Players whose standings screen shows a new-achievement banner. */
+  private achievementWinners = new Set<string>();
   /** Watching playerIds mapped to their viewing perspective (START seat). */
   private spectators = new Map<string, number>();
   /** Watchers dropped by an abort, for the host to notify (see endMatch). */
@@ -72,6 +82,8 @@ export class Match {
   private roomInfo: { id: number; code: string | null } | null;
   /** Brain for fill-in bots AND for takeover of disconnected/departed humans. */
   private botDifficulty: BotDifficulty;
+  /** Weekly Tournament week id; null for regular matches (v0.2). */
+  readonly tournamentWeek: string | null;
 
   constructor(
     settings: RoomSettings,
@@ -79,11 +91,13 @@ export class Match {
     delegate: MatchDelegate,
     room: { id: number; code: string | null } | null = null,
     botDifficulty: BotDifficulty = 'dummy',
+    tournamentWeek: string | null = null,
   ) {
     this.settings = settings;
     this.delegate = delegate;
     this.roomInfo = room;
     this.botDifficulty = botDifficulty;
+    this.tournamentWeek = tournamentWeek;
     this.timing = { ...DEFAULT_TIMING, ...delegate.timing };
     this.rng = delegate.rng ?? Math.random;
 
@@ -228,6 +242,18 @@ export class Match {
       this.abortedWatchers = [...this.spectators.keys()];
       this.spectators.clear();
     }
+    // v0.2: being in system-set Auto Mode — or disconnected — when the match
+    // ends counts as leaving for tournament scoring and achievements.
+    const disconnectedAtEnd = this.players
+      .filter((p) => !p.isBot && !this.leftIds.has(p.id) && !this.delegate.isConnected(p.id))
+      .map((p) => p.id);
+    const isLeaver = (p: MatchPlayer): boolean =>
+      this.leftIds.has(p.id) || this.systemAuto.has(p.id) || disconnectedAtEnd.includes(p.id);
+    const rankPoints = this.tournamentWeek
+      ? this.players.map((p, seat) =>
+          p.isBot || isLeaver(p) ? 0 : Math.max(50, this.scores[seat] + 500),
+        )
+      : null;
     this.matchResultView = {
       standings: this.players
         .map((p, seat) => ({
@@ -238,6 +264,7 @@ export class Match {
             | 'WIN'
             | 'LOSE'
             | 'DRAW',
+          ...(rankPoints ? { rankPoints: rankPoints[seat] } : {}),
         }))
         .sort((a, b) => b.score - a.score),
       endsAt: Date.now() + this.timing.matchEndMs,
@@ -247,12 +274,25 @@ export class Match {
       matchId: this.matchId,
       matchLength: this.settings.rounds,
       settings: this.settings,
-      players: this.players.map((p) => ({ id: p.id, name: p.name, isBot: p.isBot })),
+      players: this.players.map((p) => ({
+        id: p.id,
+        name: p.name,
+        isBot: p.isBot,
+        ...(p.registered !== undefined ? { registered: p.registered } : {}),
+      })),
       games: this.games,
       finalScores: [...this.scores],
       abandonedBy: [...this.leftIds],
+      systemAutoAtEnd: [...this.systemAuto],
+      disconnectedAtEnd,
+      ...(this.tournamentWeek ? { tournamentWeek: this.tournamentWeek } : {}),
+      ...(rankPoints ? { rankPoints } : {}),
     };
-    this.delegate.onMatchEnd(record, aborted);
+    const res = this.delegate.onMatchEnd(record, aborted);
+    if (res && res.newlyAchieved && res.newlyAchieved.length > 0) {
+      this.achievementWinners = new Set(res.newlyAchieved);
+      this.broadcast(); // re-send the standings with the banner stamped in
+    }
   }
 
   /** A human leaves mid-match: bots take over; abort if no humans remain. */
@@ -276,6 +316,14 @@ export class Match {
   /** Has this player permanently left the match (a bot holds their seat)? */
   hasLeft(playerId: string): boolean {
     return this.leftIds.has(playerId);
+  }
+
+  /** Client-reported system-set Auto Mode state (v0.2 inactivity). */
+  setSystemAuto(playerId: string, on: boolean): void {
+    if (this.finished) return;
+    if (!this.players.some((p) => !p.isBot && p.id === playerId)) return;
+    if (on) this.systemAuto.add(playerId);
+    else this.systemAuto.delete(playerId);
   }
 
   // ── spectators ──────────────────────────────────────────────────────
@@ -361,7 +409,12 @@ export class Match {
     v.room = this.roomInfo;
     if (this.matchResultView) {
       v.phase = 'matchEnd';
-      v.matchResult = this.matchResultView;
+      v.matchResult = this.achievementWinners.has(playerId)
+        ? {
+            ...this.matchResultView,
+            newAchievement: { id: 'breaking-the-wall', name: 'Breaking the Wall' },
+          }
+        : this.matchResultView;
     }
     return v;
   }

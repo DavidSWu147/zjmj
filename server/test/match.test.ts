@@ -25,26 +25,40 @@ async function runGreedyMatch(
   s: RoomSettings,
   wallSeed: number,
   choiceSeed: number,
+  opts: {
+    /** Run as a Weekly Tournament match of this week (v0.2). */
+    tournamentWeek?: string;
+    /** What the delegate reports as newly earned achievements (v0.2). */
+    newlyAchieved?: string[];
+    /** Receives each player's most recent view (final standings checks). */
+    lastViews?: Map<string, GameView>;
+    afterStart?: (m: Match) => void;
+  } = {},
 ): Promise<MatchRecord> {
   const rng = mulberry32(choiceSeed);
   let record: MatchRecord | null = null;
-  const views = new Map<string, GameView>();
+  const views = opts.lastViews ?? new Map<string, GameView>();
   const ids = ['a', 'b', 'c', 'd'];
 
   const match = new Match(
     s,
-    ids.map((id) => ({ id, name: `P-${id}`, isBot: false })),
+    ids.map((id) => ({ id, name: `P-${id}`, isBot: false, registered: true })),
     {
       sendView: (pid, view) => views.set(pid, view),
       isConnected: () => true,
       onMatchEnd: (r) => {
         record = r;
+        return opts.newlyAchieved ? { newlyAchieved: opts.newlyAchieved } : undefined;
       },
       rng: mulberry32(wallSeed),
       timing: FAST,
     },
+    null,
+    'dummy',
+    opts.tournamentWeek ?? null,
   );
   match.start();
+  opts.afterStart?.(match);
 
   const acted = new Set<string>();
   const deadlineAt = Date.now() + 60000;
@@ -163,6 +177,65 @@ describe('match simulation', () => {
     expect(txt.match(/ENDGAME/g)).toHaveLength(4);
     match.dispose();
   }, 30000);
+
+  it('tournament matches award rank points and stamp achievements (v0.2)', async () => {
+    const lastViews = new Map<string, GameView>();
+    const record = await runGreedyMatch(settings(1), 42, 7, {
+      tournamentWeek: '2026-07-18',
+      newlyAchieved: ['a'],
+      lastViews,
+      afterStart: (match) => {
+        setTimeout(() => {
+          match.setSystemAuto('c', true); // counts as leaving at match end
+          match.leave('d'); // a real leaver: replaced by the dummy takeover
+        }, 40);
+      },
+    });
+    expect(record.tournamentWeek).toBe('2026-07-18');
+    expect(record.abandonedBy).toEqual(['d']);
+    expect(record.systemAutoAtEnd).toEqual(['c']);
+    const seatOf = (id: string) => record.players.findIndex((p) => p.id === id);
+    // Finishers: max(50, score + 500); leavers and system-auto players: 0.
+    for (const id of ['a', 'b']) {
+      expect(record.rankPoints![seatOf(id)]).toBe(
+        Math.max(50, record.finalScores[seatOf(id)] + 500),
+      );
+    }
+    expect(record.rankPoints![seatOf('c')]).toBe(0);
+    expect(record.rankPoints![seatOf('d')]).toBe(0);
+    // Standings show everyone's rank points; only 'a' sees the achievement
+    // banner (stamped per viewer on the re-broadcast).
+    const va = lastViews.get('a')!;
+    expect(va.matchResult?.standings.every((s) => s.rankPoints !== undefined)).toBe(true);
+    expect(va.matchResult?.newAchievement?.id).toBe('breaking-the-wall');
+    expect(lastViews.get('b')!.matchResult?.newAchievement).toBeUndefined();
+  }, 90000);
+
+  it('tournament db: entries, results, leaderboards, achievements (v0.2)', () => {
+    const db = new Db(path.join(mkdtempSync(path.join(tmpdir(), 'zjmj-')), 't.db'));
+    db.recordTournamentStart('2026-07-18', 1, [
+      { id: 'p1', name: 'Alice' },
+      { id: 'p2', name: 'Bob' },
+    ]);
+    expect(db.hasPlayedTournament('p1', '2026-07-18')).toBe(true);
+    expect(db.hasPlayedTournament('p1', '2026-07-25')).toBe(false);
+    db.recordTournamentResult('2026-07-18', 'p1', 700, false);
+    db.recordTournamentResult('2026-07-18', 'p2', 0, true);
+    expect(db.leftTournamentEarly('p2', '2026-07-18')).toBe(true);
+    expect(db.leftTournamentEarly('p1', '2026-07-18')).toBe(false);
+    db.recordTournamentStart('2026-07-25', 2, [{ id: 'p1', name: 'Alice' }]);
+    db.recordTournamentResult('2026-07-25', 'p1', 300, false);
+    expect(db.leaderboard({ week: '2026-07-18' })).toEqual([
+      { name: 'Alice', points: 700 },
+      { name: 'Bob', points: 0 },
+    ]);
+    expect(db.leaderboard({ monthPrefix: '2026-07' })[0]).toEqual({ name: 'Alice', points: 1000 });
+    expect(db.leaderboard({})[0]).toEqual({ name: 'Alice', points: 1000 });
+    expect(db.awardAchievement('p1', 'breaking-the-wall')).toBe(true);
+    expect(db.awardAchievement('p1', 'breaking-the-wall')).toBe(false); // already earned
+    expect(db.achievementsFor('p1').map((a) => a.achievementId)).toEqual(['breaking-the-wall']);
+    db.close();
+  });
 
   it('plays a match with four greedy players (claims, kongs, wins)', async () => {
     const rec = await runGreedyMatch(settings(2), 99, 2024);

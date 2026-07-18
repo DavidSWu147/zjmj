@@ -14,6 +14,7 @@ export function renderHome(root: HTMLElement): void {
     <div class="home-main">
       <div class="home-col">
         <div class="home-panel side" data-go="stats">Statistics<span class="zh">統計</span></div>
+        <div class="home-panel side" data-go="leaderboards">Leaderboards<span class="zh">排行榜</span></div>
         <div class="home-panel side" data-go="settings">Settings<span class="zh">設定</span></div>
       </div>
       <div class="home-col">
@@ -22,6 +23,7 @@ export function renderHome(root: HTMLElement): void {
       </div>
       <div class="home-col">
         <div class="home-panel side" data-go="records">Records<span class="zh">牌譜</span></div>
+        <div class="home-panel side" data-go="achievements">Achievements<span class="zh">成就</span></div>
         <div class="home-panel side" data-go="help">Help<span class="zh">說明</span></div>
       </div>
     </div>

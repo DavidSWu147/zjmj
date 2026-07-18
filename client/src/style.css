@@ -140,26 +140,34 @@ button:disabled {
   font-size: 15px;
   color: var(--text-dim);
 }
-/* Four equal side panels, two per column; the middle column stays tallest. */
+/* Six equal side panels, three per column (v0.2: Leaderboards and
+   Achievements joined; each panel is 2/3 of its former height). */
 .home-panel.side {
   width: 200px;
-  height: 170px;
-  font-size: 20px;
+  height: 113px;
+  font-size: 18px;
+  gap: 5px;
 }
 .home-panel.play {
   width: 240px;
-  height: 300px;
+  height: 245px;
   background: linear-gradient(160deg, #275e46, #1c3f30);
   border-color: var(--accent);
   font-size: 30px;
 }
+/* v0.2: the welcome/account panel grew to match the six side panels. */
 .welcome-bar {
   width: 240px;
-  padding: 10px 0 8px;
+  height: 113px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   text-align: center;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 16px;
   color: var(--text-dim);
   cursor: pointer;
 }
@@ -193,24 +201,26 @@ button:disabled {
   }
   .home-panel.side {
     width: 116px;
-    height: 88px;
-    font-size: 14px;
-    gap: 3px;
+    height: 59px;
+    font-size: 12.5px;
+    gap: 2px;
   }
   .home-panel.play {
     width: 148px;
-    height: 150px;
+    height: 128px;
     font-size: 19px;
   }
   .home-panel .zh {
-    font-size: 12px;
+    font-size: 11px;
   }
   .home-col {
     gap: 10px;
   }
   .welcome-bar {
     width: 148px;
-    padding: 5px 0 4px;
+    height: 59px;
+    border-radius: 12px;
+    gap: 2px;
   }
   .welcome-bar .wname {
     font-size: 12px;
@@ -825,14 +835,17 @@ dialog::backdrop {
   background: var(--kw-mahjong);
   transform-origin: left;
 }
-/* ≤3s of thinking time left: the gauge flashes red (0.1.4 #6). */
+/* ≤3s of thinking time left: the gauge glides between yellow and red —
+   a smooth transition instead of the old hard blink (v0.2). */
 .timerbar.low .fill {
-  background: #e2483d;
-  animation: gauge-flash 0.5s steps(1, end) infinite;
+  animation: gauge-flash 0.5s ease-in-out infinite alternate;
 }
 @keyframes gauge-flash {
-  50% {
-    opacity: 0.3;
+  from {
+    background: var(--kw-mahjong);
+  }
+  to {
+    background: #e2483d;
   }
 }
 /* The centre circle's 3·2·1 countdown beat, on the whole seconds. */
@@ -1546,4 +1559,132 @@ table.data th.num {
   padding: 1px 6px;
   border-radius: 4px;
   cursor: pointer;
+}
+
+/* ── Achievements page (v0.2) ─────────────────────────────────────── */
+.ach-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 760px;
+}
+.ach-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  background: linear-gradient(160deg, var(--panel-2), var(--panel));
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  opacity: 0.45; /* faded until achieved */
+}
+.ach-row.earned {
+  opacity: 1;
+  border-color: #b9962e;
+}
+.ach-badge {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #00000044;
+  border: 1px solid var(--line);
+  color: #6b7570; /* dull star until achieved */
+}
+.ach-row.earned .ach-badge {
+  color: #f5c542; /* the star lights up golden */
+  border-color: #b9962e;
+  box-shadow: 0 0 14px #f5c54255, inset 0 0 8px #f5c54233;
+}
+.ach-name {
+  font-size: 17px;
+  color: var(--text);
+}
+.ach-desc {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-top: 3px;
+}
+.ach-date {
+  font-size: 12px;
+  color: #b9962e;
+  margin-top: 3px;
+}
+
+/* New-achievement banner atop the final scoring screen (v0.2). */
+.ach-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: -6px 0 12px;
+  padding: 9px 16px;
+  border: 1px solid #b9962e;
+  border-radius: 12px;
+  background: linear-gradient(160deg, #3a2f10, #2a220c);
+  color: #f5c542;
+  font-size: 15px;
+  font-weight: 700;
+  text-shadow: 0 0 10px #f5c54244;
+}
+.ach-banner svg {
+  flex-shrink: 0;
+  filter: drop-shadow(0 0 6px #f5c54288);
+}
+
+/* ── Auto Mode hand/meld area (v0.2) ──────────────────────────────── */
+/* Gray backdrop behind the player's hand & melds while Auto Mode is on
+   (same area that flashes gold on a 30+ point win). Solid for manually
+   set Auto Mode; system-set (inactivity) flashes to warn the player. */
+.auto-gray {
+  position: absolute;
+  background: #8a8f8dbb;
+  border-radius: 10px;
+  z-index: 0;
+}
+.auto-gray.system {
+  animation: auto-gray-flash 0.9s ease-in-out infinite alternate;
+}
+@keyframes auto-gray-flash {
+  from {
+    background: #8a8f8dbb;
+  }
+  to {
+    background: #8a8f8d33;
+  }
+}
+/* The top-bar "A" button flashes too while system-set. */
+.top-btn.auto.system {
+  animation: auto-btn-flash 0.9s ease-in-out infinite alternate;
+}
+@keyframes auto-btn-flash {
+  from {
+    background: #8a8f8d;
+    color: #101613;
+    border-color: #cfd6d2;
+  }
+  to {
+    background: #2a3430;
+    color: #cfd6d2;
+    border-color: #4a5450;
+  }
+}
+
+/* ── Weekly Tournament lobby rows (v0.2) ──────────────────────────── */
+.room-row.tournament {
+  border-color: #b9962e88;
+  background: linear-gradient(160deg, #2a2612, #1c1f1a);
+}
+.tourney-tag {
+  color: #f5c542;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+/* Auto-start countdown, in the same color as the IN GAME text. */
+.tourney-countdown {
+  color: var(--kw-mahjong);
+  font-weight: 700;
 }

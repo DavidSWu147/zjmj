@@ -8,8 +8,26 @@ import { renderStats } from './views/stats';
 import { renderRecords, renderRecordViewer } from './views/records';
 import { renderSettings } from './views/settings';
 import { renderHelp } from './views/help';
+import { renderLeaderboards } from './views/leaderboards';
+import { renderAchievements } from './views/achievements';
 
 const app = document.getElementById('app')!;
+
+const onHomePage = (): boolean => {
+  const hash = location.hash.replace(/^#\/?/, '');
+  return hash === '' || hash === 'home';
+};
+
+/**
+ * v0.2: landing on the home page exits any room you were waiting in — the
+ * old behavior silently kept the player squatting in the room. Matches (and
+ * spectating) are untouched.
+ */
+function leaveRoomIfOnHome(): void {
+  if (onHomePage() && net.state.myRoom !== null && !net.state.inMatch) {
+    net.send({ type: 'leaveRoom' });
+  }
+}
 
 function route(): void {
   const hash = location.hash.replace(/^#\/?/, '');
@@ -30,7 +48,12 @@ function route(): void {
     renderSettings(app);
   } else if (hash === 'help') {
     renderHelp(app);
+  } else if (hash === 'leaderboards') {
+    renderLeaderboards(app);
+  } else if (hash === 'achievements') {
+    renderAchievements(app);
   } else {
+    leaveRoomIfOnHome();
     renderHome(app);
   }
 }
@@ -41,6 +64,9 @@ installTileHighlight();
 net.connect();
 void syncSettingsFromServer();
 net.onUpdate(() => {
+  // A lobby update can reveal we are still in a room while sitting on the
+  // home page (e.g. reconnect): leave it (v0.2).
+  leaveRoomIfOnHome();
   // Global toast display.
   let toast = document.getElementById('toast');
   if (net.state.toast) {

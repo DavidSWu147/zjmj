@@ -14,6 +14,7 @@ import { net } from '../net';
 import { getSettings } from '../settings';
 import { meldEl, orientedTile, tileEl, Deg } from '../tileui';
 import { buildHelpContent } from './help';
+import { starSvg } from './achievements';
 import {
   buildGraphicsSettings,
   buildHotkeySettings,
@@ -54,13 +55,22 @@ let winFlashStart = 0;
 let mountEl: HTMLElement | null = null;
 /** In-match overlay panel currently open (top-bar Settings/Help buttons). */
 let panelOpen: 'settings' | 'help' | null = null;
-/** Autoplay: auto-discard the draw and pass claims, but always take a win. */
-let autoplay = false;
+/**
+ * Auto Mode (v0.2): auto-discard the draw and pass claims, but always take a
+ * win. 'manual' is the player's own A-button toggle (expires each game);
+ * 'system' was set by the inactivity detection — it flashes the A button and
+ * the gray hand area, persists into new games, and counts as leaving if it
+ * is still on when the match ends.
+ */
+type AutoMode = 'off' | 'manual' | 'system';
+let autoMode: AutoMode = 'off';
 let autoTimer: number | null = null;
 /** Low-thinking-time countdown loop (0.1.4 #6); one per rendered timer bar. */
 let lowTimeTimer: number | null = null;
 /** Situation key autoplay last acted on (never act twice on one state). */
 let autoKey = '';
+/** The dice roll was clicked away for this game (v0.2): never shown again. */
+let diceDismissedGame = '';
 /** Matches the server's dummy-bot delay so autoplay feels the same. */
 const AUTO_DELAY_MS = 700;
 /** Choice handlers of the open chow/kong variant bar (hotkey selection). */
@@ -108,17 +118,176 @@ function deselectTile(): void {
   act({ kind: 'select', tile: null });
 }
 
-function stopAutoplay(): void {
-  autoplay = false;
+function stopAutoTimer(): void {
   if (autoTimer !== null) {
     clearTimeout(autoTimer);
     autoTimer = null;
   }
 }
 
+// ── inactivity detection & system-set Auto Mode (v0.2) ──────────────
+// Letting the clock run out on consecutive decision phases (with no manual
+// input in between) puts the player in system-set Auto Mode, so the other
+// players are not kept waiting: 2 timed-out pre-discard turns, or 3
+// timeouts total (1 pre + 2 post, or 3 post) trigger it. A phase where the
+// player had no decision neither counts nor clears the streak.
+interface DecisionPhase {
+  key: string;
+  kind: 'pre' | 'post';
+  deadline: number;
+  sawInput: boolean;
+}
+let curDecision: DecisionPhase | null = null;
+let streakPre = 0;
+let streakTotal = 0;
+
+function resetInactivityStreak(): void {
+  streakPre = 0;
+  streakTotal = 0;
+}
+
+/** The decision the local player currently faces, if any. */
+function decisionOf(view: GameView): { key: string; kind: 'pre' | 'post'; deadline: number } | null {
+  if (view.spectator || view.gameResult || view.matchResult || view.deadline === null) return null;
+  if (view.phase === 'preDiscard' && view.turnSeat === view.mySeat && view.myOptions.discard) {
+    return { key: `${view.gameNumber}:pre:${view.deadline}`, kind: 'pre', deadline: view.deadline };
+  }
+  if ((view.phase === 'postDiscard' || view.phase === 'robbing') && view.myOptions.claim) {
+    return {
+      key: `${view.gameNumber}:${view.phase}:${view.deadline}`,
+      kind: 'post',
+      deadline: view.deadline,
+    };
+  }
+  return null;
+}
+
+function enterSystemAuto(): void {
+  if (autoMode === 'system') return;
+  autoMode = 'system';
+  autoKey = '';
+  resetInactivityStreak();
+  net.send({ type: 'systemAuto', on: true });
+  forceRerender();
+}
+
+function exitSystemAuto(): void {
+  if (autoMode !== 'system') return;
+  autoMode = 'off';
+  stopAutoTimer();
+  resetInactivityStreak();
+  net.send({ type: 'systemAuto', on: false });
+  forceRerender();
+}
+
+/**
+ * Any successful manual game input (clicking a tile, an action button, a
+ * hotkey) clears the inactivity streak — and exits system-set Auto Mode.
+ */
+function noteManualInput(): void {
+  resetInactivityStreak();
+  if (curDecision) curDecision.sawInput = true;
+  exitSystemAuto();
+}
+
+/** Runs on every server update, whether or not the board is being rendered. */
+function trackInactivity(): void {
+  const view = net.state.gameView;
+  if (!view || view.matchResult) {
+    // Match over (or left): system-set Auto Mode does not carry between
+    // matches. No systemAuto message — the server already read the state
+    // at the moment the match ended.
+    curDecision = null;
+    resetInactivityStreak();
+    if (autoMode === 'system') autoMode = 'off';
+    if (!view) return;
+  }
+  const d = decisionOf(view);
+  if (curDecision && (!d || d.key !== curDecision.key)) {
+    // The previous decision phase ended. It counts as "letting the clock run
+    // down" only if it survived to its own deadline untouched — a phase that
+    // resolved early (someone claimed) never counts against the player.
+    if (!curDecision.sawInput && view.now >= curDecision.deadline - 400) {
+      streakTotal++;
+      if (curDecision.kind === 'pre') streakPre++;
+      if (autoMode === 'off' && (streakPre >= 2 || streakTotal >= 3)) enterSystemAuto();
+    }
+  }
+  if (!curDecision || d?.key !== curDecision.key) {
+    curDecision = d ? { ...d, sawInput: false } : null;
+  }
+  runAutoplay(view);
+}
+
+function turnKeyOf(view: GameView): string {
+  return [
+    view.gameNumber,
+    view.turnSeat,
+    view.phase,
+    view.myDrawn ?? '-',
+    view.remaining,
+    view.pendingClaim ? 'pc' : '-',
+  ].join(':');
+}
+
+/**
+ * Auto Mode play (update #2.1 / v0.2): like the dummy bot — discard the
+ * draw, pass every claim — except a win is always taken immediately. Runs
+ * off the network update stream so it keeps playing even if the board is
+ * not on screen.
+ */
+function runAutoplay(view: GameView): void {
+  if (autoMode === 'off' || view.spectator || view.gameResult || view.matchResult) return;
+  const tk = turnKeyOf(view);
+  if (autoKey === tk) return;
+  const o = view.myOptions;
+  const schedule = (fn: () => void): void => {
+    stopAutoTimer();
+    autoTimer = window.setTimeout(() => {
+      autoTimer = null;
+      fn();
+    }, AUTO_DELAY_MS);
+  };
+  if (o.mahjong) {
+    autoKey = tk;
+    act({ kind: 'mahjong' });
+  } else if (o.claim?.mahjong) {
+    autoKey = tk;
+    act({ kind: 'claim', claim: 'mahjong' });
+  } else if (view.phase === 'preDiscard' && o.discard && view.myDrawn !== null) {
+    autoKey = tk;
+    const drawn = view.myDrawn;
+    schedule(() => {
+      const v = net.state.gameView;
+      if (
+        autoMode !== 'off' &&
+        v?.phase === 'preDiscard' &&
+        v.myOptions.discard &&
+        v.myDrawn === drawn
+      ) {
+        act({ kind: 'discard', tile: drawn, fromDrawn: true });
+      }
+    });
+  } else if (o.claim) {
+    autoKey = tk;
+    schedule(() => {
+      if (autoMode !== 'off' && net.state.gameView?.myOptions.claim) {
+        act({ kind: 'claim', claim: 'pass' });
+      }
+    });
+  }
+}
+
+// Registered once at module load: inactivity detection and Auto Mode play
+// must run on every update, even when the player wandered off the play page.
+net.onUpdate(trackInactivity);
+
 /** Leave the match for the lobby (top-bar ✕ and the standings screen). */
 function exitMatch(): void {
-  stopAutoplay();
+  autoMode = 'off';
+  stopAutoTimer();
+  curDecision = null;
+  resetInactivityStreak();
   closePanel();
   net.send({ type: 'leaveMatch' });
   net.state.gameView = null;
@@ -340,9 +509,13 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     lastViewKey = '';
     shownBigPattern = '';
     clearFlights();
-    // Autoplay never carries into a new game: accidentally leaving it on
-    // is disastrous, so every game starts with it off.
-    stopAutoplay();
+    // Manually set Auto Mode never carries into a new game: accidentally
+    // leaving it on is disastrous, so every game starts with it off.
+    // System-set Auto Mode DOES persist (v0.2) — only player input ends it.
+    if (autoMode === 'manual') {
+      autoMode = 'off';
+      stopAutoTimer();
+    }
   }
   // Reset the local tile selection only when the situation actually changes,
   // not on every server broadcast (a select echo must not clear it).
@@ -506,7 +679,18 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   }
   const circle = document.createElement('div');
   circle.className = 'ccircle';
-  if (view.phase === 'dealing' && view.dice) {
+  const showInfoCircle = (): void => {
+    circle.innerHTML = `<div class="gnum">${showZhNumber ? view.gameNumberZh : view.gameNumber}</div><div class="rem">${String(view.remaining).padStart(2, '0')}</div>`;
+    circle.style.cursor = 'pointer';
+    // Click toggles between E1..N4 and 東一..北四 (issue #10).
+    circle.addEventListener('pointerdown', () => {
+      showZhNumber = !showZhNumber;
+      const gnum = circle.querySelector('.gnum');
+      const v = net.state.gameView;
+      if (gnum && v) gnum.textContent = showZhNumber ? v.gameNumberZh : v.gameNumber;
+    });
+  };
+  if (view.phase === 'dealing' && view.dice && diceDismissedGame !== view.gameNumber) {
     const grid = document.createElement('div');
     grid.className = 'dice-grid';
     view.dice.forEach((d, i) => {
@@ -515,16 +699,18 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       setTimeout(() => die.classList.add('shown'), i < 2 ? 350 : 1500);
     });
     circle.appendChild(grid);
-  } else {
-    // Click toggles between E1..N4 and 東一..北四 (issue #10).
-    circle.innerHTML = `<div class="gnum">${showZhNumber ? view.gameNumberZh : view.gameNumber}</div><div class="rem">${String(view.remaining).padStart(2, '0')}</div>`;
+    // v0.2: clicking the circle dismisses the dice for the "E1 70" info
+    // view at once (further clicks toggle 東一; the dice never come back).
     circle.style.cursor = 'pointer';
-    circle.addEventListener('pointerdown', () => {
-      showZhNumber = !showZhNumber;
-      const gnum = circle.querySelector('.gnum');
-      const v = net.state.gameView;
-      if (gnum && v) gnum.textContent = showZhNumber ? v.gameNumberZh : v.gameNumber;
-    });
+    const dismiss = (): void => {
+      circle.removeEventListener('pointerdown', dismiss);
+      diceDismissedGame = view.gameNumber;
+      showZhNumber = false; // the first click always lands on the Latin view
+      showInfoCircle();
+    };
+    circle.addEventListener('pointerdown', dismiss);
+  } else {
+    showInfoCircle();
   }
   panel.appendChild(circle);
   board.appendChild(panel);
@@ -818,6 +1004,13 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     // Anchor so a full 13-tile hand sits centered and the drawn slot caps
     // its free end; the position is computed from constants (or the strip's
     // own deterministic length), never from the drawn tile's presence.
+    // v0.2: four-tile-wide kongs (concealed or big exposed) can push a side
+    // opponent's strip off the screen. Shift the whole strip toward its
+    // drawn-slot end just enough to stay on screen — downward for the left
+    // opponent, upward for the right one.
+    const wideKongs = sv.melds.filter(
+      (m) => m.kind === 'kong' && (m.kongType === 'concealed' || m.kongType === 'big'),
+    ).length;
     let stripTop: number;
     if (rel === 2) {
       // Reversed layout: the drawn slot is the LEFT end — fixed.
@@ -825,14 +1018,27 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       wrap.style.left = `${cx - handW13 / 2 - drawnSlotOpp}px`;
       stripTop = 8;
     } else if (rel === 1) {
-      // Reversed layout: the drawn slot is the TOP end — fixed.
+      // Reversed layout: the drawn slot is the TOP end — fixed; melds extend
+      // downward, so many kongs overflow the bottom edge.
       wrap.style.right = '8px';
       stripTop = cy - handW13 / 2 - drawnSlotOpp;
+      if (wideKongs > 0) {
+        const h = wrap.getBoundingClientRect().height;
+        const overflow = stripTop + h - (H - 8);
+        if (overflow > 0) stripTop -= Math.max(0, Math.min(overflow, stripTop - 44));
+      }
       wrap.style.top = `${stripTop}px`;
     } else {
-      // The drawn slot is the BOTTOM end — fixed; melds extend upward.
+      // The drawn slot is the BOTTOM end — fixed; melds extend upward, so
+      // many kongs overflow the top edge.
       wrap.style.left = '8px';
-      stripTop = cy + handW13 / 2 + drawnSlotOpp - wrap.getBoundingClientRect().height;
+      const h = wrap.getBoundingClientRect().height;
+      const stripBottom = cy + handW13 / 2 + drawnSlotOpp;
+      stripTop = stripBottom - h;
+      if (wideKongs > 0 && stripTop < 8) {
+        const room = Math.max(0, H - th - 34 - stripBottom);
+        stripTop += Math.min(8 - stripTop, room);
+      }
       wrap.style.top = `${stripTop}px`;
     }
 
@@ -879,7 +1085,17 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       node.classList.add('tile-selected');
       act({ kind: 'select', tile, fromDrawn });
     }
+    // A successful tile click is manual input (v0.2): it clears the
+    // inactivity streak and ends system-set Auto Mode.
+    noteManualInput();
   };
+  // Clicking anywhere in the hand area — tile or not — takes the player
+  // back out of system-set Auto Mode (v0.2).
+  if (!spec) {
+    handWrap.addEventListener('pointerdown', () => {
+      if (autoMode === 'system') noteManualInput();
+    });
+  }
 
   // Melds live in one sub-strip so they can be scaled down as a block when
   // a meld-heavy hand would otherwise run off the left edge of the screen.
@@ -986,6 +1202,23 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     handLeft = handAnchor - handWrap.getBoundingClientRect().width;
   }
   handWrap.style.left = `${handLeft}px`;
+
+  // ── Auto Mode gray backdrop (v0.2) ────────────────────────────────
+  // The hand & meld area (same area as the 30+ point gold flash) turns
+  // gray while Auto Mode is on: solid for the player's own toggle, flashing
+  // while system-set by inactivity. Prepended so it paints behind the tiles.
+  if (autoMode !== 'off' && !spec) {
+    const strip = rectOf(handWrap, board);
+    if (strip) {
+      const gray = document.createElement('div');
+      gray.className = 'auto-gray' + (autoMode === 'system' ? ' system' : '');
+      gray.style.left = `${strip.x - 8}px`;
+      gray.style.top = `${strip.y - 8}px`;
+      gray.style.width = `${strip.w + 16}px`;
+      gray.style.height = `${strip.h + 16}px`;
+      board.prepend(gray);
+    }
+  }
 
   // ── bonus tiles (flowers & seasons) ───────────────────────────────
   // Each seat's revealed bonus tiles sit in front of that seat's melds at
@@ -1154,7 +1387,10 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     const b = document.createElement('button');
     b.className = `action-btn ${cls}`;
     b.innerHTML = `${en}<span class="zh">${zh}</span>`;
-    b.addEventListener('click', fn);
+    b.addEventListener('click', () => {
+      fn();
+      noteManualInput(); // action buttons are manual input (v0.2)
+    });
     if (getSettings().hotkeys && !spec) {
       // Its hotkey floats above every claim button (0.1.5 #6): the bound
       // letter, ␣ for pass/cancel (Space).
@@ -1182,6 +1418,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
         vb.remove();
         variantFns = null;
         it.fn();
+        noteManualInput(); // picking a variant is manual input (v0.2)
       };
       fns.push(choose);
       const opt = document.createElement('div');
@@ -1263,16 +1500,23 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       if (spec || confirm('Leave the match? A bot will take your seat.')) exitMatch();
     });
     if (!spec) {
-      const autoBtn = mkTop(
-        'auto' + (autoplay ? ' active' : ''),
+      mkTop(
+        'auto' + (autoMode === 'manual' ? ' active' : autoMode === 'system' ? ' system' : ''),
         'A',
-        'Autoplay: discard every draw and pass all claims, but always take a win',
+        autoMode === 'system'
+          ? 'Auto Mode was set by inactivity — click to take back control'
+          : 'Auto Mode: discard every draw and pass all claims, but always take a win',
         () => {
-          autoplay = !autoplay;
-          if (!autoplay) stopAutoplay();
-          autoKey = ''; // re-evaluate the current situation on the next render
-          autoBtn.classList.toggle('active', autoplay);
-          if (autoplay) forceRerender();
+          if (autoMode === 'system') {
+            exitSystemAuto(); // also re-renders
+            return;
+          }
+          autoMode = autoMode === 'off' ? 'manual' : 'off';
+          if (autoMode === 'off') stopAutoTimer();
+          autoKey = ''; // re-evaluate the current situation right away
+          forceRerender();
+          const v = net.state.gameView;
+          if (autoMode !== 'off' && v) runAutoplay(v);
         },
       );
     }
@@ -1297,40 +1541,8 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     board.appendChild(top);
   }
 
-  // ── autoplay (update #2.1) ────────────────────────────────────────
-  // Like the dummy bot — discard the draw, pass every claim — except a win
-  // is always taken immediately. Claim options still render for the moment
-  // the delay lasts, so the player sees what autoplay passed on.
-  if (autoplay && !spec && !view.gameResult && !view.matchResult && autoKey !== turnKey) {
-    const schedule = (fn: () => void): void => {
-      if (autoTimer !== null) clearTimeout(autoTimer);
-      autoTimer = window.setTimeout(() => {
-        autoTimer = null;
-        fn();
-      }, AUTO_DELAY_MS);
-    };
-    if (o.mahjong) {
-      autoKey = turnKey;
-      act({ kind: 'mahjong' });
-    } else if (o.claim?.mahjong) {
-      autoKey = turnKey;
-      act({ kind: 'claim', claim: 'mahjong' });
-    } else if (view.phase === 'preDiscard' && o.discard && view.myDrawn !== null) {
-      autoKey = turnKey;
-      const drawn = view.myDrawn;
-      schedule(() => {
-        const v = net.state.gameView;
-        if (autoplay && v?.phase === 'preDiscard' && v.myOptions.discard && v.myDrawn === drawn) {
-          act({ kind: 'discard', tile: drawn, fromDrawn: true });
-        }
-      });
-    } else if (o.claim) {
-      autoKey = turnKey;
-      schedule(() => {
-        if (autoplay && net.state.gameView?.myOptions.claim) act({ kind: 'claim', claim: 'pass' });
-      });
-    }
-  }
+  // Auto Mode play itself runs off the network update stream (see
+  // runAutoplay/trackInactivity above), not the render path.
 
   // ── result overlays ───────────────────────────────────────────────
   if (view.matchResult) {
@@ -1538,6 +1750,8 @@ function matchResultOverlay(view: GameView): HTMLElement {
   overlay.className = 'overlay';
   const card = document.createElement('div');
   card.className = 'result-card';
+  // Tournament matches show everyone's Rank Points beside the score (v0.2).
+  const hasRank = view.matchResult!.standings.some((s) => s.rankPoints !== undefined);
   const rows = view
     .matchResult!.standings.map((s, i) => {
       const cls = s.result === 'WIN' ? 'win-gold' : s.result === 'LOSE' ? 'lose-gray' : 'draw-green';
@@ -1546,14 +1760,23 @@ function matchResultOverlay(view: GameView): HTMLElement {
         <td>${escapeHtml(s.name)}${s.isBot ? ' 🤖' : ''}</td>
         <td class="pts">${s.score > 0 ? '+' : ''}${s.score}</td>
         <td class="pts ${cls}" style="font-weight:800">${s.result}</td>
+        ${hasRank ? `<td class="pts" style="color:#f5c542">${s.rankPoints ?? 0} RP</td>` : ''}
       </tr>`;
     })
     .join('');
-  card.innerHTML = `<h2>Match Over 終局</h2>
+  // A newly earned achievement gets a golden banner at the top (v0.2).
+  const ach = view.matchResult!.newAchievement;
+  const banner = ach
+    ? `<div class="ach-banner">${starSvg(22)}<span>Congratulations! Achievement earned:
+        ${escapeHtml(ach.name)}</span>${starSvg(22)}</div>`
+    : '';
+  card.innerHTML = `${banner}<h2>Match Over 終局</h2>
     <table class="pattern-list">${rows}</table>
     <div class="dialog-btns"><button id="tolobby">Back to Lobby</button></div>`;
   const exit = () => {
-    stopAutoplay();
+    autoMode = 'off';
+    stopAutoTimer();
+    resetInactivityStreak();
     closePanel();
     net.send({ type: 'leaveMatch' });
     net.state.gameView = null;

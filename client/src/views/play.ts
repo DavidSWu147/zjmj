@@ -125,14 +125,18 @@ function renderLobby(el: HTMLElement): void {
 
 function roomRow(room: RoomSummary, myRoom: number | null): HTMLElement {
   const row = document.createElement('div');
-  row.className = 'room-row' + (myRoom === room.id ? ' mine' : '');
+  const tourney = room.tournament === true;
+  row.className =
+    'room-row' + (myRoom === room.id ? ' mine' : '') + (tourney ? ' tournament' : '');
   const isMine = myRoom === room.id;
   const iAmHost = isMine && room.players.length > 0 && room.hostName === displayName();
 
+  // Tournament rooms hide the host star: there is no host, the system
+  // starts the match (v0.2).
   const players = room.players
     .map(
       (p, i) =>
-        `<span class="player-chip${i === 0 ? ' host' : ''}">${escapeHtml(p.name)}${i === 0 ? ' ★' : ''}</span>`,
+        `<span class="player-chip${i === 0 && !tourney ? ' host' : ''}">${escapeHtml(p.name)}${i === 0 && !tourney ? ' ★' : ''}</span>`,
     )
     .join('');
   const empties = Array(Math.max(0, 4 - room.players.length))
@@ -141,8 +145,10 @@ function roomRow(room: RoomSummary, myRoom: number | null): HTMLElement {
 
   const isMyPrivate = isMine && room.isPrivate && net.state.myRoomCode;
   row.innerHTML = `
-    <div class="room-id">Room #${room.id}${room.id === 0 ? ' 🔒' : ''}${room.isPrivate ? ' 🔐' : ''}</div>
-    <div class="room-settings">${settingsSummary(room.settings)}${
+    <div class="room-id">Room #${room.id}${room.id === 0 ? ' 🔒' : ''}${room.isPrivate ? ' 🔐' : ''}${tourney ? ' 🏆' : ''}</div>
+    <div class="room-settings">${
+      tourney ? '<div class="tourney-tag">WEEKLY TOURNAMENT 週賽</div>' : ''
+    }${settingsSummary(room.settings)}${
       isMyPrivate ? ` · <b>Code: ${net.state.myRoomCode}</b>` : ''
     }</div>
     <div class="room-players">${players}${empties}</div>
@@ -157,6 +163,15 @@ function roomRow(room: RoomSummary, myRoom: number | null): HTMLElement {
     b.addEventListener('click', fn);
     btns.appendChild(b);
   };
+
+  // Tournament auto-start countdown, visible to everyone in the lobby, in
+  // the same color as the IN GAME text (v0.2).
+  if (tourney && room.startsIn !== undefined && !room.inGame) {
+    const cd = document.createElement('span');
+    cd.className = 'tourney-countdown';
+    cd.textContent = `Starting in ${room.startsIn}s…`;
+    btns.appendChild(cd);
+  }
 
   if (room.inGame) {
     const tag = document.createElement('span');
@@ -180,20 +195,35 @@ function roomRow(room: RoomSummary, myRoom: number | null): HTMLElement {
     });
     btns.appendChild(b);
   } else if (isMine) {
-    mk('Start Match', () => net.send({ type: 'startMatch' }), !iAmHost, 'start');
-    mk('Leave', () => net.send({ type: 'leaveRoom' }), false, 'leave');
-    if (room.id !== 0) mk('Delete', () => net.send({ type: 'deleteRoom' }), !iAmHost, 'delete');
-    // Empty seats are filled by bots; the host picks their brain (0.1.4 #5).
-    const diff = room.botDifficulty === 'chicken' ? 'Chicken' : 'Dummy';
-    mk(
-      `Bot Difficulty: ${diff}`,
-      () =>
-        net.send({
-          type: 'setBotDifficulty',
-          difficulty: room.botDifficulty === 'chicken' ? 'dummy' : 'chicken',
-        }),
-      !iAmHost,
-    );
+    if (tourney) {
+      // No host controls: the system starts the match once four registered
+      // players are seated (v0.2).
+      if (room.startsIn === undefined) {
+        const wait = document.createElement('span');
+        wait.style.color = 'var(--text-dim)';
+        wait.textContent = `Waiting for players… ${room.players.length}/4`;
+        btns.appendChild(wait);
+      }
+      mk('Leave', () => net.send({ type: 'leaveRoom' }), false, 'leave');
+    } else {
+      mk('Start Match', () => net.send({ type: 'startMatch' }), !iAmHost, 'start');
+      mk('Leave', () => net.send({ type: 'leaveRoom' }), false, 'leave');
+      if (room.id !== 0) mk('Delete', () => net.send({ type: 'deleteRoom' }), !iAmHost, 'delete');
+      // Empty seats are filled by bots; the host picks their brain (0.1.4 #5).
+      const diff = room.botDifficulty === 'chicken' ? 'Chicken' : 'Dummy';
+      mk(
+        `Bot Difficulty: ${diff}`,
+        () =>
+          net.send({
+            type: 'setBotDifficulty',
+            difficulty: room.botDifficulty === 'chicken' ? 'dummy' : 'chicken',
+          }),
+        !iAmHost,
+      );
+    }
+  } else if (tourney && room.joinable !== true) {
+    // Only the first open tournament room shows a Join button; the others
+    // hide it entirely (v0.2).
   } else {
     const join = () => {
       if (room.isPrivate) {

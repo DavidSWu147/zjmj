@@ -163,9 +163,19 @@ describe('discard choice (spec 4.4)', () => {
     expect(discardPriority(8, 0, 'normal')).toBe(9); // B9
     expect(discardPriority(18, 0, 'normal')).toBe(10); // D1
     expect(discardPriority(4, 0, 'normal')).toBe(33); // B5 goes very last
-    // Thirteen Terminals mode uses the same order.
-    expect(discardPriority(28, 0, 'thirteen')).toBe(0);
-    expect(discardPriority(26, 0, 'thirteen')).toBe(7);
+  });
+
+  it('Thirteen Terminals mode: Seven Pairs order, but 1s/9s go very last (v0.2)', () => {
+    // Middle-out numbers first (B5 leads), then honors, then B1,C1,D1,B9,C9,D9.
+    expect(discardPriority(4, 0, 'thirteen')).toBe(0); // B5 first out
+    expect(discardPriority(13, 0, 'thirteen')).toBe(1); // C5
+    // Honors sit after all the non-terminal numbers…
+    expect(discardPriority(28, 0, 'thirteen')).toBeGreaterThan(discardPriority(1, 0, 'thirteen')); // S after B2
+    // …and every honor goes before any 1 or 9.
+    expect(discardPriority(27, 0, 'thirteen')).toBeLessThan(discardPriority(0, 0, 'thirteen')); // E < B1
+    expect(discardPriority(0, 0, 'thirteen')).toBeLessThan(discardPriority(9, 0, 'thirteen')); // B1 < C1
+    expect(discardPriority(18, 0, 'thirteen')).toBeLessThan(discardPriority(8, 0, 'thirteen')); // D1 < B9
+    expect(discardPriority(26, 0, 'thirteen')).toBeGreaterThan(discardPriority(17, 0, 'thirteen')); // D9 dead last
   });
 
   it('prefers the drawn copy of the chosen type (4.4.3)', () => {

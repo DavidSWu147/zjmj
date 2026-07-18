@@ -1,19 +1,40 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, GameView } from '../../shared/src/protocol';
 import { Room, Rooms, ROOM0_IDLE_MS, ROOM_IDLE_MS, RoomsDelegate, SessionLike } from '../src/rooms';
 
-function makeRooms(): { rooms: Rooms; notified: { ids: string[]; message: string }[] } {
+function makeRooms(overrides: Partial<RoomsDelegate> = {}): {
+  rooms: Rooms;
+  notified: { ids: string[]; message: string }[];
+  views: { pid: string; view: GameView }[];
+  tournamentStarts: { week: string; matchId: number; players: { id: string; name: string }[] }[];
+} {
   const notified: { ids: string[]; message: string }[] = [];
+  const views: { pid: string; view: GameView }[] = [];
+  const tournamentStarts: {
+    week: string;
+    matchId: number;
+    players: { id: string; name: string }[];
+  }[] = [];
   const delegate: RoomsDelegate = {
     onLobbyChanged: () => {},
     onMatchFinished: () => {},
     isConnected: () => true,
     notify: (ids, message) => notified.push({ ids, message }),
+    sendView: (pid, view) => views.push({ pid, view }),
+    tournamentJoinError: () => null,
+    onTournamentMatchStart: (week, matchId, players) =>
+      tournamentStarts.push({ week, matchId, players }),
+    ...overrides,
   };
-  return { rooms: new Rooms(delegate), notified };
+  return { rooms: new Rooms(delegate), notified, views, tournamentStarts };
 }
 
-const session = (id: string): SessionLike => ({ playerId: id, name: id, connected: true });
+const session = (id: string, kind: 'guest' | 'account' = 'account'): SessionLike => ({
+  playerId: id,
+  name: id,
+  connected: true,
+  kind,
+});
 
 const sweep = (rooms: Rooms, now: number): void => {
   (rooms as unknown as { sweepIdle(now: number): void }).sweepIdle(now);
@@ -100,7 +121,7 @@ describe('room #0 bot difficulty (0.1.5 #4)', () => {
     const { rooms } = makeRooms();
     rooms.join(session('p1'), 0);
     rooms.setBotDifficulty('p1', 'chicken');
-    expect(rooms.startMatch('p1', () => {})).toBeNull();
+    expect(rooms.startMatch('p1')).toBeNull();
     rooms.leave('p1'); // the match aborts; room #0 cleanup runs immediately
     await new Promise((r) => setTimeout(r, 10));
     expect(rooms.get(0)!.match).toBeNull();
@@ -111,7 +132,7 @@ describe('room #0 bot difficulty (0.1.5 #4)', () => {
     const { rooms } = makeRooms();
     const room = rooms.create(session('host'), { ...DEFAULT_SETTINGS }) as Room;
     rooms.setBotDifficulty('host', 'chicken');
-    expect(rooms.startMatch('host', () => {})).toBeNull();
+    expect(rooms.startMatch('host')).toBeNull();
     expect(room.botDifficulty).toBe('chicken');
     room.match?.dispose();
   });
@@ -125,7 +146,7 @@ describe('spectating', () => {
     // No match yet.
     expect(rooms.watch(session('s1'), room.id)).toBe('No match in progress.');
 
-    expect(rooms.startMatch('host', () => {})).toBeNull();
+    expect(rooms.startMatch('host')).toBeNull();
     expect(rooms.watch(session('s1'), room.id)).toBeNull();
     expect(rooms.spectatingRoomOf('s1')?.id).toBe(room.id);
     expect(room.summary().spectators).toBe(1);
@@ -144,10 +165,9 @@ describe('spectating', () => {
   });
 
   it('watching a private room needs its code, and views carry the room', () => {
-    const { rooms } = makeRooms();
+    const { rooms, views } = makeRooms();
     const room = rooms.create(session('host'), { ...DEFAULT_SETTINGS }, true) as Room;
-    const views = new Map<string, GameView>();
-    expect(rooms.startMatch('host', (pid, v) => views.set(pid, v))).toBeNull();
+    expect(rooms.startMatch('host')).toBeNull();
 
     const wrong = room.code === '9999' ? '0000' : '9999';
     expect(rooms.watch(session('s1'), room.id)).toBe('This room needs its 4-digit code.');
@@ -157,26 +177,137 @@ describe('spectating', () => {
     // Every view — player's and spectator's — is stamped with the hosting
     // room so the match screen can show "Room #N · Code XXXX".
     room.match!.broadcast();
-    expect(views.get('host')?.room).toEqual({ id: room.id, code: room.code });
-    expect(views.get('s1')?.room).toEqual({ id: room.id, code: room.code });
+    const lastViewOf = (pid: string): GameView | undefined =>
+      [...views].reverse().find((v) => v.pid === pid)?.view;
+    expect(lastViewOf('host')?.room).toEqual({ id: room.id, code: room.code });
+    expect(lastViewOf('s1')?.room).toEqual({ id: room.id, code: room.code });
     room.match?.dispose();
   });
 
   it('an abandoned match drops its spectators back to the lobby at once', () => {
-    const { rooms, notified } = makeRooms();
+    const { rooms, notified, views } = makeRooms();
     const room = rooms.create(session('host'), { ...DEFAULT_SETTINGS }) as Room;
-    const views: string[] = [];
-    expect(rooms.startMatch('host', (pid) => views.push(pid))).toBeNull();
+    expect(rooms.startMatch('host')).toBeNull();
     expect(rooms.watch(session('s1'), room.id)).toBeNull();
 
     views.length = 0;
     rooms.leave('host'); // last human leaves: the match aborts
     // The spectator was dropped BEFORE the final broadcast: no match-over
     // screen reaches them, and they are told why.
-    expect(views).not.toContain('s1');
+    expect(views.map((v) => v.pid)).not.toContain('s1');
     expect(rooms.spectatingRoomOf('s1')).toBeNull();
     expect(
       notified.some((n) => n.ids.includes('s1') && n.message.includes('abandoned')),
     ).toBe(true);
+  });
+});
+
+describe('weekly tournaments (v0.2)', () => {
+  // 2026-07-18 is a Saturday; noon UTC-7 = 19:00 UTC.
+  const SATURDAY_NOON = Date.parse('2026-07-18T19:00:00Z');
+  const WEDNESDAY = Date.parse('2026-07-15T19:00:00Z');
+
+  const withTime = async (
+    epochMs: number,
+    fn: () => void | Promise<void>,
+  ): Promise<void> => {
+    vi.useFakeTimers();
+    vi.setSystemTime(epochMs);
+    try {
+      await fn();
+    } finally {
+      vi.useRealTimers();
+    }
+  };
+
+  it('tournament rooms #25..#28 exist only on Saturdays and list above room #0', async () => {
+    await withTime(WEDNESDAY, () => {
+      const { rooms } = makeRooms();
+      expect(rooms.get(25)).toBeUndefined();
+    });
+    await withTime(SATURDAY_NOON, () => {
+      const { rooms } = makeRooms();
+      const list = rooms.list();
+      expect(list.slice(0, 4).map((r) => r.id)).toEqual([25, 26, 27, 28]);
+      expect(list[4].id).toBe(0);
+      expect(list[0].tournament).toBe(true);
+      // Only the first open tournament room accepts joins.
+      expect(list[0].joinable).toBe(true);
+      expect(list[1].joinable).toBe(false);
+    });
+  });
+
+  it('gates joins: registered only, first open room only, eligibility hook', async () => {
+    await withTime(SATURDAY_NOON, () => {
+      const { rooms } = makeRooms({
+        tournamentJoinError: (pid) => (pid === 'banned' ? 'You are barred this week.' : null),
+      });
+      expect(rooms.join(session('g1', 'guest'), 25)).toBe(
+        'Only registered users can play in Weekly Tournaments.',
+      );
+      expect(rooms.join(session('p1'), 26)).toBe('Please join the first open tournament room.');
+      expect(rooms.join(session('banned'), 25)).toBe('You are barred this week.');
+      expect(rooms.join(session('p1'), 25)).toBeInstanceOf(Room);
+    });
+  });
+
+  it('masks member names from everyone outside the room', async () => {
+    await withTime(SATURDAY_NOON, () => {
+      const { rooms } = makeRooms();
+      rooms.join(session('alice'), 25);
+      const room = rooms.get(25)!;
+      expect(room.summary('bob').players[0].name).toBe('???');
+      expect(room.summary('alice').players[0].name).toBe('alice');
+      expect(room.summary('bob').hostName).toBeNull();
+    });
+  });
+
+  it('auto-starts 10s after the 4th join, and a leave cancels the countdown', async () => {
+    await withTime(SATURDAY_NOON, () => {
+      const { rooms, tournamentStarts } = makeRooms();
+      for (const p of ['p1', 'p2', 'p3']) rooms.join(session(p), 25);
+      expect(rooms.get(25)!.startingAt).toBeNull();
+      rooms.join(session('p4'), 25);
+      expect(rooms.get(25)!.startingAt).not.toBeNull();
+      expect(rooms.get(25)!.summary('p1').startsIn).toBe(10);
+
+      // A leave during the window cancels the start.
+      rooms.leave('p4');
+      expect(rooms.get(25)!.startingAt).toBeNull();
+      vi.advanceTimersByTime(11_000);
+      expect(rooms.get(25)!.match).toBeNull();
+
+      // Refill: the system starts the match with no host involved.
+      rooms.join(session('p4'), 25);
+      vi.advanceTimersByTime(10_000);
+      const room = rooms.get(25)!;
+      expect(room.match).not.toBeNull();
+      expect(tournamentStarts).toHaveLength(1);
+      expect(tournamentStarts[0].week).toBe('2026-07-18');
+      expect(tournamentStarts[0].players.map((p) => p.id).sort()).toEqual([
+        'p1',
+        'p2',
+        'p3',
+        'p4',
+      ]);
+      expect(room.match!.players.every((p) => !p.isBot)).toBe(true);
+      // Manual starts are refused in tournament rooms.
+      expect(rooms.startMatch('p1')).toBe('The system starts tournament matches automatically.');
+      room.match?.dispose();
+    });
+  });
+
+  it('closes rooms that are not in game when the window ends', async () => {
+    await withTime(SATURDAY_NOON, () => {
+      const { rooms, notified } = makeRooms();
+      rooms.join(session('p1'), 25);
+      vi.setSystemTime(SATURDAY_NOON + 13 * 3600 * 1000); // past Sunday midnight UTC-7
+      vi.advanceTimersByTime(5_000); // the management interval fires
+      expect(rooms.get(25)).toBeUndefined();
+      expect(rooms.get(26)).toBeUndefined();
+      expect(notified.some((n) => n.ids.includes('p1') && n.message.includes('closed'))).toBe(
+        true,
+      );
+    });
   });
 });

@@ -223,11 +223,21 @@ const NUM_ORDER: number[] = (() => {
 })();
 
 /**
- * 0.1.5 #3 (normal / Thirteen Terminals mode): honors go first, then the
- * numbers in the exact reverse — 9D,9C,9B, 1D,1C,1B, … 4D,4C,4B, 5D,5C,5B —
- * shedding terminals early and hoarding the middle ranks.
+ * 0.1.5 #3 (normal mode): honors go first, then the numbers in the exact
+ * reverse — 9D,9C,9B, 1D,1C,1B, … 4D,4C,4B, 5D,5C,5B — shedding terminals
+ * early and hoarding the middle ranks.
  */
 const NUM_ORDER_REV: number[] = [...NUM_ORDER].reverse();
+
+/**
+ * v0.2: chow preference when several chows tie on distance and outs, from
+ * most to least preferred rank of the chow's LOW tile: 456, 345, 567, 234,
+ * 678, 123, 789 → low ranks 4, 3, 5, 2, 6, 1, 7 (lower index = preferred).
+ */
+const CHOW_LOW_RANK_PREF = [4, 3, 5, 2, 6, 1, 7];
+export function chowPreference(lowIdx: number): number {
+  return CHOW_LOW_RANK_PREF.indexOf((lowIdx % 9) + 1);
+}
 
 /** Spec 4.4.2: honor discard order per own seat wind (E/S/W/N). */
 const HONOR_ORDER: number[][] = [
@@ -240,13 +250,20 @@ const HONOR_ORDER: number[][] = [
 /**
  * Position in the seat's discard preference order for the current hand plan;
  * lower discards first. Seven Pairs keeps the middle-out order with honors
- * last; normal and Thirteen Terminals shed honors first, then terminals
- * inward (0.1.5 #3). The honor order itself always follows the seat wind.
+ * last; Thirteen Terminals uses that same order except the 1s and 9s move to
+ * the very end (v0.2); normal mode sheds honors first, then terminals inward
+ * (0.1.5 #3). The honor order itself always follows the seat wind.
  */
 export function discardPriority(tileIdx: number, seat: number, mode: ChickenMode): number {
   const honorPos = HONOR_ORDER[seat % 4].indexOf(tileIdx);
   if (mode === 'pairs') {
     return isHonorIdx(tileIdx) ? 27 + honorPos : NUM_ORDER.indexOf(tileIdx);
+  }
+  if (mode === 'thirteen') {
+    if (isHonorIdx(tileIdx)) return 27 + honorPos;
+    const pos = NUM_ORDER.indexOf(tileIdx);
+    // The last six NUM_ORDER slots are B1,C1,D1,B9,C9,D9: shift past honors.
+    return pos >= 21 ? 13 + pos : pos;
   }
   return isHonorIdx(tileIdx) ? honorPos : 7 + NUM_ORDER_REV.indexOf(tileIdx);
 }
@@ -355,8 +372,9 @@ export type ClaimDecision =
 /**
  * Spec 4.5/4.6 (another player's discard; mahjong is decided by the caller):
  * chow/pung only if it strictly improves distance from ready — ties broken by
- * outs, then pung over chow, then the highest-numbered chow — and big kong
- * only if distance is preserved, never over an improving pung/chow.
+ * outs, then pung over chow, then the v0.2 chow preference (456, 345, 567,
+ * 234, 678, 123, 789) — and big kong only if distance is preserved, never
+ * over an improving pung/chow.
  * While committed to Seven Pairs or Thirteen Terminals (4.2/4.3), pass.
  */
 export function chooseClaim(
@@ -426,7 +444,7 @@ export function chooseClaim(
       (a, b) =>
         a.dist - b.dist ||
         b.outs - a.outs ||
-        (a.kind === b.kind ? b.low - a.low : a.kind === 'pung' ? -1 : 1),
+        (a.kind === b.kind ? chowPreference(a.low) - chowPreference(b.low) : a.kind === 'pung' ? -1 : 1),
     );
     const pick = improving[0];
     return pick.kind === 'pung'
