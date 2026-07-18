@@ -46,6 +46,15 @@ const run = (n: number, t: (i: number) => string) =>
 function baseView(): GameView {
   return {
     phase: 'preDiscard',
+    settings: {
+      rounds: 4,
+      thinkingTime: 30,
+      chickenHand: 'one',
+      par: 25,
+      scoring: 'original',
+      bonusTiles: 'full',
+    },
+    room: null,
     now: Date.now(),
     dice: null,
     claimGapMs: 1500,

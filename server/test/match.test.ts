@@ -7,7 +7,7 @@ import { GameView, RoomSettings } from '../../shared/src/protocol';
 import { MatchRecord, matchFromTxt, matchToTxt, replayGame } from '../../shared/src/records';
 import { Match } from '../src/match';
 import { Db } from '../src/db';
-import { computeStats } from '../src/api';
+import { computeStats, DEFAULT_STATS_FILTER } from '../src/api';
 
 const FAST = { dealMs: 1, botDelayMs: 0, claimGapMs: 1, resultMs: 1, matchEndMs: 1 };
 
@@ -29,7 +29,7 @@ async function runGreedyMatch(
     /** Run as a Weekly Tournament match of this week (v0.2). */
     tournamentWeek?: string;
     /** What the delegate reports as newly earned achievements (v0.2). */
-    newlyAchieved?: string[];
+    newlyAchieved?: { playerId: string; achievementId: string }[];
     /** Receives each player's most recent view (final standings checks). */
     lastViews?: Map<string, GameView>;
     afterStart?: (m: Match) => void;
@@ -182,7 +182,7 @@ describe('match simulation', () => {
     const lastViews = new Map<string, GameView>();
     const record = await runGreedyMatch(settings(1), 42, 7, {
       tournamentWeek: '2026-07-18',
-      newlyAchieved: ['a'],
+      newlyAchieved: [{ playerId: 'a', achievementId: 'breaking-the-wall' }],
       lastViews,
       afterStart: (match) => {
         setTimeout(() => {
@@ -207,9 +207,86 @@ describe('match simulation', () => {
     // banner (stamped per viewer on the re-broadcast).
     const va = lastViews.get('a')!;
     expect(va.matchResult?.standings.every((s) => s.rankPoints !== undefined)).toBe(true);
-    expect(va.matchResult?.newAchievement?.id).toBe('breaking-the-wall');
-    expect(lastViews.get('b')!.matchResult?.newAchievement).toBeUndefined();
+    expect(va.matchResult?.newAchievements?.map((a) => a.id)).toEqual(['breaking-the-wall']);
+    expect(lastViews.get('b')!.matchResult?.newAchievements).toBeUndefined();
   }, 90000);
+
+  it('v0.2 statistics: played vs finished, filters, no-responsible self-draws', () => {
+    const db = new Db(path.join(mkdtempSync(path.join(tmpdir(), 'zjmj-')), 's.db'));
+    const players = [
+      { id: 'a', name: 'A', isBot: false },
+      { id: 'b', name: 'B', isBot: false },
+      { id: 'c', name: 'C', isBot: false },
+      { id: 'd', name: 'D', isBot: true },
+    ];
+    const base = settings(1, { scoring: 'original', bonusTiles: 'none' });
+    const game = (
+      result: MatchRecord['games'][number]['result'],
+      remaining: number,
+    ): MatchRecord['games'][number] => ({
+      gameNumber: 'E1',
+      remaining,
+      startingHands: [[], [], [], []],
+      moves: [],
+      result,
+    });
+    // Bot match: 'a' wins game 1 on a discard (responsible seat 2); game 2 is
+    // won by an opponent with NO responsible party (same-round immunity) —
+    // that counts as losing to a self-draw, and nobody dealt in.
+    db.saveMatch({
+      matchId: 1,
+      matchLength: 1,
+      settings: base,
+      players,
+      games: [
+        game(
+          { winnerSeat: 0, winBy: 'discard', responsibleSeat: 2, value: 40, deltas: [90, -25, -40, -25] },
+          20,
+        ),
+        game(
+          { winnerSeat: 1, winBy: 'discard', responsibleSeat: null, value: 10, deltas: [-10, 30, -10, -10] },
+          6,
+        ),
+      ],
+      finalScores: [80, 5, -50, -35],
+      abandonedBy: [],
+    });
+    // Second match: 'a' was on system-set Auto Mode at the end — broad
+    // abandonment: the match counts as played but not finished for 'a'.
+    db.saveMatch({
+      matchId: 2,
+      matchLength: 1,
+      settings: base,
+      players,
+      games: [game({ winnerSeat: null, deltas: [0, 0, 0, 0] }, 0)],
+      finalScores: [0, 0, 0, 0],
+      abandonedBy: [],
+      systemAutoAtEnd: ['a'],
+    });
+
+    const s = computeStats(db, 'a');
+    expect(s.matches.played['1']).toBe(2);
+    expect(s.matches.finished['1']).toBe(1);
+    expect(s.matches.won['1']).toBe(1);
+    expect(s.games.total).toBe(2); // abandoned participations add no games
+    expect(s.games.wins).toBe(1);
+    expect(s.games.winValuesDiscard).toEqual([40]);
+    expect(s.games.lostBySelfDraw).toBe(1);
+    expect(s.games.discarderCount).toBe(0);
+    expect(s.games.remainingSum).toBe(26);
+    expect(s.games.remainingCount).toBe(2);
+    expect(s.games.remainingWinsSum).toBe(20);
+    expect(s.games.remainingWinsCount).toBe(1);
+    // 'b' finished both matches; the drawn game 3 counts for them.
+    expect(computeStats(db, 'b').matches.finished['1']).toBe(2);
+    // Filters: these were bot matches (a bot filled seat N).
+    expect(computeStats(db, 'a', { ...DEFAULT_STATS_FILTER, type: 'bot' }).matches.played['1']).toBe(2);
+    expect(computeStats(db, 'a', { ...DEFAULT_STATS_FILTER, type: 'normal' }).matches.played['1']).toBe(0);
+    expect(computeStats(db, 'a', { ...DEFAULT_STATS_FILTER, len: '2' }).matches.played['1']).toBe(0);
+    expect(computeStats(db, 'a', { ...DEFAULT_STATS_FILTER, chicken: 'one' }).matches.played['1']).toBe(2);
+    expect(computeStats(db, 'a', { ...DEFAULT_STATS_FILTER, chicken: 'zero' }).matches.played['1']).toBe(0);
+    db.close();
+  });
 
   it('tournament db: entries, results, leaderboards, achievements (v0.2)', () => {
     const db = new Db(path.join(mkdtempSync(path.join(tmpdir(), 'zjmj-')), 't.db'));
@@ -416,9 +493,9 @@ describe('match simulation', () => {
   });
 
   it('ends in an immediate draw when the seabed tile is a bonus tile', async () => {
-    // Wall seed 2 makes game E1's final live draw a bonus tile for dummy
-    // bots (found by simulating the wall consumption, including the match's
-    // 3-draw seat shuffle).
+    // RNG seed 28 makes game E1's final live draw a bonus tile for dummy
+    // bots (found by simulating the wall consumption — the match's 3-draw
+    // seat shuffle, then the v0.2 per-game wall seed drawn from the rng).
     let record: MatchRecord | null = null;
     const match = new Match(
       settings(1, { bonusTiles: 'full' }),
@@ -429,7 +506,7 @@ describe('match simulation', () => {
         onMatchEnd: (r) => {
           record = r;
         },
-        rng: mulberry32(2),
+        rng: mulberry32(28),
         timing: FAST,
       },
     );

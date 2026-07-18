@@ -175,6 +175,9 @@ export interface SeatView {
   name: string;
   isBot: boolean;
   connected: boolean;
+  /** Left the match for good (shows "(left)"); a mere disconnect that could
+   *  still reconnect shows "(away)" (v0.2). */
+  left?: boolean;
   score: number;
   handCount: number;
   hasDrawn: boolean;
@@ -239,12 +242,14 @@ export interface MatchResultView {
   }[];
   /** Epoch ms (server clock) when the match screen closes. */
   endsAt: number;
-  /** Stamped per viewer: an achievement newly earned by this match (v0.2). */
-  newAchievement?: { id: string; name: string };
+  /** Stamped per viewer: achievements newly earned by this match (v0.2). */
+  newAchievements?: { id: string; name: string }[];
 }
 
 export interface GameView {
   phase: GamePhase;
+  /** The room settings this match is played under (top-right ruleset note). */
+  settings: RoomSettings;
   /**
    * Server clock (epoch ms) when this view was built. All timestamps in the
    * view (deadline, claim expires, nextAt) are on this clock; clients must

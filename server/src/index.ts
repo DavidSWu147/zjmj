@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 import { ClientMsg, GameView, ServerMsg } from '../../shared/src/protocol';
+import { broadAbandoned } from '../../shared/src/records';
 import { makeApi } from './api';
 import { makeAuthApi } from './auth';
 import { Db } from './db';
@@ -52,20 +53,26 @@ const rooms = new Rooms({
         );
       });
     }
-    // "Breaking the Wall" (v0.2): a match played to the end by four
-    // registered humans — nobody left, nobody on system-set Auto Mode or
-    // disconnected at the end.
-    if (
-      !aborted &&
-      record.players.length === 4 &&
-      record.players.every((p) => !p.isBot && p.registered) &&
-      record.abandonedBy.length === 0 &&
-      (record.systemAutoAtEnd ?? []).length === 0 &&
-      (record.disconnectedAtEnd ?? []).length === 0
-    ) {
-      const newly = record.players
-        .filter((p) => db.awardAchievement(p.id, 'breaking-the-wall'))
-        .map((p) => p.id);
+    // Achievements (registered finishers only). "Breaking the Wall": a match
+    // played to the end by four registered humans — nobody abandoned it
+    // (left, system-set Auto Mode, or disconnected at the end). "Breaking
+    // Even": finish a match with a final score of exactly 0.
+    if (!aborted) {
+      const abandoned = broadAbandoned(record);
+      const wallEligible =
+        record.players.length === 4 &&
+        record.players.every((p) => !p.isBot && p.registered) &&
+        abandoned.size === 0;
+      const newly: { playerId: string; achievementId: string }[] = [];
+      record.players.forEach((p, seat) => {
+        if (p.isBot || !p.registered || abandoned.has(p.id)) return;
+        if (wallEligible && db.awardAchievement(p.id, 'breaking-the-wall')) {
+          newly.push({ playerId: p.id, achievementId: 'breaking-the-wall' });
+        }
+        if (record.finalScores[seat] === 0 && db.awardAchievement(p.id, 'breaking-even')) {
+          newly.push({ playerId: p.id, achievementId: 'breaking-even' });
+        }
+      });
       if (newly.length > 0) return { newlyAchieved: newly };
     }
   },

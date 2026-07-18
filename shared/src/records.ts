@@ -1,7 +1,7 @@
 import { sortTiles, Tile, tileFromIndex, tileIndex, rankOf } from './tiles';
-import { PatternHit } from './scoring';
+import { ADJUSTED_POINTS, PatternHit, PATTERNS } from './scoring';
 import { MeldView, RoomSettings } from './protocol';
-import { findResponsible } from './payment';
+import { computePayments, findResponsible } from './payment';
 
 /**
  * Match records. Seat indices inside a GameRecord are *current* seats for that
@@ -51,6 +51,10 @@ export interface GameResultRecord {
 
 export interface GameRecord {
   gameNumber: string;
+  /** Display seed "XXXXXXXXXXXXX-YZ" of the wall+dice RNG (v0.2). */
+  seed?: string;
+  /** Live-wall tiles left when the game ended (v0.2 statistics). */
+  remaining?: number;
   /** By current seat, 13 tiles each, sorted. */
   startingHands: Tile[][];
   moves: MoveRecord[];
@@ -144,9 +148,35 @@ export function bonusTilesInt(v: RoomSettings['bonusTiles']): number {
   return v === 'full' ? 2 : v === 'half' ? 1 : 0;
 }
 
+/** Every player id counted as having abandoned the match (v0.2 broad rule):
+ *  explicit leavers, system-set Auto Mode at end, disconnected at end. */
+export function broadAbandoned(m: MatchRecord): Set<string> {
+  return new Set([
+    ...m.abandonedBy,
+    ...(m.systemAutoAtEnd ?? []),
+    ...(m.disconnectedAtEnd ?? []),
+  ]);
+}
+
+/**
+ * A pattern's fully-hyphenated record name(s) (v0.2): spaces become hyphens
+ * and colons drop ("VALUE-HONOR-RED-DRAGON"). The bonus-tile patterns write
+ * as IMPROPER-BONUS-TILE / PROPER-BONUS-TILE, one line-item per tile instead
+ * of the on-screen ×n notation.
+ */
+function txtPatternNames(p: PatternHit): string[] {
+  if (p.id === '11.1.1' || p.id === '11.1.2') {
+    const n = Number(p.name.match(/×(\d+)/)?.[1] ?? 1);
+    return Array(n).fill(p.id === '11.1.1' ? 'IMPROPER-BONUS-TILE' : 'PROPER-BONUS-TILE');
+  }
+  return [p.name.replace(/:/g, '').toUpperCase().split(/\s+/).join('-')];
+}
+
 export function matchToTxt(m: MatchRecord): string {
   const lines: string[] = [];
+  const abandoned = broadAbandoned(m);
   lines.push(`Match ID: ${m.matchId}`);
+  lines.push(`Match Type: ${m.tournamentWeek ? 1 : 0}`);
   lines.push(`Match Length: ${m.matchLength}`);
   lines.push(`Thinking Time: ${m.settings.thinkingTime}`);
   lines.push(`Chicken Hand: ${chickenHandInt(m.settings.chickenHand)}`);
@@ -156,19 +186,29 @@ export function matchToTxt(m: MatchRecord): string {
   for (let s = 0; s < 4; s++) {
     lines.push(`Starting ${SEAT_LABELS[s]} Username: ${m.players[s].name}`);
   }
+  for (let s = 0; s < 4; s++) {
+    const p = m.players[s];
+    const base = p.isBot ? 'BOT' : p.registered ? 'USER' : 'GUEST';
+    const suffix = !p.isBot && abandoned.has(p.id) ? ' ABANDONED' : '';
+    lines.push(`Starting ${SEAT_LABELS[s]} Player Type: ${base}${suffix}`);
+  }
+  for (let s = 0; s < 4; s++) {
+    lines.push(`Starting ${SEAT_LABELS[s]} Final Score: ${m.finalScores[s]}`);
+  }
   for (const g of m.games) {
     lines.push('');
     lines.push(`Game Number: ${g.gameNumber}`);
+    if (g.seed) lines.push(`Seed: ${g.seed}`);
     for (let s = 0; s < 4; s++) {
       lines.push(`${SEAT_LABELS[s]} player's starting hand: ${g.startingHands[s].join(', ')}`);
     }
     for (const mv of g.moves) lines.push(moveToTxt(mv));
-    // Winning games list the achieved patterns (or CHICKEN HAND) and the
+    // Winning games list the achieved patterns (or CHICKEN-HAND) and the
     // hand's score before ENDGAME.
     if (g.result.winnerSeat !== null) {
       const pats = g.result.patterns ?? [];
       const chicken = pats.length === 0 || pats.every((p) => p.id === 'chicken');
-      lines.push(chicken ? 'CHICKEN HAND' : pats.map((p) => p.name.toUpperCase()).join(', '));
+      lines.push(chicken ? 'CHICKEN-HAND' : pats.flatMap(txtPatternNames).join(', '));
       lines.push(`SCORE: ${g.result.value ?? 0}`);
     }
     lines.push('ENDGAME');
@@ -176,12 +216,70 @@ export function matchToTxt(m: MatchRecord): string {
   return lines.join('\n') + '\n';
 }
 
+/** Normalized pattern-name key: case/punctuation-insensitive word list. */
+function patternKey(s: string): string {
+  return s.toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+}
+
+const PATTERN_BY_KEY: Map<string, string> = (() => {
+  const m = new Map<string, string>();
+  for (const [id, p] of Object.entries(PATTERNS)) m.set(patternKey(p.name), id);
+  // v0.2 record names for the bonus-tile patterns.
+  m.set('IMPROPER BONUS TILE', '11.1.1');
+  m.set('PROPER BONUS TILE', '11.1.2');
+  return m;
+})();
+
+/**
+ * Rebuilds PatternHits from a record's pattern-name line. Accepts both the
+ * v0.2 hyphenated names (bonus tiles repeated per copy) and the older
+ * spaced names with ×n counts. Returns null if any token is unrecognized —
+ * the caller then skips the line, as the old parser did.
+ */
+function parsePatternLine(line: string, settings: RoomSettings): PatternHit[] | null {
+  const counts = new Map<string, number>();
+  const order: string[] = [];
+  for (const token of line.split(',')) {
+    let key = patternKey(token);
+    let n = 1;
+    const withCount = key.match(/^(.*?) (\d+)$/); // old "×n" notation
+    if (withCount && PATTERN_BY_KEY.has(withCount[1])) {
+      key = withCount[1];
+      n = Number(withCount[2]);
+    }
+    const id = PATTERN_BY_KEY.get(key);
+    if (!id) return null;
+    if (!counts.has(id)) order.push(id);
+    counts.set(id, (counts.get(id) ?? 0) + n);
+  }
+  const adjusted = (settings.scoring ?? 'original') !== 'original';
+  return order.map((id) => {
+    const p = PATTERNS[id];
+    let points =
+      id === 'chicken'
+        ? settings.chickenHand === 'zero'
+          ? 0
+          : 1
+        : adjusted && ADJUSTED_POINTS[id] !== undefined
+          ? ADJUSTED_POINTS[id]
+          : p.points;
+    const n = counts.get(id)!;
+    if (id === '11.1.1' || id === '11.1.2') {
+      // Per-tile value (halved under the half-value setting), aggregated
+      // back into the on-screen ×n form.
+      points = (p.points / (settings.bonusTiles === 'half' ? 2 : 1)) * n;
+      return { id, name: n > 1 ? `${p.name} ×${n}` : p.name, zh: p.zh, points };
+    }
+    return { id, name: p.name, zh: p.zh, points };
+  });
+}
+
 /**
  * Parses a record in the matchToTxt format back into a MatchRecord (for
- * viewing an uploaded .txt file). Inverse of matchToTxt for everything the
- * archive viewer needs; data the .txt does not carry (per-game deltas,
- * pattern breakdowns, final scores) comes back zeroed/empty. Throws an Error
- * with a human-readable message on malformed input.
+ * viewing an uploaded .txt file) — both the v0.2 format and the older one
+ * without the v0.2 fields. Per-game payments are recomputed from the result
+ * and the par setting, so the viewer can show scores for uploads too.
+ * Throws an Error with a human-readable message on malformed input.
  */
 export function matchFromTxt(txt: string): MatchRecord {
   const lines = txt.split(/\r?\n/);
@@ -223,11 +321,22 @@ export function matchFromTxt(txt: string): MatchRecord {
     scoring: scoring === 2 ? 'adjustedExtra' : scoring === 1 ? 'adjusted' : 'original',
     bonusTiles: bonus === 2 ? 'full' : bonus === 1 ? 'half' : 'none',
   };
-  const players = SEAT_LABELS.map((label, s) => ({
-    id: `uploaded-${s}`,
-    name: header[`Starting ${label} Username`] ?? label,
-    isBot: false,
-  }));
+  const abandonedBy: string[] = [];
+  const players = SEAT_LABELS.map((label, s) => {
+    const id = `uploaded-${s}`;
+    const type = header[`Starting ${label} Player Type`] ?? '';
+    if (type.includes('ABANDONED')) abandonedBy.push(id);
+    return {
+      id,
+      name: header[`Starting ${label} Username`] ?? label,
+      isBot: type.startsWith('BOT'),
+      registered: type.startsWith('USER'),
+    };
+  });
+  const headerFinalScores = SEAT_LABELS.map((label) => {
+    const v = header[`Starting ${label} Final Score`];
+    return v === undefined ? null : Number(v);
+  });
 
   const parseMove = (seat: number, rest: string): MoveRecord => {
     const segs = rest.replace(/,\s*$/, '').split(', ');
@@ -275,6 +384,11 @@ export function matchFromTxt(txt: string): MatchRecord {
     if (!m) fail('expected "Game Number: …"');
     const gameNumber = m![1];
     ln++;
+    let seed: string | undefined;
+    if ((m = lines[ln]?.match(/^Seed:\s*(\S+)/))) {
+      seed = m[1];
+      ln++;
+    }
     const startingHands: Tile[][] = [];
     for (let s = 0; s < 4; s++) {
       m = lines[ln]?.match(/^(East|South|West|North) player's starting hand:\s*(.*)$/);
@@ -285,6 +399,7 @@ export function matchFromTxt(txt: string): MatchRecord {
     const moves: MoveRecord[] = [];
     const discardLog: { seat: number; tile: Tile }[] = [];
     const result: GameResultRecord = { winnerSeat: null, deltas: [0, 0, 0, 0] };
+    let robbedWin = false;
     for (;;) {
       if (ln >= lines.length) fail('game never reached ENDGAME');
       const line = lines[ln].trim();
@@ -308,9 +423,9 @@ export function matchFromTxt(txt: string): MatchRecord {
           result.winnerSeat = seat;
           result.winBy = 'discard';
           const prev = moves[moves.length - 2];
-          const robbed =
+          robbedWin =
             !!prev && prev.seat !== seat && prev.part2?.t === 'kong' && prev.part2.tile === mv.part1.tile;
-          result.responsibleSeat = robbed
+          result.responsibleSeat = robbedWin
             ? prev.seat
             : findResponsible(discardLog, seat, mv.part1.tile);
         }
@@ -322,13 +437,56 @@ export function matchFromTxt(txt: string): MatchRecord {
         ln++;
         continue;
       }
-      // Anything else before ENDGAME is the pattern-name line; the .txt has
-      // no ids/points to rebuild PatternHits from, so it is skipped.
+      // Anything else before ENDGAME is the pattern-name line; unrecognized
+      // names are tolerated (the line is simply skipped, as before v0.2).
+      const pats = parsePatternLine(line, settings);
+      if (pats) result.patterns = pats;
       ln++;
     }
-    games.push({ gameNumber, startingHands, moves, result });
+    // Recompute the payments the engine would have made, so the viewer can
+    // show deltas and running scores for uploaded records too. Blessing of
+    // Earth (a non-East win on East's very first discard, no melds declared)
+    // pays out like a self-draw.
+    if (result.winnerSeat !== null && result.value !== undefined) {
+      const anyMelds = moves.some(
+        (mv) =>
+          mv.part1.t === 'chow' ||
+          mv.part1.t === 'pung' ||
+          mv.part1.t === 'bigKong' ||
+          mv.part2?.t === 'kong',
+      );
+      const earth =
+        result.winBy === 'discard' &&
+        !robbedWin &&
+        result.winnerSeat !== 0 &&
+        discardLog.length === 1 &&
+        discardLog[0].seat === 0 &&
+        !anyMelds;
+      result.deltas = computePayments({
+        value: result.value,
+        winnerSeat: result.winnerSeat,
+        winBy: earth ? 'self' : result.winBy!,
+        responsibleSeat: earth ? null : (result.responsibleSeat ?? null),
+        par: settings.par,
+      });
+    }
+    games.push({ gameNumber, ...(seed ? { seed } : {}), startingHands, moves, result });
   }
   if (games.length === 0) throw new Error('No games found in the file.');
+
+  // Final scores: from the v0.2 headers when present, else summed from the
+  // recomputed per-game deltas (current seat s of game g = starting seat
+  // (s + g) % 4).
+  const finalScores = [0, 0, 0, 0];
+  if (headerFinalScores.every((v) => v !== null && !Number.isNaN(v))) {
+    headerFinalScores.forEach((v, s) => (finalScores[s] = v!));
+  } else {
+    games.forEach((g, gi) => {
+      g.result.deltas.forEach((d, cs) => {
+        finalScores[(cs + gi) % 4] += d;
+      });
+    });
+  }
 
   return {
     matchId: num('Match ID'),
@@ -336,8 +494,9 @@ export function matchFromTxt(txt: string): MatchRecord {
     settings,
     players,
     games,
-    finalScores: [0, 0, 0, 0],
-    abandonedBy: [],
+    finalScores,
+    abandonedBy,
+    ...(header['Match Type'] === '1' ? { tournamentWeek: 'uploaded' } : {}),
   };
 }
 

@@ -1,4 +1,4 @@
-import { GameAction, GameView, KeyBindings } from '../../../shared/src/protocol';
+import { GameAction, GameView, isTournamentRoomId, KeyBindings, RoomSettings } from '../../../shared/src/protocol';
 import { Tile } from '../../../shared/src/tiles';
 import {
   animateTransition,
@@ -15,6 +15,16 @@ import { getSettings } from '../settings';
 import { meldEl, orientedTile, tileEl, Deg } from '../tileui';
 import { buildHelpContent } from './help';
 import { starSvg } from './achievements';
+import { CHICKENS } from './sliders';
+
+/** Top-right ruleset note (v0.2): "4 rounds · Chicken: Scores 1 point · …". */
+function rulesetNote(s: RoomSettings): string {
+  const chick = CHICKENS.find((c) => c.v === s.chickenHand)?.label ?? s.chickenHand;
+  const mode = s.scoring ?? 'original';
+  const scoring =
+    mode === 'adjustedExtra' ? 'Extra Patterns' : mode === 'adjusted' ? 'Adjusted Scoring' : 'Original Scoring';
+  return `${s.rounds} round${s.rounds === 1 ? '' : 's'} · Chicken: ${chick} · ${scoring}`;
+}
 import {
   buildGraphicsSettings,
   buildHotkeySettings,
@@ -1004,13 +1014,10 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     // Anchor so a full 13-tile hand sits centered and the drawn slot caps
     // its free end; the position is computed from constants (or the strip's
     // own deterministic length), never from the drawn tile's presence.
-    // v0.2: four-tile-wide kongs (concealed or big exposed) can push a side
-    // opponent's strip off the screen. Shift the whole strip toward its
+    // v0.2: meld-heavy strips (four-tile-wide kongs especially) can push a
+    // side opponent's tiles off the screen. Shift the whole strip toward its
     // drawn-slot end just enough to stay on screen — downward for the left
     // opponent, upward for the right one.
-    const wideKongs = sv.melds.filter(
-      (m) => m.kind === 'kong' && (m.kongType === 'concealed' || m.kongType === 'big'),
-    ).length;
     let stripTop: number;
     if (rel === 2) {
       // Reversed layout: the drawn slot is the LEFT end — fixed.
@@ -1022,20 +1029,16 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       // downward, so many kongs overflow the bottom edge.
       wrap.style.right = '8px';
       stripTop = cy - handW13 / 2 - drawnSlotOpp;
-      if (wideKongs > 0) {
-        const h = wrap.getBoundingClientRect().height;
-        const overflow = stripTop + h - (H - 8);
-        if (overflow > 0) stripTop -= Math.max(0, Math.min(overflow, stripTop - 44));
-      }
+      const overflow = stripTop + wrap.getBoundingClientRect().height - (H - 8);
+      if (overflow > 0) stripTop -= Math.max(0, Math.min(overflow, stripTop - 44));
       wrap.style.top = `${stripTop}px`;
     } else {
       // The drawn slot is the BOTTOM end — fixed; melds extend upward, so
       // many kongs overflow the top edge.
       wrap.style.left = '8px';
-      const h = wrap.getBoundingClientRect().height;
       const stripBottom = cy + handW13 / 2 + drawnSlotOpp;
-      stripTop = stripBottom - h;
-      if (wideKongs > 0 && stripTop < 8) {
+      stripTop = stripBottom - wrap.getBoundingClientRect().height;
+      if (stripTop < 8) {
         const room = Math.max(0, H - th - 34 - stripBottom);
         stripTop += Math.min(8 - stripTop, room);
       }
@@ -1046,7 +1049,8 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     // near the top opponent's name, yielding to the strip's top end when
     // melds push it further up.
     const tag = document.createElement('div');
-    tag.textContent = `${sv.name}${sv.connected ? '' : ' (away)'}`;
+    // "(left)" = gone for good; "(away)" = disconnected, may return (v0.2).
+    tag.textContent = `${sv.name}${sv.left ? ' (left)' : sv.connected ? '' : ' (away)'}`;
     tag.style.cssText =
       'position:absolute;font-size:11px;color:#dfe7e2;text-shadow:0 1px 2px #000;white-space:nowrap;z-index:5;';
     const sideTop = cy - handW13 / 2 - otw * 1.7 - 16;
@@ -1496,8 +1500,15 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       return b;
     };
     mkTop('leave', '✕', spec ? 'Stop watching' : 'Leave the match', () => {
-      // Leaving as a spectator loses nothing: no confirmation needed.
-      if (spec || confirm('Leave the match? A bot will take your seat.')) exitMatch();
+      // Leaving as a spectator loses nothing: no confirmation needed. A
+      // tournament match spells out the leaver penalty (v0.2).
+      const tournament = view.room !== null && isTournamentRoomId(view.room.id);
+      const msg = tournament
+        ? 'Leave the tournament match? A bot will take your seat. Leaving mid-match ' +
+          'forfeits all Rank Points gained in this match and bars you from ' +
+          "participating in next week's tournament."
+        : 'Leave the match? A bot will take your seat.';
+      if (spec || confirm(msg)) exitMatch();
     });
     if (!spec) {
       mkTop(
@@ -1539,6 +1550,13 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       top.appendChild(note);
     }
     board.appendChild(top);
+
+    // Top-right corner: the match's ruleset options (v0.2), for players and
+    // spectators alike.
+    const rules = document.createElement('div');
+    rules.className = 'ruleset-note';
+    rules.textContent = rulesetNote(view.settings);
+    board.appendChild(rules);
   }
 
   // Auto Mode play itself runs off the network update stream (see
@@ -1764,12 +1782,13 @@ function matchResultOverlay(view: GameView): HTMLElement {
       </tr>`;
     })
     .join('');
-  // A newly earned achievement gets a golden banner at the top (v0.2).
-  const ach = view.matchResult!.newAchievement;
-  const banner = ach
-    ? `<div class="ach-banner">${starSvg(22)}<span>Congratulations! Achievement earned:
-        ${escapeHtml(ach.name)}</span>${starSvg(22)}</div>`
-    : '';
+  // Newly earned achievements get golden banners at the top (v0.2).
+  const banner = (view.matchResult!.newAchievements ?? [])
+    .map(
+      (a) => `<div class="ach-banner">${starSvg(22)}<span>Congratulations! Achievement earned:
+        ${escapeHtml(a.name)}</span>${starSvg(22)}</div>`,
+    )
+    .join('');
   card.innerHTML = `${banner}<h2>Match Over 終局</h2>
     <table class="pattern-list">${rows}</table>
     <div class="dialog-btns"><button id="tolobby">Back to Lobby</button></div>`;

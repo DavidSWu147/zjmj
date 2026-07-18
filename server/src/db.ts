@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import type { DatabaseSync } from 'node:sqlite';
-import { MatchRecord } from '../../shared/src/records';
+import { broadAbandoned, MatchRecord } from '../../shared/src/records';
 
 // node:sqlite is a prefix-only builtin that some bundlers fail to recognize;
 // loading it via createRequire keeps vitest/vite/esbuild all happy.
@@ -96,6 +96,15 @@ export class Db {
     const mpCols = this.db.prepare('PRAGMA table_info(match_players)').all() as { name: string }[];
     if (!mpCols.some((c) => c.name === 'hidden')) {
       this.db.exec('ALTER TABLE match_players ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0');
+    }
+    // v0.2 part 2 (spec): records and statistics start fresh — the record
+    // format changed too much (seeds, player types, broad-abandoned flags).
+    // One-time wipe; achievements and tournament rank points are untouched.
+    const version = (this.db.prepare('PRAGMA user_version').get() as { user_version: number })
+      .user_version;
+    if (version < 1) {
+      this.db.exec('DELETE FROM match_players; DELETE FROM matches;');
+      this.db.exec('PRAGMA user_version = 1');
     }
     // Prune sessions idle for half a year so the table cannot grow forever.
     this.db
@@ -193,21 +202,16 @@ export class Db {
        (match_id, player_id, name, start_seat, final_score, result, abandoned)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     );
+    // v0.2: "abandoned" is the broad definition — explicit leavers plus
+    // players on system-set Auto Mode or disconnected when the match ended.
+    const abandoned = broadAbandoned(record);
     this.db.exec('BEGIN');
     try {
       insMatch.run(record.matchId, Date.now(), record.matchLength, JSON.stringify(record));
       record.players.forEach((p, seat) => {
         const score = record.finalScores[seat];
         const result = score > 0 ? 'WIN' : score < 0 ? 'LOSE' : 'DRAW';
-        insPlayer.run(
-          record.matchId,
-          p.id,
-          p.name,
-          seat,
-          score,
-          result,
-          record.abandonedBy.includes(p.id) ? 1 : 0,
-        );
+        insPlayer.run(record.matchId, p.id, p.name, seat, score, result, abandoned.has(p.id) ? 1 : 0);
       });
       this.db.exec('COMMIT');
     } catch (err) {
@@ -268,23 +272,31 @@ export class Db {
     return row ? (JSON.parse(row.record) as MatchRecord) : null;
   }
 
-  /** Non-abandoned match participations since the player's last stats reset. */
-  matchesForStats(playerId: string): { record: MatchRecord; startSeat: number; result: string }[] {
+  /**
+   * All match participations since the player's last stats reset — including
+   * abandoned ones (v0.2: "Matches Played" counts them; "Matches Finished"
+   * does not).
+   */
+  matchesForStats(
+    playerId: string,
+  ): { record: MatchRecord; startSeat: number; result: string; abandoned: boolean }[] {
     const rows = this.db
       .prepare(
-        `SELECT m.record, mp.start_seat, mp.result
+        `SELECT m.record, mp.start_seat, mp.result, mp.abandoned
          FROM match_players mp JOIN matches m ON m.id = mp.match_id
-         WHERE mp.player_id = ? AND mp.abandoned = 0 AND m.created_at >= ?`,
+         WHERE mp.player_id = ? AND m.created_at >= ?`,
       )
       .all(playerId, this.statsResetAt(playerId)) as {
       record: string;
       start_seat: number;
       result: string;
+      abandoned: number;
     }[];
     return rows.map((r) => ({
       record: JSON.parse(r.record) as MatchRecord,
       startSeat: r.start_seat,
       result: r.result,
+      abandoned: r.abandoned !== 0,
     }));
   }
 

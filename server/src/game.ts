@@ -2,10 +2,13 @@ import {
   canWinShape,
   chowOptions,
   countsFrom,
+  displaySeed,
   gameNumberOf,
   isBonusTile,
   Meld,
   PATTERN_IDS,
+  prngFromSeed,
+  randomWallSeed,
   scoreBonus,
   scoreWin,
   ScoreResult,
@@ -53,6 +56,8 @@ export interface GameHost {
   nameOf(seat: number): string;
   isBotPlayer(seat: number): boolean;
   isConnected(seat: number): boolean;
+  /** Human permanently left the match — "(left)", not "(away)" (v0.2). */
+  hasLeftSeat(seat: number): boolean;
   scoreOf(seat: number): number;
   onChange(): void;
   onGameEnd(record: GameRecord, deltas: number[]): void;
@@ -160,10 +165,17 @@ export class Game {
   resultScore: ScoreResult | null = null;
   ended = false;
 
+  /** 64-bit seed this game's wall+dice were generated from (v0.2). */
+  readonly wallSeed: bigint;
+
   constructor(gameIndex: number, host: GameHost) {
     this.gameIndex = gameIndex;
     this.host = host;
-    this.wall = new Wall(host.rng, {
+    // The wall (and its break dice) comes from a fixed PRNG over a per-game
+    // 64-bit seed, so any game is reproducible from its displayed seed. The
+    // seed itself is drawn from the host RNG (seeded in tests).
+    this.wallSeed = randomWallSeed(host.rng);
+    this.wall = new Wall(prngFromSeed(this.wallSeed), {
       bonus: (host.settings.bonusTiles ?? 'none') !== 'none',
     });
     this.hands = this.wall.hands.map((h) => sortTiles(h));
@@ -1436,6 +1448,8 @@ export class Game {
   toRecord(): GameRecord {
     return {
       gameNumber: gameNumberOf(this.gameIndex).latin,
+      seed: displaySeed(this.wallSeed, this.wall.dice),
+      remaining: this.wall.remaining,
       startingHands: this.startingHands,
       moves: this.moves,
       result: this.result ?? { winnerSeat: null, deltas: [0, 0, 0, 0] },
@@ -1476,6 +1490,7 @@ export class Game {
         name: this.host.nameOf(s),
         isBot: this.host.isBotPlayer(s),
         connected: this.host.isConnected(s),
+        left: this.host.hasLeftSeat(s),
         score: this.host.scoreOf(s),
         handCount: this.hands[s].length,
         hasDrawn: this.drawn[s] !== null,
@@ -1614,6 +1629,7 @@ export class Game {
         : null;
     return {
       phase: this.phase,
+      settings: this.host.settings,
       now: Date.now(),
       claimGapMs: this.gapMs(),
       reveal,

@@ -13,6 +13,11 @@ export const ACHIEVEMENTS: AchievementDef[] = [
       'Play a match of any length to the end where all four players are registered humans — ' +
       'no guests, no bots, and no player leaving the match early.',
   },
+  {
+    id: 'breaking-even',
+    name: 'Breaking Even',
+    desc: 'Draw a match by finishing it with a final score of exactly 0.',
+  },
 ];
 
 export function achievementById(id: string): AchievementDef | undefined {

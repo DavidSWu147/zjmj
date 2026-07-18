@@ -27,7 +27,7 @@ export interface RoomsDelegate {
     record: MatchRecord,
     aborted: boolean,
     roomId: number,
-  ): void | { newlyAchieved?: string[] };
+  ): void | { newlyAchieved?: { playerId: string; achievementId: string }[] };
   isConnected(playerId: string): boolean;
   /** Toast a message to these players (idle-room ejections). */
   notify(playerIds: string[], message: string): void;

@@ -1,4 +1,5 @@
 import { BotDifficulty, GameResultView, GameView, MatchResultView, RoomSettings } from '../../shared/src/protocol';
+import { achievementById } from '../../shared/src/achievements';
 import { GameRecord, MatchRecord } from '../../shared/src/records';
 import { Tile } from '../../shared/src/tiles';
 import { BotKind } from './chickenbot';
@@ -37,11 +38,14 @@ export interface MatchDelegate {
   /** Push a view to a (human) player. */
   sendView(playerId: string, view: GameView): void;
   /**
-   * Called once when the match is over or aborted. May return the ids of
-   * players who just earned an achievement from this match (v0.2): the final
-   * standings screen shows them a congratulation banner.
+   * Called once when the match is over or aborted. May return achievements
+   * newly earned from this match (v0.2): the final standings screen shows
+   * those players a congratulation banner.
    */
-  onMatchEnd(record: MatchRecord, aborted: boolean): void | { newlyAchieved?: string[] };
+  onMatchEnd(
+    record: MatchRecord,
+    aborted: boolean,
+  ): void | { newlyAchieved?: { playerId: string; achievementId: string }[] };
   isConnected(playerId: string): boolean;
   rng?: () => number;
   timing?: Partial<MatchTiming>;
@@ -69,8 +73,8 @@ export class Match {
   private leftIds = new Set<string>();
   /** Players currently in system-set Auto Mode (client-reported, v0.2). */
   private systemAuto = new Set<string>();
-  /** Players whose standings screen shows a new-achievement banner. */
-  private achievementWinners = new Set<string>();
+  /** Achievement ids newly earned per player (standings-screen banners). */
+  private achievementWinners = new Map<string, string[]>();
   /** Watching playerIds mapped to their viewing perspective (START seat). */
   private spectators = new Map<string, number>();
   /** Watchers dropped by an abort, for the host to notify (see endMatch). */
@@ -167,6 +171,10 @@ export class Match {
       isConnected: (seat) => {
         const p = this.playerAt(seat);
         return p.isBot ? true : !this.leftIds.has(p.id) && this.delegate.isConnected(p.id);
+      },
+      hasLeftSeat: (seat) => {
+        const p = this.playerAt(seat);
+        return !p.isBot && this.leftIds.has(p.id);
       },
       scoreOf: (seat) => this.scores[this.startSeatOf(seat)],
       onChange: () => this.broadcast(),
@@ -290,8 +298,12 @@ export class Match {
     };
     const res = this.delegate.onMatchEnd(record, aborted);
     if (res && res.newlyAchieved && res.newlyAchieved.length > 0) {
-      this.achievementWinners = new Set(res.newlyAchieved);
-      this.broadcast(); // re-send the standings with the banner stamped in
+      for (const a of res.newlyAchieved) {
+        const list = this.achievementWinners.get(a.playerId) ?? [];
+        list.push(a.achievementId);
+        this.achievementWinners.set(a.playerId, list);
+      }
+      this.broadcast(); // re-send the standings with the banners stamped in
     }
   }
 
@@ -409,10 +421,14 @@ export class Match {
     v.room = this.roomInfo;
     if (this.matchResultView) {
       v.phase = 'matchEnd';
-      v.matchResult = this.achievementWinners.has(playerId)
+      const earned = this.achievementWinners.get(playerId);
+      v.matchResult = earned
         ? {
             ...this.matchResultView,
-            newAchievement: { id: 'breaking-the-wall', name: 'Breaking the Wall' },
+            newAchievements: earned.map((id) => ({
+              id,
+              name: achievementById(id)?.name ?? id,
+            })),
           }
         : this.matchResultView;
     }

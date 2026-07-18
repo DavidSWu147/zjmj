@@ -7,3 +7,4 @@ export * from './protocol';
 export * from './auth';
 export * from './records';
 export * from './achievements';
+export * from './seed';

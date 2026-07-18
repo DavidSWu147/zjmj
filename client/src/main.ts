@@ -34,10 +34,9 @@ function route(): void {
   app.innerHTML = '';
   if (hash === 'play') {
     renderPlay(app);
-  } else if (hash === 'stats') {
+  } else if (hash === 'stats' || hash === 'stats/custom') {
+    // stats/custom was folded into the filterable stats page (v0.2).
     renderStats(app);
-  } else if (hash === 'stats/custom') {
-    renderStats(app, 'custom');
   } else if (hash === 'records') {
     renderRecords(app);
   } else if (hash === 'records/upload') {

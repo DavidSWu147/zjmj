@@ -74,6 +74,15 @@ export class Wall {
     return this.liveTotal - this.drawnCount;
   }
 
+  /**
+   * The full shuffled tile sequence in dealing order from the breakpoint
+   * (never mutated by draws) — the exact contents a wall serialization
+   * encodes (v0.2).
+   */
+  get sequence(): Tile[] {
+    return [...this.tiles];
+  }
+
   /** Total columns around the table: 68, or 72 with bonus tiles. */
   get columns(): number {
     return this.lastColumn + 1;

@@ -196,6 +196,17 @@ function buildViewer(body: HTMLElement, rec: MatchRecord): void {
     render();
   };
 
+  // A player's cumulative score BEFORE this game (v0.2): the sum of their
+  // deltas over the earlier games — everyone sits at 0 in East 1.
+  const scoreBefore = (seat: number): number => {
+    const start = (seat + gameIdx) % 4;
+    let sum = 0;
+    for (let g = 0; g < gameIdx; g++) {
+      sum += rec.games[g].result.deltas[(((start - g) % 4) + 4) % 4] ?? 0;
+    }
+    return sum;
+  };
+
   const render = () => {
     const step = steps[stepIdx];
     const game = rec.games[gameIdx];
@@ -211,8 +222,10 @@ function buildViewer(body: HTMLElement, rec: MatchRecord): void {
       if (isWinner) seatDiv.classList.add('winner');
       const head = document.createElement('div');
       head.className = 'head';
+      const before = scoreBefore(seat);
       head.innerHTML = `<b style="color:var(--text)">${SEAT_LETTERS[seat]}</b>
         <span>${escapeHtml(player.name)}${player.isBot ? ' 🤖' : ''}</span>
+        <span style="color:var(--text-dim)">${before > 0 ? '+' : ''}${before}</span>
         ${isWinner ? `<span class="win-gold">MAHJONG ${game.result.value} pts</span>` : ''}
         ${stepIdx === steps.length - 1 && game.result.responsibleSeat === seat ? '<span class="lose-gray">Discarder 放銃</span>' : ''}`;
       seatDiv.appendChild(head);
@@ -254,10 +267,43 @@ function buildViewer(body: HTMLElement, rec: MatchRecord): void {
       table.appendChild(seatDiv);
     }
 
+    // On the final step of a won game, the scoring breakdown appears below
+    // North's hand — patterns with their points, the payments, and the
+    // scores after payment, like the in-game scoring screen (v0.2).
+    if (stepIdx === steps.length - 1 && game.result.winnerSeat !== null) {
+      const r = game.result;
+      const patRows = (r.patterns ?? [])
+        .map(
+          (p) => `<tr><td>${escapeHtml(p.name)}</td>
+            <td style="color:var(--text-dim)">${p.zh}</td>
+            <td class="pts">${p.points}</td></tr>`,
+        )
+        .join('');
+      const cell = (seat: number, v: number, showSign = true): string => {
+        const cls = v > 0 ? 'win-gold' : v < 0 ? 'lose-gray' : '';
+        const name = escapeHtml(rec.players[(seat + gameIdx) % 4].name);
+        return `<div class="delta-cell"><div class="nm">${SEAT_LETTERS[seat]} · ${name}</div>
+          <div class="dv ${cls}">${showSign && v > 0 ? '+' : ''}${v}</div></div>`;
+      };
+      const panel = document.createElement('div');
+      panel.className = 'viewer-result';
+      panel.innerHTML = `
+        ${patRows ? `<table class="pattern-list">${patRows}</table>` : ''}
+        <div class="result-total">Total: ${r.value ?? 0} points</div>
+        <div class="result-scores-label">Payments 支付</div>
+        <div class="result-deltas">${[0, 1, 2, 3].map((s) => cell(s, r.deltas[s] ?? 0)).join('')}</div>
+        <div class="result-scores-label" style="margin-top:8px">Scores 總分</div>
+        <div class="result-deltas">${[0, 1, 2, 3]
+          .map((s) => cell(s, scoreBefore(s) + (r.deltas[s] ?? 0)))
+          .join('')}</div>`;
+      table.appendChild(panel);
+    }
+
     log.innerHTML = '';
     steps.forEach((s, i) => {
       const line = document.createElement('div');
-      line.textContent = i === 0 ? '— deal —' : s.text;
+      line.textContent =
+        i === 0 ? (game.seed ? `— deal ${game.seed} —` : '— deal —') : s.text;
       if (i === stepIdx) line.classList.add('cur');
       line.addEventListener('click', () => {
         stepIdx = i;

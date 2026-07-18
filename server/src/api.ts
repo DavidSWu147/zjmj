@@ -1,16 +1,37 @@
 import express from 'express';
-import { isStandardSettings } from '../../shared/src/protocol';
-import { matchToTxt } from '../../shared/src/records';
+import { RoomSettings } from '../../shared/src/protocol';
+import { MatchRecord, matchToTxt } from '../../shared/src/records';
 import { PATTERN_IDS } from '../../shared/src/scoring';
 import { ACHIEVEMENTS } from '../../shared/src/achievements';
 import { sessionFromRequest } from './auth';
 import { Db } from './db';
 import { currentMonthPrefix, currentWeekId } from './tourney';
 
+/** v0.2 statistics filters: 'all' or one option per gameplay setting. */
+export interface StatsFilter {
+  len: 'all' | '1' | '2' | '4';
+  /** bot = with bots; normal = four humans, non-tournament; tournament. */
+  type: 'all' | 'bot' | 'normal' | 'tournament';
+  chicken: 'all' | RoomSettings['chickenHand'];
+  par: 'all' | '25' | '30/25' | '30';
+  scoring: 'all' | 'original' | 'adjusted' | 'adjustedExtra';
+  bonus: 'all' | 'none' | 'half' | 'full';
+}
+
+export const DEFAULT_STATS_FILTER: StatsFilter = {
+  len: 'all',
+  type: 'all',
+  chicken: 'all',
+  par: 'all',
+  scoring: 'all',
+  bonus: 'all',
+};
+
 export interface StatsResponse {
   patternCounts: Record<string, number>;
   matches: {
     played: Record<'1' | '2' | '4', number>;
+    finished: Record<'1' | '2' | '4', number>;
     won: Record<'1' | '2' | '4', number>;
     drawn: Record<'1' | '2' | '4', number>;
   };
@@ -22,25 +43,52 @@ export interface StatsResponse {
     selfDrawWins: number;
     wins: number;
     discarderCount: number;
+    /** Games an opponent won by (effective) self-draw (v0.2). */
+    lostBySelfDraw: number;
     winValuesSelf: number[];
     winValuesDiscard: number[];
     dealInValues: number[];
+    /** Live-wall tiles left at game end, summed over games / my wins (v0.2). */
+    remainingSum: number;
+    remainingCount: number;
+    remainingWinsSum: number;
+    remainingWinsCount: number;
   };
 }
 
+function matchesFilter(record: MatchRecord, f: StatsFilter): boolean {
+  const s = record.settings;
+  if (f.len !== 'all' && String(s.rounds) !== f.len) return false;
+  if (f.chicken !== 'all' && s.chickenHand !== f.chicken) return false;
+  if (f.par !== 'all' && String(s.par) !== f.par) return false;
+  if (f.scoring !== 'all' && (s.scoring ?? 'original') !== f.scoring) return false;
+  if (f.bonus !== 'all' && (s.bonusTiles ?? 'none') !== f.bonus) return false;
+  if (f.type !== 'all') {
+    const tournament = !!record.tournamentWeek;
+    const hasBots = record.players.some((p) => p.isBot);
+    const type = tournament ? 'tournament' : hasBots ? 'bot' : 'normal';
+    if (type !== f.type) return false;
+  }
+  return true;
+}
+
 /**
- * Statistics over the player's matches; 'standard' counts only matches whose
- * settings match Room #0's defaults (length/thinking time aside), 'custom'
- * counts everything else (0.1.4 #7).
+ * Statistics over the player's matches, restricted to those matching the
+ * filter (v0.2). Abandoned participations count toward Matches Played only;
+ * game-level statistics come from finished participations. The responsible
+ * discarder is the responsible party; wins with no responsible party
+ * (same-round immunity, Blessing of Earth) count as self-drawn wins and as
+ * nobody dealing in.
  */
 export function computeStats(
   db: Db,
   playerId: string,
-  scope: 'standard' | 'custom' = 'standard',
+  filter: StatsFilter = DEFAULT_STATS_FILTER,
 ): StatsResponse {
   const patternCounts: Record<string, number> = {};
   for (const id of PATTERN_IDS) patternCounts[id] = 0;
   const played = { '1': 0, '2': 0, '4': 0 };
+  const finished = { '1': 0, '2': 0, '4': 0 };
   const won = { '1': 0, '2': 0, '4': 0 };
   const drawn = { '1': 0, '2': 0, '4': 0 };
   const g = {
@@ -51,15 +99,22 @@ export function computeStats(
     selfDrawWins: 0,
     wins: 0,
     discarderCount: 0,
+    lostBySelfDraw: 0,
     winValuesSelf: [] as number[],
     winValuesDiscard: [] as number[],
     dealInValues: [] as number[],
+    remainingSum: 0,
+    remainingCount: 0,
+    remainingWinsSum: 0,
+    remainingWinsCount: 0,
   };
 
-  for (const { record, startSeat, result } of db.matchesForStats(playerId)) {
-    if (isStandardSettings(record.settings) !== (scope === 'standard')) continue;
+  for (const { record, startSeat, result, abandoned } of db.matchesForStats(playerId)) {
+    if (!matchesFilter(record, filter)) continue;
     const key = String(record.matchLength) as '1' | '2' | '4';
     played[key]++;
+    if (abandoned) continue; // played, but not finished: no further stats
+    finished[key]++;
     if (result === 'WIN') won[key]++;
     if (result === 'DRAW') drawn[key]++;
 
@@ -69,13 +124,24 @@ export function computeStats(
       const delta = game.result.deltas[mySeat] ?? 0;
       if (delta > 0) g.pointsWon += delta;
       if (delta < 0) g.pointsLost += -delta;
+      if (game.remaining !== undefined) {
+        g.remainingSum += game.remaining;
+        g.remainingCount++;
+      }
       if (game.result.winnerSeat === null) {
         g.draws++;
         return;
       }
+      // No responsible party (same-round immunity, Blessing of Earth):
+      // treated as a self-drawn win, with nobody having dealt in (v0.2).
+      const effSelf = game.result.winBy === 'self' || game.result.responsibleSeat == null;
       if (game.result.winnerSeat === mySeat) {
         g.wins++;
-        if (game.result.winBy === 'self') {
+        if (game.remaining !== undefined) {
+          g.remainingWinsSum += game.remaining;
+          g.remainingWinsCount++;
+        }
+        if (effSelf) {
           g.selfDrawWins++;
           g.winValuesSelf.push(game.result.value ?? 0);
         } else {
@@ -84,14 +150,17 @@ export function computeStats(
         for (const p of game.result.patterns ?? []) {
           if (patternCounts[p.id] !== undefined) patternCounts[p.id]++;
         }
-      } else if (game.result.responsibleSeat === mySeat) {
-        g.discarderCount++;
-        g.dealInValues.push(game.result.value ?? 0);
+      } else {
+        if (effSelf) g.lostBySelfDraw++;
+        if (game.result.responsibleSeat === mySeat) {
+          g.discarderCount++;
+          g.dealInValues.push(game.result.value ?? 0);
+        }
       }
     });
   }
 
-  return { patternCounts, matches: { played, won, drawn }, games: g };
+  return { patternCounts, matches: { played, finished, won, drawn }, games: g };
 }
 
 export function makeApi(db: Db): express.Router {
@@ -108,9 +177,21 @@ export function makeApi(db: Db): express.Router {
       res.status(401).json({ error: 'Not signed in.' });
       return;
     }
-    res.json(
-      computeStats(db, session.playerId, req.query.scope === 'custom' ? 'custom' : 'standard'),
-    );
+    // v0.2 filters: each query param must be one of its known options;
+    // anything else falls back to 'all'.
+    const pick = <K extends keyof StatsFilter>(key: K, options: string[]): StatsFilter[K] => {
+      const v = req.query[key];
+      return (typeof v === 'string' && options.includes(v) ? v : 'all') as StatsFilter[K];
+    };
+    const filter: StatsFilter = {
+      len: pick('len', ['1', '2', '4']),
+      type: pick('type', ['bot', 'normal', 'tournament']),
+      chicken: pick('chicken', ['notAllowed', 'zero', 'one']),
+      par: pick('par', ['25', '30/25', '30']),
+      scoring: pick('scoring', ['original', 'adjusted', 'adjustedExtra']),
+      bonus: pick('bonus', ['none', 'half', 'full']),
+    };
+    res.json(computeStats(db, session.playerId, filter));
   });
 
   /**
