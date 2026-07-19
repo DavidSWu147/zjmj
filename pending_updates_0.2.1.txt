@@ -20,3 +20,4 @@ Now for other changes:
 17. The definition of a Big Hand for the flashing gold hand area animation should be changed from >=30 to >25 (i.e. when playing with bonus tiles, 26 points counts, because the discarder starts being responsible)
 18. For sake of consistency, DummyBot tries to call Mahjong if by some stroke of luck its dealt tiles actually form a hand 0 distance from ready. This reconciles DummyBot behavior with Auto Mode
 19. Change the toggling between "E1 70" and "東一 70" to be put as a checkbox option in the settings menu titled "Chinese Hand Number Indicator"
+20. Add the gameplay setting "Freely Organize Hand Tiles". When checked on, enable dragging and dropping of tiles in hand to let the user arrange the tiles in hand however they like. However, the tile drawn from the wall stays fixed. Hotkeys are based on the position of the tile after all tiles come to rest. When turned off in the middle of a game, automatically sort the tiles again

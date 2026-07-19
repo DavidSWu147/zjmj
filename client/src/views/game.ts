@@ -81,6 +81,39 @@ let lowTimeTimer: number | null = null;
 let autoKey = '';
 /** The dice roll was clicked away for this game (v0.2): never shown again. */
 let diceDismissedGame = '';
+/**
+ * "Freely Organize Hand Tiles" (v0.2.1 #20): the player's own arrangement
+ * of the concealed hand, maintained client-side (the server always sorts).
+ * Null = sorted. New tiles (e.g. the merged drawn tile) join at the right
+ * end, beside the fixed drawn slot.
+ */
+let freeOrder: Tile[] | null = null;
+
+/** Keeps the arrangement while dropping vanished tiles, appending new ones. */
+function reconcileOrder(prev: Tile[], hand: Tile[]): Tile[] {
+  const counts = new Map<Tile, number>();
+  for (const t of hand) counts.set(t, (counts.get(t) ?? 0) + 1);
+  const kept: Tile[] = [];
+  for (const t of prev) {
+    const n = counts.get(t) ?? 0;
+    if (n > 0) {
+      kept.push(t);
+      counts.set(t, n - 1);
+    }
+  }
+  for (const [t, n] of counts) for (let k = 0; k < n; k++) kept.push(t);
+  return kept;
+}
+
+/** The hand in display order: the user's arrangement, or server-sorted. */
+function displayHand(view: GameView): Tile[] {
+  if (!getSettings().freeHandOrder || view.spectator) {
+    freeOrder = null; // turning the option off re-sorts automatically
+    return view.myHand;
+  }
+  freeOrder = reconcileOrder(freeOrder ?? view.myHand, view.myHand);
+  return freeOrder;
+}
 /** Matches the server's dummy-bot delay so autoplay feels the same. */
 const AUTO_DELAY_MS = 700;
 /** Choice handlers of the open chow/kong variant bar (hotkey selection). */
@@ -308,6 +341,7 @@ function exitMatch(): void {
   stopAutoTimer();
   curDecision = null;
   resetInactivityStreak();
+  freeOrder = null;
   closePanel();
   tutorialStop();
   net.send({ type: 'leaveMatch' });
@@ -530,6 +564,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     lastViewKey = '';
     shownBigPattern = '';
     clearFlights();
+    freeOrder = null; // every game starts from the sorted deal (v0.2.1 #20)
     // Manually set Auto Mode never carries into a new game: accidentally
     // leaving it on is disastrous, so every game starts with it off.
     // System-set Auto Mode DOES persist (v0.2) — only player input ends it.
@@ -1151,15 +1186,68 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     // Key caps float over the tiles only while a discard is actually
     // possible (0.1.5 #6) — a permanent row of 14 glyphs is just noise.
     const showKeys = getSettings().hotkeys && canDiscard;
-    view.myHand.forEach((t, i) => {
+    const shown = displayHand(view);
+    const freeMode = getSettings().freeHandOrder;
+    // Drag-to-rearrange (v0.2.1 #20): a press that travels re-orders the
+    // hand; a press that stays put is the usual select/discard click.
+    // Hotkeys follow the displayed order once the tiles come to rest.
+    const startDrag = (e: PointerEvent, idx: number, node: HTMLElement, t: Tile): void => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startY = e.clientY;
+      let dragging = false;
+      node.setPointerCapture(e.pointerId);
+      const onMove = (ev: PointerEvent) => {
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+        if (!dragging && Math.hypot(dx, dy) > 8) {
+          dragging = true;
+          node.classList.add('tile-dragging');
+        }
+        if (dragging) node.style.transform = `translate(${dx}px, ${dy}px)`;
+      };
+      const onUp = (ev: PointerEvent) => {
+        node.removeEventListener('pointermove', onMove);
+        node.removeEventListener('pointerup', onUp);
+        node.removeEventListener('pointercancel', onUp);
+        if (!dragging) {
+          clickTile(`h${idx}`, t, false, node);
+          return;
+        }
+        node.classList.remove('tile-dragging');
+        node.style.transform = '';
+        // Drop: the new index is the number of OTHER tiles whose midpoint
+        // lies left of the pointer.
+        let target = 0;
+        handTileEls.forEach((el, j) => {
+          if (j === idx) return;
+          const r = el.getBoundingClientRect();
+          if (ev.clientX > r.left + r.width / 2) target++;
+        });
+        const order = [...shown];
+        const [moved] = order.splice(idx, 1);
+        order.splice(target, 0, moved);
+        freeOrder = order;
+        selKey = null;
+        forceRerender();
+      };
+      node.addEventListener('pointermove', onMove);
+      node.addEventListener('pointerup', onUp);
+      node.addEventListener('pointercancel', onUp);
+    };
+    shown.forEach((t, i) => {
       const key = `h${i}`;
       const tile = tileEl(t, { selected: selKey === key });
       tile.classList.add('hand-tile');
       tile.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        clickTile(key, t, false, tile);
+        if (freeMode) {
+          startDrag(e, i, tile, t);
+        } else {
+          e.preventDefault();
+          clickTile(key, t, false, tile);
+        }
       });
-      const hk = HAND_KEYS[view.myHand.length - 1 - i];
+      const hk = HAND_KEYS[shown.length - 1 - i];
       if (showKeys && hk) tile.appendChild(hkLabel(hk));
       handTileEls.push(tile);
       handWrap.appendChild(tile);
@@ -1190,10 +1278,11 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   // Keyboard layer targets for this render (update #3). The buttons map is
   // filled in when the action bar is built below.
   kbCtx = {
-    handLen: view.myHand.length,
+    handLen: handTileEls.length,
     clickHand: (idx: number) => {
       const node = handTileEls[idx];
-      if (node) clickTile(`h${idx}`, view.myHand[idx], false, node);
+      const shownHand = spec ? view.myHand : displayHand(view);
+      if (node) clickTile(`h${idx}`, shownHand[idx], false, node);
     },
     clickDrawn: () => {
       if (drawnEl && view.myDrawn !== null) clickTile('drawn', view.myDrawn, true, drawnEl);

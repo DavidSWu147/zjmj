@@ -65,6 +65,11 @@ export function buildTileSettings(container: HTMLElement, onChange?: () => void)
       <span>Chinese Hand Number Indicator 中文局數<br/>
         <small>The center dial shows 東一…北四 instead of E1…N4.</small></span>
     </label>
+    <label class="toggle-row">
+      <input type="checkbox" id="free-hand-order" />
+      <span>Freely Organize Hand Tiles 自由理牌<br/>
+        <small>Drag and drop to arrange your hand however you like; the drawn tile stays in its own spot. Turning this off sorts the hand again.</small></span>
+    </label>
   `;
   const indices = container.querySelector<HTMLInputElement>('#tile-indices')!;
   indices.checked = getSettings().tileIndices;
@@ -99,6 +104,12 @@ export function buildTileSettings(container: HTMLElement, onChange?: () => void)
   zhNum.checked = getSettings().chineseHandNumber;
   zhNum.addEventListener('change', () => {
     updateSettings({ chineseHandNumber: zhNum.checked });
+    onChange?.();
+  });
+  const freeOrder = container.querySelector<HTMLInputElement>('#free-hand-order')!;
+  freeOrder.checked = getSettings().freeHandOrder;
+  freeOrder.addEventListener('change', () => {
+    updateSettings({ freeHandOrder: freeOrder.checked });
     onChange?.();
   });
 }

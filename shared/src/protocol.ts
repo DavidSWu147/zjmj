@@ -115,6 +115,8 @@ export interface PlayerSettings {
   tableFelt: TableFelt;
   /** Center dial shows 東一…北四 instead of E1…N4 (v0.2.1 #19). */
   chineseHandNumber: boolean;
+  /** Drag-and-drop hand arrangement instead of auto-sorting (v0.2.1 #20). */
+  freeHandOrder: boolean;
   /** Slider defaults used when creating a new room. */
   defaultRoom: RoomSettings;
 }
@@ -130,6 +132,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
   tileBack: 'beige',
   tableFelt: 'green',
   chineseHandNumber: false,
+  freeHandOrder: false,
   defaultRoom: { ...DEFAULT_SETTINGS },
 };
 
