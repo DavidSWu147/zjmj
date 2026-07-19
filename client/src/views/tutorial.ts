@@ -294,7 +294,7 @@ const STEPS: Step[] = [
     'ChickenBot1 discarded an East wind — you hold E E. Pung it! A wind ' +
       'triplet scores extra only if it is YOUR seat wind, and you sit West, ' +
       'so this one adds nothing by itself — but it feeds the hand, and honors ' +
-      'never break a one-suit hand.',
+      'go with any suit for the purposes of Mixed One-Suit.',
   ),
   {
     text: 'Click PUNG.',
@@ -304,8 +304,8 @@ const STEPS: Step[] = [
   },
   {
     text:
-      'Discard the Dot 8 — your last off-suit tile. You are READY: a second ' +
-      'Bamboo 6 completes the pair.',
+      'Discard the Dot 8 — your last off-suit tile. You are READY: another ' +
+      'Bamboo 3 or Bamboo 6 completes the pair.',
     allow: allowDiscard('D8'),
     until: (v) => melds(v).length === 1 && discarded(v, 'D8'),
     highlight: [HAND('D8')],
@@ -331,7 +331,7 @@ const STEPS: Step[] = [
   // ── Game E4: the irregular hands ────────────────────────────────────
   info(
     'Last game! Two special hands ignore the 4-sets-and-a-pair rule. SEVEN ' +
-      'PAIRS (30 points): seven distinct pairs — your opponents have secretly ' +
+      'PAIRS (30 points): seven pairs — your opponents have secretly ' +
       'been chasing it all tutorial. And THIRTEEN TERMINALS (160): one of ' +
       'every 1, every 9, and every honor, plus a duplicate of any of them.',
   ),
