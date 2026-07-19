@@ -176,6 +176,10 @@ export function matchToTxt(m: MatchRecord): string {
   const lines: string[] = [];
   const abandoned = broadAbandoned(m);
   lines.push(`Match ID: ${m.matchId}`);
+  // v0.2.2 #8: the match's start moment — the Match ID is its epoch-ms.
+  lines.push(
+    `Date and Time: ${new Date(m.matchId).toISOString().slice(0, 19).replace('T', ' ')} UTC`,
+  );
   lines.push(`Match Type: ${m.tournamentWeek ? 1 : 0}`);
   lines.push(`Match Length: ${m.matchLength}`);
   lines.push(`Thinking Time: ${m.settings.thinkingTime}`);

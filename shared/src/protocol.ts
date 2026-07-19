@@ -117,6 +117,10 @@ export interface PlayerSettings {
   chineseHandNumber: boolean;
   /** Drag-and-drop hand arrangement instead of auto-sorting (v0.2.1 #20). */
   freeHandOrder: boolean;
+  /** Audio (v0.2.2 #12/#13): volumes 0–100, claims voice 1–6. */
+  bgmVolume: number;
+  sfxVolume: number;
+  claimsVoice: number;
   /** Slider defaults used when creating a new room. */
   defaultRoom: RoomSettings;
 }
@@ -133,6 +137,9 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
   tableFelt: 'green',
   chineseHandNumber: false,
   freeHandOrder: false,
+  bgmVolume: 0,
+  sfxVolume: 0,
+  claimsVoice: 1,
   defaultRoom: { ...DEFAULT_SETTINGS },
 };
 

@@ -216,6 +216,20 @@ export class Db {
       .run(playerId, Date.now());
   }
 
+  /**
+   * A record's players with registered players' CURRENT display names
+   * substituted in (v0.2.2 #7): a rename reaches even matches played under
+   * the old name. Bots and guests keep the name they played under.
+   */
+  private freshenNames(rec: MatchRecord): MatchRecord {
+    return {
+      ...rec,
+      players: rec.players.map((p) =>
+        !p.isBot && p.registered ? { ...p, name: this.getDisplayName(p.id) ?? p.name } : p,
+      ),
+    };
+  }
+
   saveMatch(record: MatchRecord): void {
     const insMatch = this.db.prepare(
       'INSERT OR REPLACE INTO matches (id, created_at, match_length, record) VALUES (?, ?, ?, ?)',
@@ -262,7 +276,7 @@ export class Db {
       result: string;
     }[];
     return rows.map((r) => {
-      const rec = JSON.parse(r.record) as MatchRecord;
+      const rec = this.freshenNames(JSON.parse(r.record) as MatchRecord);
       return {
         matchId: r.id,
         createdAt: r.created_at,
@@ -292,7 +306,7 @@ export class Db {
     const row = this.db.prepare('SELECT record FROM matches WHERE id = ?').get(matchId) as
       | { record: string }
       | undefined;
-    return row ? (JSON.parse(row.record) as MatchRecord) : null;
+    return row ? this.freshenNames(JSON.parse(row.record) as MatchRecord) : null;
   }
 
   /**

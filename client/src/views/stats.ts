@@ -1,6 +1,8 @@
 import { OPTIONAL_PATTERN_IDS, PATTERN_IDS, PATTERNS } from '../../../shared/src/scoring';
+import { Tile } from '../../../shared/src/tiles';
 import { apiGet, apiPost } from '../account';
 import { net } from '../net';
+import { tileEl } from '../tileui';
 
 interface StatsResponse {
   patternCounts: Record<string, number>;
@@ -96,6 +98,89 @@ const FILTER_GROUPS: { key: string; label: string; opts: { v: string; label: str
   },
 ];
 
+/** Games needed before the playstyle is computed and shown (v0.2.2 #4). */
+const PLAYSTYLE_MIN_GAMES = 100;
+
+interface Playstyle {
+  atk: number;
+  spd: number;
+  def: number;
+  tile: Tile;
+  name: string;
+  zh: string;
+}
+
+/**
+ * The player's playstyle (v0.2.2 #4). Each attribute is a weighted sum of
+ * linear contributions: a statistic maps onto [min, max] (values beyond
+ * either end are capped) and yields that fraction of the component's
+ * weight. Defense's ranges run high-to-low: lower statistics mean a
+ * stronger attribute.
+ */
+function computePlaystyle(s: StatsResponse): Playstyle {
+  const N = s.games.total;
+  const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+  const part = (v: number, min: number, max: number, weight: number) =>
+    Math.min(1, Math.max(0, (v - min) / (max - min))) * weight;
+
+  const atkRaw =
+    part(s.games.pointsWon / N, 0, 60, 60) +
+    part(mean(s.games.winValuesSelf), 0, 60, 10) +
+    part(mean(s.games.winValuesDiscard), 0, 60, 30);
+  const spdRaw =
+    part((100 * s.games.wins) / N, 0, 50, 60) +
+    part(
+      s.games.remainingWinsCount ? s.games.remainingWinsSum / s.games.remainingWinsCount : 0,
+      0,
+      60,
+      40,
+    );
+  // Zero deal-ins leaves the "average opponent hand" component at its best.
+  const defRaw =
+    part(s.games.pointsLost / N, 60, 0, 30) +
+    part((100 * s.games.discarderCount) / N, 37.5, 0, 30) +
+    part(mean(s.games.dealInValues), 60, 0, 40);
+
+  // Scores run 01–99: round, then pull the extremes off 00 and 100.
+  const score = (raw: number) => Math.min(99, Math.max(1, Math.round(raw)));
+  const atk = score(atkRaw);
+  const spd = score(spdRaw);
+  const def = score(defRaw);
+
+  const ranked = (
+    [
+      { key: 'atk', v: atk },
+      { key: 'spd', v: spd },
+      { key: 'def', v: def },
+    ] as const
+  )
+    .slice()
+    .sort((a, b) => b.v - a.v);
+  const DRAGONS = {
+    atk: { tile: 'R ', name: 'Red Dragon', zh: '紅中' },
+    spd: { tile: 'G ', name: 'Green Dragon', zh: '發財' },
+    def: { tile: 'O ', name: 'White Dragon', zh: '白板' },
+  } as const;
+  const WINDS_BY_PAIR: Record<string, { tile: Tile; name: string; zh: string }> = {
+    'atk+spd': { tile: 'S ', name: 'South Wind', zh: '南風' },
+    'def+spd': { tile: 'W ', name: 'West Wind', zh: '西風' },
+    'atk+def': { tile: 'N ', name: 'North Wind', zh: '北風' },
+  };
+
+  // Balanced attributes (spread ≤ 30) → East Wind. Otherwise one dominant
+  // attribute → its dragon; two → the wind of the high pair.
+  let id: { tile: Tile; name: string; zh: string };
+  if (ranked[0].v - ranked[2].v <= 30) {
+    id = { tile: 'E ', name: 'East Wind', zh: '東風' };
+  } else if (ranked[0].v - ranked[1].v >= ranked[1].v - ranked[2].v) {
+    id = DRAGONS[ranked[0].key];
+  } else {
+    const pair = [ranked[0].key, ranked[1].key].sort().join('+');
+    id = WINDS_BY_PAIR[pair];
+  }
+  return { atk, spd, def, ...id };
+}
+
 export function renderStats(root: HTMLElement): void {
   const filter: Record<string, string> = {
     len: 'all',
@@ -115,7 +200,7 @@ export function renderStats(root: HTMLElement): void {
       <span class="spacer"></span>
       <button id="reset" class="danger-btn" title="Start counting statistics from zero. Records are not affected.">Reset statistics</button>
     </div>
-    <div class="page-body">
+    <div class="page-body stats-body">
       <div class="stats-filters" id="filters"></div>
       <div id="body">Loading…</div>
     </div>
@@ -238,12 +323,43 @@ export function renderStats(root: HTMLElement): void {
         ${card('Avg remaining tiles on wins', ratio(s.games.remainingWinsSum, s.games.remainingWinsCount))}
       </div>
 
+      <h2 style="margin:22px 0 10px;font-size:16px">Playstyle 打法</h2>
+      ${
+        N >= PLAYSTYLE_MIN_GAMES
+          ? `<div class="playstyle" id="playstyle"></div>`
+          : `<div class="playstyle playstyle-locked">Play more games to view your personal playstyle!</div>`
+      }
+
       <h2 style="margin:22px 0 10px;font-size:16px">Patterns Achieved</h2>
       <table class="data" style="max-width:760px">
         <tr><th>#</th><th>Pattern</th><th></th><th class="num">Count</th></tr>
         ${patternRows}
       </table>
     `;
+
+    // Playstyle (v0.2.2 #4/#5): the overall honor tile on the left, the
+    // three attribute bars (dragon colors; White shown as blue) to its right.
+    const psEl = body.querySelector<HTMLElement>('#playstyle');
+    if (psEl) {
+      const ps = computePlaystyle(s);
+      const bar = (label: string, v: number, color: string) => `
+        <div class="ps-row" style="--ps-color:${color}">
+          <span class="ps-k">${label}</span>
+          <span class="ps-n">${String(v).padStart(2, '0')}</span>
+          <div class="ps-bar"><div class="ps-fill" style="width:${v}%"></div></div>
+        </div>`;
+      psEl.innerHTML = `
+        <div class="ps-id">
+          <div class="ps-tile-slot"></div>
+          <div class="ps-name">${ps.name}<span class="zh">${ps.zh}</span></div>
+        </div>
+        <div class="ps-bars">
+          ${bar('ATK 攻', ps.atk, '#e0483e')}
+          ${bar('SPD 速', ps.spd, '#3fae5a')}
+          ${bar('DEF 防', ps.def, '#4a90e2')}
+        </div>`;
+      psEl.querySelector('.ps-tile-slot')!.appendChild(tileEl(ps.tile, { noIndex: true }));
+    }
   };
 
   load();

@@ -1751,6 +1751,177 @@ table.data th.num {
 .filter-group input[type='radio'] {
   accent-color: var(--accent);
 }
+/* ── Sound settings (v0.2.2 #12/#13) ──────────────────────────────── */
+.voice-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 14px;
+}
+.voice-btns {
+  display: flex;
+  gap: 6px;
+}
+.voice-btn {
+  min-width: 34px;
+  padding: 5px 0;
+  text-align: center;
+}
+.voice-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* ── Past Leaderboards calendar (v0.2.2 #9) ───────────────────────── */
+.cal {
+  display: inline-block;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.cal-head #cal-title {
+  flex: 1;
+  font-weight: 600;
+}
+.cal-head #cal-title.selected {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.cal-grid {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.cal-grid th {
+  color: var(--text-dim);
+  font-weight: 400;
+  padding: 2px 0 6px;
+}
+.cal-grid td {
+  width: 34px;
+  height: 28px;
+  text-align: center;
+}
+.cal-week:not(.future) {
+  cursor: pointer;
+}
+.cal-week:not(.future):hover td {
+  background: #ffffff14;
+}
+.cal-week.selected td {
+  background: #47b88126;
+  color: var(--accent);
+}
+.cal-week:first-of-type td:first-child {
+  border-top-left-radius: 6px;
+}
+.cal-week.future {
+  color: var(--text-dim);
+  opacity: 0.45;
+}
+
+/* ── Playstyle (v0.2.2 #4/#5): honor tile + ATK/SPD/DEF bars ──────── */
+.playstyle {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 14px 18px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  max-width: 640px;
+}
+.playstyle-locked {
+  color: var(--text-dim);
+  font-size: 14px;
+}
+.playstyle .ps-id {
+  --tw: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.playstyle .ps-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: center;
+}
+.playstyle .ps-name .zh {
+  display: block;
+  font-weight: 400;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.playstyle .ps-bars {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.playstyle .ps-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ps-color);
+  font-weight: 700;
+  font-size: 14px;
+}
+.playstyle .ps-k {
+  width: 64px;
+  flex-shrink: 0;
+}
+.playstyle .ps-n {
+  width: 26px;
+  flex-shrink: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.playstyle .ps-bar {
+  flex: 1;
+  height: 10px;
+  border-radius: 5px;
+  background: #0006;
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.playstyle .ps-fill {
+  height: 100%;
+  border-radius: 5px;
+  background: var(--ps-color);
+}
+
+/* Desktop (v0.2.2 #2): the filter panel sits below the Reset button, to the
+   right of the Matches table. Small screens keep the stacked layout. */
+@media (min-width: 1100px) and (min-height: 561px) {
+  .stats-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 18px;
+    align-items: start;
+  }
+  .stats-body .stats-filters {
+    grid-column: 2;
+    grid-row: 1;
+    margin-bottom: 0;
+  }
+  .stats-body > #body {
+    grid-column: 1;
+    grid-row: 1;
+  }
+}
 
 /* ── Tutorial (v0.3) ──────────────────────────────────────────────── */
 /* The cyan launcher leading the Help page's tab row. */

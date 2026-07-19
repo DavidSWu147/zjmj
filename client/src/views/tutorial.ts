@@ -461,11 +461,28 @@ export function tutorialOnRender(
   // measured from the freshly rendered board.
   const W = board.clientWidth || window.innerWidth;
   const H = board.clientHeight || window.innerHeight;
-  const left = 96;
   const bRect = board.getBoundingClientRect();
+  // Left edge: just right of the left opponent's strip — at most the fixed
+  // 96px, but tighter on small screens where the strip is narrower
+  // (v0.2.2 #3: on mobile the panel started too far right).
+  let left = 96;
+  for (const el of board.querySelectorAll('.opp-hand')) {
+    const r = el.getBoundingClientRect();
+    const midX = r.left + r.width / 2 - bRect.left;
+    const midY = r.top + r.height / 2 - bRect.top;
+    if (midX < W / 4 && midY > H * 0.2 && midY < H * 0.8) {
+      left = Math.min(left, r.right - bRect.left + 10);
+    }
+  }
   // Width: capped by the leftmost wall/discard column in the board's left
-  // half (the vertical left wall band, when walls are drawn).
+  // half (the vertical left wall band, when walls are drawn) — and always
+  // by the central control panel, which the left column's discards may not
+  // yet reach (v0.2.2 #3).
   let rightLimit = left + Math.min(360, W * 0.34);
+  const cpanel = board.querySelector('.cpanel');
+  if (cpanel) {
+    rightLimit = Math.min(rightLimit, cpanel.getBoundingClientRect().left - bRect.left - 12);
+  }
   for (const el of board.querySelectorAll('.discard-zone .tor')) {
     const r = el.getBoundingClientRect();
     const midX = r.left + r.width / 2 - bRect.left;
@@ -474,12 +491,14 @@ export function tutorialOnRender(
       rightLimit = Math.min(rightLimit, r.left - bRect.left - 12);
     }
   }
-  const width = Math.max(200, rightLimit - left);
+  const width = Math.max(160, rightLimit - left);
   panel.style.left = `${left}px`;
   panel.style.width = `${width}px`;
   // Bottom: above anything occupying the panel's horizontal span — and
-  // never below the hand-tile row, even when a short hand slides out of
-  // the span (its top is a hard floor, with ample clearance).
+  // never below the hand row's worst-case top: the floor assumes a small
+  // exposed kong's pocket (two upright short sides deep) even when none is
+  // melded, so the panel fully clears the hand with room to spare
+  // (v0.2.2 #3).
   let limit = H - 16;
   for (const el of board.querySelectorAll('.discard-zone .tor, .hand-area, .opp-hand')) {
     const r = el.getBoundingClientRect();
@@ -489,7 +508,11 @@ export function tutorialOnRender(
     if (top > H * 0.5 && l < left + width && rgt > left) limit = Math.min(limit, top);
   }
   const hand = board.querySelector('.hand-area');
-  if (hand) limit = Math.min(limit, hand.getBoundingClientRect().top - bRect.top);
+  if (hand) {
+    const tw = Math.min(W / 21, H * 0.075); // own tile width (mirrors game.ts)
+    const r = hand.getBoundingClientRect();
+    limit = Math.min(limit, r.top - bRect.top, r.bottom - bRect.top - (2 * tw + 1));
+  }
   panel.style.bottom = `${H - limit + 20}px`;
   const body = document.createElement('div');
   body.className = 'tp-text';

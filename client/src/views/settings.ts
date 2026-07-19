@@ -6,6 +6,7 @@ import {
   TileStyle,
   TwoChoiceKeys,
 } from '../../../shared/src/protocol';
+import { playVoicePreview } from '../audio';
 import { getSettings, onSettingsChange, updateSettings } from '../settings';
 import { tileEl } from '../tileui';
 import { buildRoomSliders } from './sliders';
@@ -295,15 +296,52 @@ export function buildHotkeySettings(
   renderBindings();
 }
 
-export function soundSettingsHtml(): string {
-  return `
-    <div class="toggle-row disabled">
-      <span>Background music 背景音樂 — <b>Coming soon!</b></span>
+/** BGM/SFX volume sliders + Claims Voice picker (v0.2.2 #12/#13). */
+export function buildSoundSettings(mount: HTMLElement): void {
+  const s = getSettings();
+  mount.innerHTML = `
+    <div class="slider-group">
+      <label>Background music 背景音樂</label>
+      <input id="bgm-vol" type="range" min="0" max="100" step="1" value="${s.bgmVolume}" />
+      <div class="slider-value" id="bgm-vol-value">${s.bgmVolume}</div>
     </div>
-    <div class="toggle-row disabled">
-      <span>Sound effects 效果音 — <b>Coming soon!</b></span>
+    <div class="slider-group" style="margin-top:10px">
+      <label>Sound effects 效果音</label>
+      <input id="sfx-vol" type="range" min="0" max="100" step="1" value="${s.sfxVolume}" />
+      <div class="slider-value" id="sfx-vol-value">${s.sfxVolume}</div>
     </div>
+    <div class="voice-row" style="margin-top:14px">
+      <span>Claims Voice 報牌人聲</span>
+      <div class="voice-btns">
+        ${[1, 2, 3, 4, 5, 6]
+          .map(
+            (v) =>
+              `<button data-voice="${v}" class="voice-btn${s.claimsVoice === v ? ' active' : ''}">${v}</button>`,
+          )
+          .join('')}
+      </div>
+    </div>
+    <div class="form-hint">1 English · 2 Mandarin Chinese · 3–6 coming soon. Click to hear a sample.</div>
   `;
+  const hookVol = (id: string, key: 'bgmVolume' | 'sfxVolume'): void => {
+    const input = mount.querySelector<HTMLInputElement>(`#${id}`)!;
+    input.addEventListener('input', () => {
+      mount.querySelector(`#${id}-value`)!.textContent = input.value;
+      updateSettings({ [key]: Number(input.value) });
+    });
+  };
+  hookVol('bgm-vol', 'bgmVolume');
+  hookVol('sfx-vol', 'sfxVolume');
+  mount.querySelectorAll<HTMLButtonElement>('.voice-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const v = Number(btn.dataset.voice);
+      updateSettings({ claimsVoice: v });
+      mount
+        .querySelectorAll('.voice-btn')
+        .forEach((b) => b.classList.toggle('active', b === btn));
+      playVoicePreview(v);
+    });
+  });
 }
 
 export function renderSettings(root: HTMLElement): void {
@@ -341,7 +379,7 @@ export function renderSettings(root: HTMLElement): void {
 
         <section class="settings-card">
           <h2>Sound 音效</h2>
-          ${soundSettingsHtml()}
+          <div id="sound-settings"></div>
         </section>
       </div>
     </div>
@@ -351,6 +389,7 @@ export function renderSettings(root: HTMLElement): void {
   buildTileSettings(el.querySelector<HTMLElement>('#tile-settings')!);
   buildGraphicsSettings(el.querySelector<HTMLElement>('#graphics-settings')!);
   buildHotkeySettings(el.querySelector<HTMLElement>('#hotkey-settings')!, { bindings: true });
+  buildSoundSettings(el.querySelector<HTMLElement>('#sound-settings')!);
 
   // Default room sliders, saved on every move.
   buildRoomSliders(

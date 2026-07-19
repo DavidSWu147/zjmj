@@ -229,6 +229,27 @@ export function makeApi(db: Db): express.Router {
     });
   });
 
+  /**
+   * A past week's or month's leaderboard (v0.2.2 #9). `week` is a Saturday
+   * 'YYYY-MM-DD' week id, `month` a 'YYYY-MM' prefix; exactly one is given.
+   */
+  router.get('/leaderboards/past', (req, res) => {
+    const session = sessionFromRequest(db, req);
+    if (!session) {
+      res.status(401).json({ error: 'Not signed in.' });
+      return;
+    }
+    const week = typeof req.query.week === 'string' ? req.query.week : null;
+    const month = typeof req.query.month === 'string' ? req.query.month : null;
+    if (week && /^\d{4}-\d{2}-\d{2}$/.test(week)) {
+      res.json({ rows: db.leaderboard({ week }) });
+    } else if (month && /^\d{4}-\d{2}$/.test(month)) {
+      res.json({ rows: db.leaderboard({ monthPrefix: month }) });
+    } else {
+      res.status(400).json({ error: 'Pass week=YYYY-MM-DD or month=YYYY-MM.' });
+    }
+  });
+
   /** The achievement catalogue with this player's earned timestamps (v0.2). */
   router.get('/achievements', (req, res) => {
     const session = sessionFromRequest(db, req);

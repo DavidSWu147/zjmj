@@ -1,4 +1,5 @@
 import './style.css';
+import { updateAudioScene } from './audio';
 import { net } from './net';
 import { syncSettingsFromServer } from './settings';
 import { installTileHighlight } from './tileui';
@@ -29,8 +30,14 @@ function leaveRoomIfOnHome(): void {
   }
 }
 
+/** BGM plays during matches only (v0.2.2 #10); menus loop silence. */
+function syncAudioScene(): void {
+  updateAudioScene(location.hash.includes('play') && net.state.gameView !== null);
+}
+
 function route(): void {
   const hash = location.hash.replace(/^#\/?/, '');
+  syncAudioScene();
   app.innerHTML = '';
   if (hash === 'play') {
     renderPlay(app);
@@ -66,6 +73,7 @@ net.onUpdate(() => {
   // A lobby update can reveal we are still in a room while sitting on the
   // home page (e.g. reconnect): leave it (v0.2).
   leaveRoomIfOnHome();
+  syncAudioScene();
   // Global toast display.
   let toast = document.getElementById('toast');
   if (net.state.toast) {

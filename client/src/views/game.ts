@@ -29,10 +29,11 @@ function rulesetNote(s: RoomSettings): string {
 import {
   buildGraphicsSettings,
   buildHotkeySettings,
+  buildSoundSettings,
   buildTileSettings,
   normalizeKey,
-  soundSettingsHtml,
 } from './settings';
+import { ClaimSound, playClaim, playDice, playDiscard } from '../audio';
 import { escapeHtml } from './play';
 
 /** Seat colors by current seat wind (spec: E green, S vermilion, W cream, N blue). */
@@ -81,6 +82,8 @@ let lowTimeTimer: number | null = null;
 let autoKey = '';
 /** The dice roll was clicked away for this game (v0.2): never shown again. */
 let diceDismissedGame = '';
+/** The dice-roll sound already played for this game (v0.2.2 #14). */
+let diceSoundGame = '';
 /**
  * "Freely Organize Hand Tiles" (v0.2.1 #20): the player's own arrangement
  * of the concealed hand, maintained client-side (the server always sorts).
@@ -144,6 +147,48 @@ function act(action: GameAction): void {
   const v = net.state.gameView;
   if (v?.tutorial && !tutorialAllows(action, v)) return;
   net.send({ type: 'action', action });
+}
+
+// A hand-tile drag in progress (v0.2.2 #6): the board keeps re-rendering
+// live underneath it — each rebuild transplants the grip onto the fresh
+// node for the same hand index, so opponents' draws and discards stay
+// visible mid-drag. Only the player's own wall draw (or the game ending)
+// interrupts. Listeners live on the document so node replacement is safe.
+interface HandDrag {
+  idx: number;
+  tile: Tile;
+  startX: number;
+  startY: number;
+  dx: number;
+  dy: number;
+  dragging: boolean;
+  node: HTMLElement;
+  hadDrawn: boolean;
+  onMove: (e: PointerEvent) => void;
+  onUp: (e: PointerEvent) => void;
+}
+let drag: HandDrag | null = null;
+
+function cancelDrag(): void {
+  if (!drag) return;
+  document.removeEventListener('pointermove', drag.onMove);
+  document.removeEventListener('pointerup', drag.onUp);
+  document.removeEventListener('pointercancel', drag.onUp);
+  drag.node.classList.remove('tile-dragging');
+  drag.node.style.transform = '';
+  drag = null;
+}
+
+/**
+ * Re-render without touching the flight layer (v0.2.2 #6): a hand reorder
+ * drop must not cut short discard/draw animations already in the air.
+ */
+function rerenderKeepFlights(): void {
+  const v = net.state.gameView;
+  if (mountEl && v && location.hash.includes('play')) {
+    lastViewKey = '';
+    renderGame(mountEl, v);
+  }
 }
 
 /** Full re-render of the live board (settings changed, autoplay toggled). */
@@ -421,7 +466,7 @@ function togglePanel(kind: 'settings' | 'help'): void {
         buildTileSettings(section('Tiles 牌面'), forceRerender);
         // Toggling hotkeys shows/hides the floating key caps at once (0.1.5 #6).
         buildHotkeySettings(section('Hotkeys 快捷鍵'), { bindings: false, onChange: forceRerender });
-        section('Sound 音效').innerHTML = soundSettingsHtml();
+        buildSoundSettings(section('Sound 音效'));
       } else {
         buildGraphicsSettings(section('Graphics 畫面'), forceRerender);
       }
@@ -743,6 +788,10 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     circle.style.cursor = '';
   };
   if (view.phase === 'dealing' && view.dice && diceDismissedGame !== view.gameNumber) {
+    if (diceSoundGame !== view.gameNumber) {
+      diceSoundGame = view.gameNumber;
+      playDice();
+    }
     const grid = document.createElement('div');
     grid.className = 'dice-grid';
     view.dice.forEach((d, i) => {
@@ -1193,47 +1242,63 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     // Hotkeys follow the displayed order once the tiles come to rest.
     const startDrag = (e: PointerEvent, idx: number, node: HTMLElement, t: Tile): void => {
       e.preventDefault();
-      const startX = e.clientX;
-      const startY = e.clientY;
-      let dragging = false;
-      node.setPointerCapture(e.pointerId);
-      const onMove = (ev: PointerEvent) => {
-        const dx = ev.clientX - startX;
-        const dy = ev.clientY - startY;
-        if (!dragging && Math.hypot(dx, dy) > 8) {
-          dragging = true;
-          node.classList.add('tile-dragging');
-        }
-        if (dragging) node.style.transform = `translate(${dx}px, ${dy}px)`;
+      cancelDrag();
+      const d: HandDrag = {
+        idx,
+        tile: t,
+        startX: e.clientX,
+        startY: e.clientY,
+        dx: 0,
+        dy: 0,
+        dragging: false,
+        node,
+        hadDrawn: view.myDrawn !== null,
+        onMove: (ev: PointerEvent) => {
+          if (drag !== d) return;
+          d.dx = ev.clientX - d.startX;
+          d.dy = ev.clientY - d.startY;
+          if (!d.dragging && Math.hypot(d.dx, d.dy) > 8) {
+            d.dragging = true;
+            d.node.classList.add('tile-dragging');
+          }
+          if (d.dragging) d.node.style.transform = `translate(${d.dx}px, ${d.dy}px)`;
+        },
+        onUp: (ev: PointerEvent) => {
+          if (drag !== d) return;
+          const wasDragging = d.dragging;
+          const dropNode = d.node;
+          cancelDrag();
+          if (!wasDragging) {
+            clickTile(`h${d.idx}`, d.tile, false, dropNode);
+            return;
+          }
+          // Drop against the CURRENT render (the board may have re-rendered
+          // mid-drag): the new index is the number of OTHER tiles whose
+          // midpoint lies left of the pointer.
+          const v = net.state.gameView;
+          const shownNow = v ? displayHand(v) : [];
+          if (shownNow[d.idx] !== d.tile) return; // hand changed under us
+          const els = mountEl
+            ? [...mountEl.querySelectorAll<HTMLElement>('.hand-area .hand-tile:not([data-drawn])')]
+            : [];
+          let target = 0;
+          els.forEach((el, j) => {
+            if (j === d.idx) return;
+            const r = el.getBoundingClientRect();
+            if (ev.clientX > r.left + r.width / 2) target++;
+          });
+          const order = [...shownNow];
+          const [moved] = order.splice(d.idx, 1);
+          order.splice(target, 0, moved);
+          freeOrder = order;
+          selKey = null;
+          rerenderKeepFlights();
+        },
       };
-      const onUp = (ev: PointerEvent) => {
-        node.removeEventListener('pointermove', onMove);
-        node.removeEventListener('pointerup', onUp);
-        node.removeEventListener('pointercancel', onUp);
-        if (!dragging) {
-          clickTile(`h${idx}`, t, false, node);
-          return;
-        }
-        node.classList.remove('tile-dragging');
-        node.style.transform = '';
-        // Drop: the new index is the number of OTHER tiles whose midpoint
-        // lies left of the pointer.
-        let target = 0;
-        handTileEls.forEach((el, j) => {
-          if (j === idx) return;
-          const r = el.getBoundingClientRect();
-          if (ev.clientX > r.left + r.width / 2) target++;
-        });
-        const order = [...shown];
-        const [moved] = order.splice(idx, 1);
-        order.splice(target, 0, moved);
-        freeOrder = order;
-        selKey = null;
-        forceRerender();
-      };
-      node.addEventListener('pointermove', onMove);
-      node.addEventListener('pointerup', onUp);
-      node.addEventListener('pointercancel', onUp);
+      drag = d;
+      document.addEventListener('pointermove', d.onMove);
+      document.addEventListener('pointerup', d.onUp);
+      document.addEventListener('pointercancel', d.onUp);
     };
     shown.forEach((t, i) => {
       const key = `h${i}`;
@@ -1252,6 +1317,26 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       handTileEls.push(tile);
       handWrap.appendChild(tile);
     });
+    // An in-flight drag survives this rebuild: transplant the grip onto the
+    // fresh node at the same index. Only the player's own wall draw (or the
+    // game ending, or the tile no longer being where it was) breaks it.
+    if (drag) {
+      const keep =
+        freeMode &&
+        !(view.myDrawn !== null && !drag.hadDrawn) &&
+        view.gameResult === null &&
+        view.matchResult === null &&
+        shown[drag.idx] === drag.tile;
+      if (!keep) {
+        cancelDrag();
+      } else {
+        drag.node = handTileEls[drag.idx];
+        if (drag.dragging) {
+          drag.node.classList.add('tile-dragging');
+          drag.node.style.transform = `translate(${drag.dx}px, ${drag.dy}px)`;
+        }
+      }
+    }
     // The drawn slot is always laid out (invisible placeholder without a
     // tile) so drawing and discarding never re-flow the hand.
     const dg = document.createElement('div');
@@ -1432,9 +1517,17 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     w.style.color = `var(--kw-${kw.cls})`;
     w.textContent = `${kw.en} ${kw.zh}`;
     // On a discard win, DEAL-IN pops on the feeder a beat before MAHJONG.
-    if (firstShowing && c.kind === 'mahjong' && view.claims.some((o) => o.kind === 'dealin')) {
+    const delayedMahjong =
+      c.kind === 'mahjong' && view.claims.some((o) => o.kind === 'dealin');
+    if (firstShowing && delayedMahjong) {
       w.style.animationDelay = '0.3s';
       w.style.animationFillMode = 'backwards';
+    }
+    // Voiced claim call (v0.2.2 #11), timed with the word's pop.
+    if (firstShowing && c.kind !== 'cancel' && c.kind !== 'dealin') {
+      const kind = c.kind as ClaimSound;
+      if (delayedMahjong) setTimeout(() => playClaim(kind), 300);
+      else playClaim(kind);
     }
     const [x, y] = KW_POS[rel];
     w.style.left = `${x}px`;
@@ -1679,6 +1772,10 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   reapplyFlights(board);
   if (prevSnap && view.seats[view.mySeat].discards.length > prevSnap.discardCounts[view.mySeat]) {
     ownClickRect = null; // consumed by this render's discard flight
+  }
+  // Discard sound (v0.2.2 #14, silent placeholder): any seat's pile grew.
+  if (prevSnap && view.seats.some((sv, s) => sv.discards.length > prevSnap!.discardCounts[s])) {
+    playDiscard();
   }
   prevSnap = takeSnapshot(board, view);
 }

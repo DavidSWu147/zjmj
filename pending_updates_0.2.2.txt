@@ -1,0 +1,38 @@
+1. Include the version number above the build datetime stamp on the home page
+2. On desktop but not mobile (or if the screen size is too small), on the statistics page, move the group of radio buttons below the red Reset Statistics button and to the right of the Played/Finished/Won/Drawn games table
+3. The cyan text box in the tutorial is still too low. It should clear the hand area fully and with some extra padding space, even if there is no small exposed Kong in the player's melds. Also on mobile, the text box starts too close to the right and is touching the central control panel when no discards have been made by the left opponent. It should be nudged to the left
+
+4. In statistics, if the player has played at least 100 games (N>=100), calculate the player's playstyle. The three primary attributes are Attack (ATK/攻), Speed (SPD/速), and Defense (DEF/防), and are each associated with a dragon. Attack with Red Dragon, Speed with Green Dragon, and Defense with White Dragon
+If one of these attributes is high and the other two are low, then the player's overall playstyle is represented by the dragon of the high attribute
+Otherwise, if two of the attributes are high and one is low, then the player's overall playstyle is represented by:
+The South Wind, if Attack and Speed are high but Defense is low
+The West Wind, if Speed and Defense are high but Attack is low
+The North Wind, if Attack and Defense are high but Speed is low
+And finally, if all three attributes are mostly balanced, then the player's overall playstyle is represented by the East Wind
+Player's attribute scores range from 01~99 (round to nearest integer, except 00 becomes 01 and 100 becomes 99)
+To calculate the playstyle, first check the difference between highest and lowest attribute scores. If this is 30 or less than assign the East Wind
+Else, rank the three attributes from highest to lowest, and take the difference between the highest and middle and compare it with the difference between middle and lowest
+If the difference between the former is greater than or equal to the latter, assign the dragon of the highest attribute, else assign the wind of the highest and middle attributes
+Finally, to calculate the actual attribute scores, extrapolate the contribution based on the numbers which correspond to the minimum and maximum contributions (if a statistic exceeds either minimum or maximum, cap it to the minimum or maximum):
+Attack is based on the statistics "Average of Total Points Won" (weight 60%, range 0 to 60), "Avg Winning Hand (self-draw)" (weight 10%, range 0 to 60), and "Avg Winning Hand (on discard)" (weight 30%, range 0 to 60)
+Speed is based on the statistics "Proportion of Games Won" (weight 60%, range 0% to 50%) and "Average Remaining Tiles on Wins" (weight 40%, range 0 to 60)
+Defense is based on the statistics "Average of Total Points Lost" (weight 30%, range 60 to 0), "Proportion of Games Dealt into a Win" (weight 30%, range 37.5% to 0%), and "Average Opponent Hand When Dealing In" (weight 40%, range 60 to 0)
+Note that for the Defense statistics, lower numbers in the statistics correspond to a higher attribute!
+Thus, for example, a player with an average of total points won of 30, would contribute 30 towards the Attack Attribute
+
+5. Display these attributes between the overall statistics and the patterns achieved, by displaying the attribute name (ATK/SPD/DEF), followed by the number, followed by a bar with length proportional to that number
+Text and Bar colors should be Red for ATK, Green for SPD, and Blue for DEF, since those are the colors of the dragons except White became Blue
+And then to the left of those, show the honor tile that corresponds to the player's overall playstyle, with the English name such as "Red Dragon", "West Wind" etc.
+If not enough games were played yet (<100), replace by a text box saying "Play more games to view your personal playstyle!"
+
+6. With regards to the new functionality of being able to freely rearrange hand tiles, trying to rearrange tiles when it is the opponent's turns, currently when the opponent discards, if the player was in the middle of dragging, the player "loses the grip" and has to drag and drop over again. Make it so that the player's drag and drop is only interrupted when the player draws a tile from the wall, so the player can smoothly rearrange while it is the opponents' turns 
+7. Ensure that game records show all players' display names instead of usernames if they are different
+8. Add the datetime as a new field "Date and Time" to the game record txt file, after the Match ID field
+9. Be able to query past weekly and monthly leaderboards on the Leaderboards page via a new "Past Leaderboards" button and selecting from a calendar tool. Clicking once on the calendar month shows the monthly leaderboard for that month, clicking again for a specific week shows the leaderboard for that week
+
+Finally, bring in placeholder BGM and sound effects
+10. The placeholder BGM is angels-voices_i4i0CTEO.mp3. When coding up the BGM, make a folder containing all BGMs and playlist all BGMs within that folder, which currently contains only that one song
+11. The sound effects for Chow, Pung, Kong, Mahjong, and Self-Draw are in voiced sound effects.mp3. The first four words are English, and the remaning five are Mandarin Chinese. Note that English uses "Mahjong" for both Mahjong and Self-Draw whereas Chinese distinguishes them. Split that file accordingly
+12. On the settings page, replace "Coming Soon" for BGM and SFX, by sliders for both indicating their volumes.
+13. Additionally, for SFX, have 6 buttons labeled 1, 2, 3, 4, 5, and 6, for choice of voice, labeled "Claims Voice". Currently only 1 and 2 are available, where 1 is male English and 2 is male Mandarin Chinese. When the user clicks on 1 or 2, play the entire audio of voiced sound effects beginning with "Chow" and ending with "Self-Draw"
+14. For ease of future coding, create empty, silent mp3s for the other four "Claims Voice"s, and other places which would take SFX, including when the dice are rolled, and when a tile is discarded. Use those silent mp3s for now
