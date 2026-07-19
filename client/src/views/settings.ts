@@ -61,11 +61,6 @@ export function buildTileSettings(container: HTMLElement, onChange?: () => void)
         <small>Draw the four walls around the table. Hidden automatically on mobile or small windows.</small></span>
     </label>
     <label class="toggle-row">
-      <input type="checkbox" id="zh-hand-number" />
-      <span>Chinese Hand Number Indicator 中文局數<br/>
-        <small>The center dial shows 東一…北四 instead of E1…N4.</small></span>
-    </label>
-    <label class="toggle-row">
       <input type="checkbox" id="free-hand-order" />
       <span>Freely Organize Hand Tiles 自由理牌<br/>
         <small>Drag and drop to arrange your hand however you like; the drawn tile stays in its own spot. Turning this off sorts the hand again.</small></span>
@@ -98,12 +93,6 @@ export function buildTileSettings(container: HTMLElement, onChange?: () => void)
   walls.checked = getSettings().physicalWalls;
   walls.addEventListener('change', () => {
     updateSettings({ physicalWalls: walls.checked });
-    onChange?.();
-  });
-  const zhNum = container.querySelector<HTMLInputElement>('#zh-hand-number')!;
-  zhNum.checked = getSettings().chineseHandNumber;
-  zhNum.addEventListener('change', () => {
-    updateSettings({ chineseHandNumber: zhNum.checked });
     onChange?.();
   });
   const freeOrder = container.querySelector<HTMLInputElement>('#free-hand-order')!;
@@ -143,6 +132,11 @@ export function buildGraphicsSettings(container: HTMLElement, onChange?: () => v
     <div class="tile-preview" id="g-preview" style="--tw: 44px"></div>
     <div id="g-back"></div>
     <div id="g-felt"></div>
+    <label class="toggle-row">
+      <input type="checkbox" id="zh-hand-number" />
+      <span>Chinese Hand Number Indicator 中文局數<br/>
+        <small>The center dial shows 東一…北四 instead of E1…N4.</small></span>
+    </label>
   `;
   const preview = container.querySelector<HTMLElement>('#g-preview')!;
   const renderPreview = () => {
@@ -196,6 +190,12 @@ export function buildGraphicsSettings(container: HTMLElement, onChange?: () => v
     s.tileBack, (v) => updateSettings({ tileBack: v }));
   radios(container.querySelector<HTMLElement>('#g-felt')!, 'Background color 桌面', 'felt', FELTS,
     s.tableFelt, (v) => updateSettings({ tableFelt: v }));
+  const zhNum = container.querySelector<HTMLInputElement>('#zh-hand-number')!;
+  zhNum.checked = getSettings().chineseHandNumber;
+  zhNum.addEventListener('change', () => {
+    updateSettings({ chineseHandNumber: zhNum.checked });
+    onChange?.();
+  });
 }
 
 /**
