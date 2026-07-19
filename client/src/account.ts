@@ -36,6 +36,12 @@ export function isAccount(): boolean {
   return currentAuth()?.kind === 'account';
 }
 
+/** Adopts a changed display name into the cached auth blob (v0.2.1 #14). */
+export function updateStoredName(name: string): void {
+  const auth = currentAuth();
+  if (auth) storeAuth({ ...auth, name });
+}
+
 /** Name shown in the UI and sent to the server: username, or the guest name. */
 export function displayName(): string {
   const auth = currentAuth();

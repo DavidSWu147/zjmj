@@ -233,14 +233,23 @@ export class Match {
       total: r.value,
       limit: this.game?.resultScore?.limit,
       deltas,
-      nextAt: Date.now() + this.timing.resultMs,
+      // The tutorial's scoring screens wait for the player's Next instead
+      // of a countdown (v0.2.1 #12).
+      nextAt: Date.now() + (this.isTutorial ? 3_600_000 : this.timing.resultMs),
       lastGame: this.gameIndex + 1 >= this.totalGames,
     };
     this.broadcast();
+    if (this.isTutorial) return; // advanced by tutorialAdvance()
     this.timer = setTimeout(() => {
       this.timer = null;
       this.advance();
     }, this.timing.resultMs);
+  }
+
+  /** Tutorial only: the player clicked Next on a scoring screen (v0.2.1). */
+  tutorialAdvance(): void {
+    if (!this.isTutorial || this.finished || this.resultView === null) return;
+    this.advance();
   }
 
   private advance(): void {

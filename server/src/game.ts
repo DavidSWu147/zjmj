@@ -357,6 +357,16 @@ export class Game {
 
   /** A server-driven seat takes its turn: dummy discards the draw, chicken plays. */
   private botTurn(seat: number): void {
+    // Every bot — dummy included (v0.2.1 #18, matching Auto Mode) — declares
+    // Mahjong on a winnable draw (handleAction re-validates the chicken-hand
+    // rule and, when it wins, ends the pre-discard phase).
+    if (this.drawn[seat] !== null) {
+      const counts = countsFrom([...this.hands[seat], this.drawn[seat]!]);
+      if (canWinShape(counts, this.melds[seat].length)) {
+        this.handleAction(seat, { kind: 'mahjong' });
+        if (this.phase !== 'preDiscard' || this.turnSeat !== seat || this.ended) return;
+      }
+    }
     if (this.host.botKind(seat) !== 'chicken') {
       this.doDiscard(seat, this.drawn[seat]!, true);
       return;
@@ -368,15 +378,6 @@ export class Game {
       seat,
       unseen: this.unseenFor(seat),
     };
-    // 4.1: a winnable hand always declares Mahjong (handleAction re-validates
-    // the chicken-hand rule and, when it wins, ends the pre-discard phase).
-    if (this.drawn[seat] !== null) {
-      const counts = countsFrom([...this.hands[seat], this.drawn[seat]!]);
-      if (canWinShape(counts, this.melds[seat].length)) {
-        this.handleAction(seat, { kind: 'mahjong' });
-        if (this.phase !== 'preDiscard' || this.turnSeat !== seat || this.ended) return;
-      }
-    }
     // 4.6: declare a kong when it does not grow the distance from ready.
     for (const opt of this.kongOptionsFor(seat)) {
       if (wantsOwnKong(ctx, opt)) {
@@ -494,7 +495,25 @@ export class Game {
     for (let s = 0; s < 4; s++) {
       if (s === discarder) continue;
       if (this.host.isBot(s)) {
-        if (this.host.botKind(s) !== 'chicken') continue;
+        // Dummy-driven seats claim nothing except a win (v0.2.1 #18 — the
+        // same rule Auto Mode plays by); chicken bots decide per spec 4.5.
+        if (this.host.botKind(s) !== 'chicken') {
+          const avail = this.computeAvail(s, discarder, tile, riverbed);
+          if (avail.mahjong) {
+            botClaims.set(s, { kind: 'mahjong' });
+            slots.set(s, {
+              avail,
+              choice: null,
+              discardSel: null,
+              discardSelFromDrawn: false,
+              discardConfirmed: false,
+              kongAfter: null,
+              announcedKinds: new Set(),
+              reopened: false,
+            });
+          }
+          continue;
+        }
         const avail = this.computeAvail(s, discarder, tile, riverbed);
         let dec: ClaimDecision | { kind: 'mahjong' } = null;
         if (avail.mahjong) {
@@ -1062,8 +1081,7 @@ export class Game {
     let botRobbers = false;
     for (let s = 0; s < 4; s++) {
       if (s === seat) continue;
-      // Dummy-driven seats never rob; a ChickenBot always calls Mahjong (4.1).
-      if (this.host.isBot(s) && this.host.botKind(s) !== 'chicken') continue;
+      // Every bot robs a winnable kong (v0.2.1 #18, matching Auto Mode).
       if (this.canWinOn(s, tile)) {
         slots.set(s, 'undecided');
         if (this.host.isBot(s)) botRobbers = true;
@@ -1402,9 +1420,9 @@ export class Game {
     this.botTimer = null;
     this.claimBotTimer = null;
     this.host.onChange();
-    // Big hands hold the board longer: the 30+ point gold flash needs time to
-    // register, and a 125+ point pattern's name needs time to sink in.
-    const pauseMs = this.bigPatternOf(score) ? 3600 : score.total >= 30 ? 3000 : 1600;
+    // Big hands hold the board longer: the above-par (26+) gold flash needs
+    // time to register, and a 125+ point pattern's name needs time to sink in.
+    const pauseMs = this.bigPatternOf(score) ? 3600 : score.total > 25 ? 3000 : 1600;
     this.timer = setTimeout(() => {
       this.timer = null;
       this.finishGame(result, score);
@@ -1450,18 +1468,24 @@ export class Game {
         }, this.host.timing.botDelayMs);
       }
     } else if (this.phase === 'postDiscard' && this.claim) {
-      // Dummy-driven seats (incl. freshly disconnected humans) pass; chicken
-      // bots keep their pending decision timers.
+      // Dummy-driven seats (incl. freshly disconnected humans) take a win
+      // and pass everything else (v0.2.1 #18); chicken bots keep their
+      // pending decision timers.
       for (const [seat, slot] of this.claim.slots) {
+        if (this.claim === null) break; // a mahjong claim resolved the phase
         if (this.host.isBot(seat) && this.host.botKind(seat) !== 'chicken' && slot.choice === null) {
-          slot.choice = { kind: 'pass' };
+          if (slot.avail.mahjong) {
+            this.handleClaimAction(seat, { kind: 'claim', claim: 'mahjong' });
+          } else {
+            slot.choice = { kind: 'pass' };
+          }
         }
       }
-      this.checkClaimResolution();
+      if (this.claim !== null) this.checkClaimResolution();
     } else if (this.phase === 'robbing' && this.rob) {
       for (const [seat, v] of this.rob.slots) {
         if (this.host.isBot(seat) && this.host.botKind(seat) !== 'chicken' && v === 'undecided') {
-          this.rob.slots.set(seat, 'pass');
+          this.rob.slots.set(seat, 'mahjong');
         }
       }
       this.checkRobResolution();

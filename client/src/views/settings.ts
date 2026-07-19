@@ -60,6 +60,11 @@ export function buildTileSettings(container: HTMLElement, onChange?: () => void)
       <span>Physical tile walls 牌牆<br/>
         <small>Draw the four walls around the table. Hidden automatically on mobile or small windows.</small></span>
     </label>
+    <label class="toggle-row">
+      <input type="checkbox" id="zh-hand-number" />
+      <span>Chinese Hand Number Indicator 中文局數<br/>
+        <small>The center dial shows 東一…北四 instead of E1…N4.</small></span>
+    </label>
   `;
   const indices = container.querySelector<HTMLInputElement>('#tile-indices')!;
   indices.checked = getSettings().tileIndices;
@@ -88,6 +93,12 @@ export function buildTileSettings(container: HTMLElement, onChange?: () => void)
   walls.checked = getSettings().physicalWalls;
   walls.addEventListener('change', () => {
     updateSettings({ physicalWalls: walls.checked });
+    onChange?.();
+  });
+  const zhNum = container.querySelector<HTMLInputElement>('#zh-hand-number')!;
+  zhNum.checked = getSettings().chineseHandNumber;
+  zhNum.addEventListener('change', () => {
+    updateSettings({ chineseHandNumber: zhNum.checked });
     onChange?.();
   });
 }

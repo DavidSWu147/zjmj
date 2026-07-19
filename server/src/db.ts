@@ -97,6 +97,12 @@ export class Db {
     if (!mpCols.some((c) => c.name === 'hidden')) {
       this.db.exec('ALTER TABLE match_players ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0');
     }
+    // v0.2.1 #14: registered users may set a display name distinct from
+    // their username.
+    const pmCols = this.db.prepare('PRAGMA table_info(player_meta)').all() as { name: string }[];
+    if (!pmCols.some((c) => c.name === 'display_name')) {
+      this.db.exec('ALTER TABLE player_meta ADD COLUMN display_name TEXT');
+    }
     // v0.2 part 2 (spec): records and statistics start fresh — the record
     // format changed too much (seeds, player types, broad-abandoned flags).
     // One-time wipe; achievements and tournament rank points are untouched.
@@ -182,6 +188,23 @@ export class Db {
       .prepare('SELECT stats_reset_at FROM player_meta WHERE player_id = ?')
       .get(playerId) as { stats_reset_at: number } | undefined;
     return row?.stats_reset_at ?? 0;
+  }
+
+  /** The stored display name, or null (fall back to the username). */
+  getDisplayName(playerId: string): string | null {
+    const row = this.db
+      .prepare('SELECT display_name FROM player_meta WHERE player_id = ?')
+      .get(playerId) as { display_name: string | null } | undefined;
+    return row?.display_name ?? null;
+  }
+
+  setDisplayName(playerId: string, name: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO player_meta (player_id, display_name) VALUES (?, ?)
+         ON CONFLICT(player_id) DO UPDATE SET display_name = excluded.display_name`,
+      )
+      .run(playerId, name);
   }
 
   resetStats(playerId: string): void {

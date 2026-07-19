@@ -145,12 +145,15 @@ const HAND_2: WallSpec = {
  * Game E3 — Mixed One-Suit and the par-score payment split. Player sits
  * West with a bamboo hand, Pungs a fed East wind (keeping the hand open so
  * only Mixed One-Suit scores), and wins exactly 40 on ChickenBot3's B6.
+ * The hand is deliberately NOT ready before the Pung (v0.2.1 #10): with
+ * B1 B2 B33 B45 B6 B9 + EE no tile completes it, so the forced Pung is the
+ * only sensible call.
  */
 const HAND_3: WallSpec = {
   deal: [
     ts('C3 C3 C4 C4 C8 C8 D1 D1 D7 D7 N N D9'), // bot2 (E): 6 pairs + D9 wait
     ts('C6 C6 C7 C7 D2 D2 D4 D4 D8 D8 G G D9'), // bot3 (S): 6 pairs + D9 wait
-    ts('B1 B2 B3 B3 B4 B5 B6 B7 B8 E E C5 D3'), // player (W)
+    ts('B1 B2 B3 B3 B4 B5 B6 B9 E E C5 D3 D8'), // player (W)
     ts('C1 C1 C2 C2 D5 D5 D6 D6 S S W W O'), // bot1 (N): 6 pairs + O wait
   ],
   live: ts('C9 D3 B9 B1 B2 D1 B9 E C3 D5 B6'),

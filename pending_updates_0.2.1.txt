@@ -1,0 +1,22 @@
+Tutorial related changes:
+1. the cyan box with the help text covers some of the left opponent's tiles. Shift it to the right and upwards so it does not overlap with any tiles
+2. on step 2/61, currently only the characters suit and the winds show English indices, since that's where they're needed most for English speaking users. Also explain that the 1 bamboo is usually depicted as a bird
+3. on step 2/61, explain to the user they can also change the graphics for the tiles etc to their liking
+4. on step 3/61, the (second) C5 and the C7 are not highlighted in cyan when they are supposed to be like the C6
+5. on step 5/61, change "you can never chow honors and a single wind rarely pairs up" to "you can never make sequences with honors, only pairs, or triplets which are less likely"
+6. on step 24/61, the user can click Chow and select 456, but it does nothing. Instead, make the first click of the Chow do nothing, forcing the user to go to slide 25/61 first
+7. on step 28/61, change "from your own hand stays secret (its ends face-down)" to "from your own hand turns the two tiles on the ends face down"
+8. on step 30/61, elaborate before "with S S S in hand", by adding "although there is one less copy of D1 than D2 out there,"
+9. on step 32/61, elaborate by adding the sentence "Although it is no longer concealed, all Kongs are still considered triplets."
+10. Now for the big issue. In game 3, the forced "Click Pung" actually occurs when the hand can call Mahjong! It is waiting on the B9 and East Wind, making a forced call of Pung utterly illogical! To fix this, simply change the B7 in hand to a B9, and the B8 in hand to another off suit tile, such as a D8 if not used up by the Chicken Bots, and have the player discard that other tile instead of a B3
+11. In game 4, clarify "Look at your hand:" into "Look at your starting hand of 13 tiles:"
+12. The lesson text for each "moral" actually doesn't persist past 10 seconds, and disappears at the next game or end of match. So only for the tutorial, you will have to replace the countdown with a "click the next button to continue" where the next button is the cyan button in the text that jumps to the next step, or exits the tutorial if on the last step
+
+Now for other changes:
+13. The line with Payments 支付 in when viewing one of the game records can be deleted
+14. Allow setting a distinct display name from the username. By default, the display name is the same name as the username, but allow registered users to change it just like guests can change their display names. Make sure all display names are at least 3 characters and only alphanumeric characters or hyphen. Display names do not have to be unique
+15. When in game, bots should always display the bot emoji, in order to prevent someone from picking a display name such as DummyBot1 to try and impersonate a bot
+16. If a display name contains profanity or other rule violating text, the system should automatically change the display name to three hyphens (---)
+17. The definition of a Big Hand for the flashing gold hand area animation should be changed from >=30 to >25 (i.e. when playing with bonus tiles, 26 points counts, because the discarder starts being responsible)
+18. For sake of consistency, DummyBot tries to call Mahjong if by some stroke of luck its dealt tiles actually form a hand 0 distance from ready. This reconciles DummyBot behavior with Auto Mode
+19. Change the toggling between "E1 70" and "東一 70" to be put as a checkbox option in the settings menu titled "Chinese Hand Number Indicator"

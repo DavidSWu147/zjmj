@@ -83,7 +83,7 @@ function stepsForGame(game: number): Step[] {
         when: (v) => !!v.myOptions.claim?.pung && v.lastDiscard?.tile === 'E ',
         action: () => ({ kind: 'claim', claim: 'pung' }),
       },
-      { when: (v) => v.pendingClaim?.kind === 'pung', action: () => discard('B3') },
+      { when: (v) => v.pendingClaim?.kind === 'pung', action: () => discard('D8') },
       {
         when: (v) => !!v.myOptions.claim?.mahjong && v.lastDiscard?.tile === 'B6',
         action: () => ({ kind: 'claim', claim: 'mahjong' }),
@@ -135,7 +135,12 @@ describe('tutorial (v0.3)', () => {
     while (!record && Date.now() < deadline) {
       await sleep(2);
       const v: GameView | null = view;
-      if (!v || v.gameResult || v.matchResult) continue;
+      if (!v) continue;
+      if (v.gameResult || v.matchResult) {
+        // v0.2.1 #12: tutorial scoring screens wait for the player's Next.
+        match.tutorialAdvance();
+        continue;
+      }
       const g = 'ESWN'.indexOf(v.gameNumber[0]) === 0 ? Number(v.gameNumber[1]) - 1 : -1;
       if (g !== game) {
         game = g;

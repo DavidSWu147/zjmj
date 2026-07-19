@@ -3,6 +3,7 @@ import { RoomSettings } from '../../shared/src/protocol';
 import { MatchRecord, matchToTxt } from '../../shared/src/records';
 import { PATTERN_IDS } from '../../shared/src/scoring';
 import { ACHIEVEMENTS } from '../../shared/src/achievements';
+import { containsProfanity, validateDisplayName } from '../../shared/src/names';
 import { sessionFromRequest } from './auth';
 import { Db } from './db';
 import { currentMonthPrefix, currentWeekId } from './tourney';
@@ -245,6 +246,32 @@ export function makeApi(db: Db): express.Router {
         earnedAt: earned.get(a.id) ?? null,
       })),
     });
+  });
+
+  /**
+   * Registered users set a display name distinct from the username
+   * (v0.2.1 #14). Charset/length violations are rejected; profanity is
+   * silently replaced with "---" (#16). The client re-hellos to adopt it.
+   */
+  router.post('/profile/name', express.json(), (req, res) => {
+    const session = sessionFromRequest(db, req);
+    if (!session) {
+      res.status(401).json({ error: 'Not signed in.' });
+      return;
+    }
+    if (session.kind !== 'account') {
+      res.status(400).json({ error: 'Guests set their display name from the sign-in dialog.' });
+      return;
+    }
+    const raw = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+    const bad = validateDisplayName(raw);
+    if (bad) {
+      res.status(400).json({ error: bad });
+      return;
+    }
+    const name = containsProfanity(raw) ? '---' : raw;
+    db.setDisplayName(session.playerId, name);
+    res.json({ name });
   });
 
   router.get('/records', (req, res) => {

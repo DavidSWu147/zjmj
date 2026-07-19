@@ -290,7 +290,6 @@ function buildViewer(body: HTMLElement, rec: MatchRecord): void {
       panel.innerHTML = `
         ${patRows ? `<table class="pattern-list">${patRows}</table>` : ''}
         <div class="result-total">Total: ${r.value ?? 0} points</div>
-        <div class="result-scores-label">Payments 支付</div>
         <div class="result-deltas">${[0, 1, 2, 3].map((s) => cell(s, r.deltas[s] ?? 0)).join('')}</div>
         <div class="result-scores-label" style="margin-top:8px">Scores 總分</div>
         <div class="result-deltas">${[0, 1, 2, 3]

@@ -113,6 +113,8 @@ export interface PlayerSettings {
   tileStyle: TileStyle;
   tileBack: TileBack;
   tableFelt: TableFelt;
+  /** Center dial shows 東一…北四 instead of E1…N4 (v0.2.1 #19). */
+  chineseHandNumber: boolean;
   /** Slider defaults used when creating a new room. */
   defaultRoom: RoomSettings;
 }
@@ -127,6 +129,7 @@ export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = {
   tileStyle: 'chinese',
   tileBack: 'beige',
   tableFelt: 'green',
+  chineseHandNumber: false,
   defaultRoom: { ...DEFAULT_SETTINGS },
 };
 
@@ -303,8 +306,8 @@ export interface GameView {
   /** My provisional chow/pung meld awaiting a discard choice. */
   pendingClaim: { kind: 'chow' | 'pung'; tiles: Tile[] } | null;
   /**
-   * Set during the pause between a win and the scoring screen. Hands of 30+
-   * points flash the winner's quadrant gold; a pattern worth 125+ also shows
+   * Set during the pause between a win and the scoring screen. Hands above
+   * 25 points (the base par) flash the winner's quadrant gold; a pattern worth 125+ also shows
    * its name in large golden Chinese text (the pause is longer then).
    */
   winFlash: { seat: number; value: number; bigPattern?: { name: string; zh: string } } | null;
@@ -352,6 +355,8 @@ export type ClientMsg =
   | { type: 'systemAuto'; on: boolean }
   /** Start (or restart) the room-less scripted tutorial match (v0.3). */
   | { type: 'startTutorial' }
+  /** Tutorial only: advance past the current scoring screen (v0.2.1 #12). */
+  | { type: 'tutorialNext' }
   | { type: 'action'; action: GameAction };
 
 export type ServerMsg =

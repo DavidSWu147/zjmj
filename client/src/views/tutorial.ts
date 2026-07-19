@@ -1,4 +1,5 @@
 import { GameAction, GameView } from '../../../shared/src/protocol';
+import { net } from '../net';
 
 /**
  * The tutorial overlay (v0.3): a linear script of steps over the rigged
@@ -18,6 +19,11 @@ interface Step {
   allow?: (a: GameAction, v: GameView) => boolean;
   /** Auto-advance once this holds (checked on every server view). */
   until?: (v: GameView) => boolean;
+  /** Next also advances the match past the scoring screen (v0.2.1 #12);
+   *  the button appears only once the scoring screen is up. */
+  advanceGame?: boolean;
+  /** Next exits the tutorial (final step, over the standings screen). */
+  exit?: boolean;
   /** CSS selectors glowing while the step is active. */
   highlight?: string[];
 }
@@ -54,8 +60,12 @@ const STEPS: Step[] = [
   ),
   info(
     'If the Chinese tile faces are unfamiliar, open Settings (the gear, top ' +
-      'left) at any time and turn on “English indices” — every tile then shows ' +
-      'a small index in its corner. The ? button reopens the pattern tables.',
+      'left) at any time and turn on “English indices” — Character and Wind ' +
+      'tiles then show a small index in their corner, where it is needed ' +
+      'most (Bamboo and Dot ranks are countable at a glance — though note ' +
+      'the 1 Bamboo is traditionally drawn as a bird!). Settings also lets ' +
+      'you restyle the tile faces, tile backs, and table felt to your ' +
+      'liking. The ? button reopens the pattern tables.',
     ['.top-btn.gear'],
   ),
   info(
@@ -63,7 +73,7 @@ const STEPS: Step[] = [
       'counting the winning one. A set is a TRIPLET (three identical tiles — ' +
       'you hold N N N) or a SEQUENCE (three consecutive tiles of one suit — ' +
       'your Characters 5-6-7). You also hold a PAIR of Dot 1s.',
-    [HAND('N '), HAND('C6'), HAND('D1')],
+    [HAND('N '), HAND('C5'), HAND('C6'), HAND('C7'), HAND('D1')],
   ),
   info(
     'The dial in the middle shows the game number and the count of tiles left ' +
@@ -74,8 +84,9 @@ const STEPS: Step[] = [
   {
     text:
       'You drew Bamboo 7 — useful! The lone South wind is not: you can never ' +
-      'chow honors and a single wind rarely pairs up. Discard S: click it once ' +
-      'to lift it, then click again to confirm.',
+      'make sequences with honors, only pairs, or triplets which are less ' +
+      'likely. Discard S: click it once to lift it, then click again to ' +
+      'confirm.',
     allow: allowDiscard('S '),
     until: (v) => discarded(v, 'S '),
     highlight: [HAND('S ')],
@@ -128,12 +139,15 @@ const STEPS: Step[] = [
     until: (v) => v.gameResult !== null || v.phase === 'gameEnd',
     highlight: ['.action-btn.mahjong'],
   },
-  wait(
-    'You won! But with no scoring pattern this is a CHICKEN HAND — worth a ' +
+  {
+    text:
+      'You won! But with no scoring pattern this is a CHICKEN HAND — worth a ' +
       'measly 1 point, paid by all three opponents. Winning is good; winning ' +
-      'with PATTERNS is far better. Next game, let’s build something bigger.',
-    (v) => v.gameNumber === 'E2' && v.gameResult === null,
-  ),
+      'with PATTERNS is far better. Click Next when you are ready for the ' +
+      'second game.',
+    next: true,
+    advanceGame: true,
+  },
 
   // ── Game E2: claim precedence and Kongs ─────────────────────────────
   wait(
@@ -186,7 +200,8 @@ const STEPS: Step[] = [
   wait('Play continues…', (v) => myTurn(v) && v.myDrawn === 'C4'),
   info(
     'You drew the FOURTH Character 4! Four identical tiles can form a KONG. ' +
-      'A CONCEALED Kong from your own hand stays secret (its ends face-down), ' +
+      'A CONCEALED Kong from your own hand turns the two tiles on the ends ' +
+      'face down, ' +
       'counts as a concealed triplet, and every Kong scores a pattern (One ' +
       'Kong: 5 points). A Kong draws a replacement tile from the dead wall.',
   ),
@@ -198,8 +213,9 @@ const STEPS: Step[] = [
   },
   {
     text:
-      'Your replacement draw is a third South wind! Discard the Dot 3: with ' +
-      'S S S in hand you hold TWO concealed triplets (worth 5 points — and a ' +
+      'Your replacement draw is a third South wind! Discard the Dot 3: ' +
+      'although there is one less copy of D1 than D2 out there, with S S S ' +
+      'in hand you hold TWO concealed triplets (worth 5 points — and a ' +
       'concealed Kong counts as one too).',
     allow: allowDiscard('D3'),
     until: (v) => discarded(v, 'D3'),
@@ -208,7 +224,9 @@ const STEPS: Step[] = [
   wait('Play continues…', (v) => !!v.myOptions.claim?.kong && v.lastDiscard?.tile === 'S '),
   info(
     'ChickenBot1 discarded the FOURTH South wind — and you hold S S S. ' +
-      'Claiming a discard onto a concealed triplet makes a BIG EXPOSED KONG.',
+      'Claiming a discard onto a concealed triplet makes a BIG EXPOSED KONG. ' +
+      'Although it is no longer concealed, all Kongs are still considered ' +
+      'triplets.',
   ),
   {
     text: 'Click KONG to claim it.',
@@ -240,11 +258,14 @@ const STEPS: Step[] = [
     until: (v) => v.gameResult !== null || v.phase === 'gameEnd',
     highlight: ['.action-btn.mahjong'],
   },
-  wait(
-    'A humongous 130-point hand: Three Kongs (120) plus Win on Kong (10). On ' +
-      'a self-drawn win, every opponent pays the full value — 130 each!',
-    (v) => v.gameNumber === 'E3' && v.gameResult === null,
-  ),
+  {
+    text:
+      'A humongous 130-point hand: Three Kongs (120) plus Win on Kong (10). ' +
+      'On a self-drawn win, every opponent pays the full value — 130 each! ' +
+      'Click Next to continue.',
+    next: true,
+    advanceGame: true,
+  },
 
   // ── Game E3: Mixed One-Suit and the par score ───────────────────────
   info(
@@ -261,7 +282,7 @@ const STEPS: Step[] = [
   },
   wait('Play continues…', (v) => myTurn(v) && v.myDrawn === 'B9'),
   {
-    text: 'Another Bamboo 9! Now discard the Dot 3 — your last off-suit tile.',
+    text: 'Another Bamboo 9! Now discard the Dot 3.',
     allow: allowDiscard('D3'),
     until: (v) => discarded(v, 'D3'),
     highlight: [HAND('D3')],
@@ -281,11 +302,11 @@ const STEPS: Step[] = [
   },
   {
     text:
-      'Discard one Bamboo 3. You are READY: Bamboo 3 or Bamboo 6 completes ' +
-      'the 4-5 — a two-sided wait.',
-    allow: allowDiscard('B3'),
-    until: (v) => melds(v).length === 1 && discarded(v, 'B3'),
-    highlight: [HAND('B3')],
+      'Discard the Dot 8 — your last off-suit tile. You are READY: a second ' +
+      'Bamboo 6 completes the pair.',
+    allow: allowDiscard('D8'),
+    until: (v) => melds(v).length === 1 && discarded(v, 'D8'),
+    highlight: [HAND('D8')],
   },
   wait('Wait for the winning tile…', (v) => !!v.myOptions.claim?.mahjong),
   {
@@ -294,14 +315,16 @@ const STEPS: Step[] = [
     until: (v) => v.gameResult !== null || v.phase === 'gameEnd',
     highlight: ['.action-btn.mahjong'],
   },
-  wait(
-    'Mixed One-Suit: 40 points. Now watch the payments — Zung Jung’s PAR ' +
+  {
+    text:
+      'Mixed One-Suit: 40 points. Now watch the payments — Zung Jung’s PAR ' +
       'SCORE is 25. Small hands (like your 1-point chicken hand) are paid ' +
-      'equally by all three opponents. Above par, the two bystanders pay only ' +
-      '25 each and the DISCARDER shoulders the rest: 70 here. Careless ' +
-      'discards are expensive!',
-    (v) => v.gameNumber === 'E4' && v.gameResult === null,
-  ),
+      'equally by all three opponents. Above par, the two bystanders pay ' +
+      'only 25 each and the DISCARDER shoulders the rest: 70 here. Careless ' +
+      'discards are expensive! Click Next for the final game.',
+    next: true,
+    advanceGame: true,
+  },
 
   // ── Game E4: the irregular hands ────────────────────────────────────
   info(
@@ -311,7 +334,8 @@ const STEPS: Step[] = [
       'every 1, every 9, and every honor, plus a duplicate of any of them.',
   ),
   info(
-    'Look at your hand: eleven of the thirteen already! You are missing ' +
+    'Look at your starting hand of 13 tiles: eleven of the thirteen ' +
+      'already! You are missing ' +
       'Character 9 and the East wind. Never discard your unique terminals or ' +
       'honors — each one is irreplaceable now.',
   ),
@@ -338,16 +362,21 @@ const STEPS: Step[] = [
     until: (v) => v.gameResult !== null || v.phase === 'gameEnd',
     highlight: ['.action-btn.mahjong'],
   },
-  wait(
-    'Thirteen Terminals — 160 points, self-drawn, so everyone pays in full.',
-    (v) => v.matchResult !== null,
-  ),
+  {
+    text:
+      'Thirteen Terminals — 160 points, self-drawn, so everyone pays in ' +
+      'full. Click Next to see the final standings.',
+    next: true,
+    advanceGame: true,
+  },
   {
     text:
       'That’s the tutorial — you won every game! You can replay it from the ' +
       'Help page any time. When you are ready, play real matches from the ' +
       'Lobby (bots fill the empty seats), and register an account to earn ' +
       'achievements and enter the Saturday tournaments. Good luck!',
+    next: true,
+    exit: true,
   },
 ];
 
@@ -375,11 +404,44 @@ export function tutorialAllows(a: GameAction, v: GameView): boolean {
 }
 
 /**
+ * Whether an action-bar button may react at all (v0.2.1 #6): a button whose
+ * every possible action the current step blocks does nothing — it must not
+ * even open the chow/kong variant chooser.
+ */
+export function tutorialAllowsButton(kind: string, v: GameView): boolean {
+  if (!active) return true;
+  const allow = STEPS[stepIdx]?.allow;
+  if (!allow) return false;
+  const probes: GameAction[] = [];
+  if (kind === 'chow') {
+    for (const low of v.myOptions.claim?.chows ?? []) {
+      probes.push({ kind: 'claim', claim: 'chow', chowLow: low });
+    }
+  } else if (kind === 'pung') {
+    probes.push({ kind: 'claim', claim: 'pung' });
+  } else if (kind === 'kong') {
+    probes.push({ kind: 'claim', claim: 'kong' });
+    for (const k of v.myOptions.kongs ?? []) {
+      probes.push({ kind: 'kong', tile: k.tile, variant: k.variant });
+    }
+  } else if (kind === 'mahjong') {
+    probes.push({ kind: 'mahjong' }, { kind: 'claim', claim: 'mahjong' });
+  } else if (kind === 'pass') {
+    probes.push({ kind: 'claim', claim: 'pass' });
+  }
+  return probes.some((p) => allow(p, v));
+}
+
+/**
  * Called at the end of every board render of a tutorial view: advances
  * through satisfied wait-steps, then draws the instruction panel and the
  * highlights into the freshly built board.
  */
-export function tutorialOnRender(view: GameView, board: HTMLElement, rerender: () => void): void {
+export function tutorialOnRender(
+  view: GameView,
+  board: HTMLElement,
+  hooks: { rerender: () => void; exit: () => void },
+): void {
   if (!active) return;
   for (let guard = 0; guard < STEPS.length; guard++) {
     const s = STEPS[stepIdx];
@@ -395,13 +457,23 @@ export function tutorialOnRender(view: GameView, board: HTMLElement, rerender: (
   body.className = 'tp-text';
   body.textContent = step.text;
   panel.appendChild(body);
-  if (step.next) {
+  // A game-advancing Next appears only once its scoring/standings screen is
+  // up (v0.2.1 #12) — never during the win-flash pause.
+  const gatedAway =
+    (step.advanceGame && view.gameResult === null && view.matchResult === null) ||
+    (step.exit && view.matchResult === null);
+  if (step.next && !gatedAway) {
     const btn = document.createElement('button');
     btn.className = 'tp-next';
-    btn.textContent = 'Next ▸';
+    btn.textContent = step.exit ? 'Finish ▸' : 'Next ▸';
     btn.addEventListener('click', () => {
+      if (step.exit) {
+        hooks.exit();
+        return;
+      }
+      if (step.advanceGame) net.send({ type: 'tutorialNext' });
       stepIdx++;
-      rerender();
+      hooks.rerender();
     });
     panel.appendChild(btn);
   }

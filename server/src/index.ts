@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 import { ClientMsg, GameView, ServerMsg } from '../../shared/src/protocol';
 import { broadAbandoned } from '../../shared/src/records';
+import { sanitizeDisplayName } from '../../shared/src/names';
 import { makeApi } from './api';
 import { makeAuthApi } from './auth';
 import { Db } from './db';
@@ -240,6 +241,9 @@ function handleMsg(session: Session, msg: ClientMsg): void {
     case 'startTutorial':
       startTutorial(session);
       break;
+    case 'tutorialNext':
+      activeTutorial(session.playerId)?.tutorialAdvance();
+      break;
     case 'deleteRoom': {
       const err = rooms.deleteRoom(session.playerId);
       if (err) send(session, { type: 'toast', message: err });
@@ -340,10 +344,14 @@ wss.on('connection', (ws) => {
         ws.close();
         return;
       }
-      const name =
-        dbSession.kind === 'account' && dbSession.username
-          ? dbSession.username
+      // Display names (v0.2.1 #14/#16): accounts use their stored display
+      // name (default: the username); guests bring their own. Rule-violating
+      // names become "---".
+      const rawName =
+        dbSession.kind === 'account'
+          ? (db.getDisplayName(dbSession.playerId) ?? dbSession.username ?? 'Player')
           : (msg.name || 'Guest').slice(0, 24);
+      const name = sanitizeDisplayName(rawName);
       const existing = sessions.get(dbSession.playerId);
       if (existing) {
         existing.ws?.close();

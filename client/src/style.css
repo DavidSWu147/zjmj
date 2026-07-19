@@ -1764,11 +1764,12 @@ table.data th.num {
   filter: brightness(1.2);
 }
 
-/* The lesson panel, bottom-left above the player's hand. */
+/* The lesson panel: clear of the left opponent's strip and the hand
+   (v0.2.1 #1). */
 .tutorial-panel {
   position: absolute;
-  left: 16px;
-  bottom: calc(var(--tw, 44px) * 4 / 3 + 64px);
+  left: 132px;
+  bottom: calc(var(--tw, 44px) * 4 / 3 + 104px);
   width: min(360px, 34vw);
   padding: 12px 14px;
   background: linear-gradient(160deg, #0d3c41ee, #092a2eee);

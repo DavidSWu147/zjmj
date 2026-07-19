@@ -1,4 +1,4 @@
-import { GameAction, GameView, isTournamentRoomId, KeyBindings, RoomSettings } from '../../../shared/src/protocol';
+import { GameAction, GameResultView, GameView, isTournamentRoomId, KeyBindings, RoomSettings } from '../../../shared/src/protocol';
 import { Tile } from '../../../shared/src/tiles';
 import {
   animateTransition,
@@ -16,7 +16,7 @@ import { meldEl, orientedTile, tileEl, Deg } from '../tileui';
 import { buildHelpContent } from './help';
 import { starSvg } from './achievements';
 import { CHICKENS } from './sliders';
-import { tutorialAllows, tutorialOnRender, tutorialStop } from './tutorial';
+import { tutorialAllows, tutorialAllowsButton, tutorialOnRender, tutorialStop } from './tutorial';
 
 /** Top-right ruleset note (v0.2): "4 rounds · Chicken: Scores 1 point · …". */
 function rulesetNote(s: RoomSettings): string {
@@ -58,7 +58,6 @@ let resizeHooked = false;
 let prevSnap: BoardSnapshot | null = null;
 let ownClickRect: Rect | null = null;
 let lastViewKey = '';
-let showZhNumber = false;
 let shownBigPattern = '';
 let winFlashKey = '';
 let winFlashStart = 0;
@@ -701,16 +700,12 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   }
   const circle = document.createElement('div');
   circle.className = 'ccircle';
+  // The Latin/Chinese game-number choice is a settings checkbox now
+  // (v0.2.1 #19); the circle itself is no longer a toggle.
   const showInfoCircle = (): void => {
-    circle.innerHTML = `<div class="gnum">${showZhNumber ? view.gameNumberZh : view.gameNumber}</div><div class="rem">${String(view.remaining).padStart(2, '0')}</div>`;
-    circle.style.cursor = 'pointer';
-    // Click toggles between E1..N4 and 東一..北四 (issue #10).
-    circle.addEventListener('pointerdown', () => {
-      showZhNumber = !showZhNumber;
-      const gnum = circle.querySelector('.gnum');
-      const v = net.state.gameView;
-      if (gnum && v) gnum.textContent = showZhNumber ? v.gameNumberZh : v.gameNumber;
-    });
+    const zh = getSettings().chineseHandNumber;
+    circle.innerHTML = `<div class="gnum">${zh ? view.gameNumberZh : view.gameNumber}</div><div class="rem">${String(view.remaining).padStart(2, '0')}</div>`;
+    circle.style.cursor = '';
   };
   if (view.phase === 'dealing' && view.dice && diceDismissedGame !== view.gameNumber) {
     const grid = document.createElement('div');
@@ -727,7 +722,6 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     const dismiss = (): void => {
       circle.removeEventListener('pointerdown', dismiss);
       diceDismissedGame = view.gameNumber;
-      showZhNumber = false; // the first click always lands on the Latin view
       showInfoCircle();
     };
     circle.addEventListener('pointerdown', dismiss);
@@ -1062,7 +1056,9 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     // melds push it further up.
     const tag = document.createElement('div');
     // "(left)" = gone for good; "(away)" = disconnected, may return (v0.2).
-    tag.textContent = `${sv.name}${sv.left ? ' (left)' : sv.connected ? '' : ' (away)'}`;
+    // Bots always wear the robot emoji so no display name can imitate one
+    // (v0.2.1 #15).
+    tag.textContent = `${sv.name}${sv.isBot ? ' 🤖' : ''}${sv.left ? ' (left)' : sv.connected ? '' : ' (away)'}`;
     tag.style.cssText =
       'position:absolute;font-size:11px;color:#dfe7e2;text-shadow:0 1px 2px #000;white-space:nowrap;z-index:5;';
     const sideTop = cy - handW13 / 2 - otw * 1.7 - 16;
@@ -1301,11 +1297,11 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     board.appendChild(zone);
   }
 
-  // ── 30+ point win: the winner's hand & meld area flashes gold ─────
+  // ── above-par win (26+): the winner's hand & meld area flashes gold ──
   // The blink's phase is anchored to when the flash first appeared, so a
   // board re-render mid-pause doesn't restart it in its invisible half.
   // Prepended so it paints behind the tiles it backs.
-  if (view.winFlash && view.winFlash.value >= 30) {
+  if (view.winFlash && view.winFlash.value > 25) {
     const wseat = view.winFlash.seat;
     const key = `${view.gameNumber}:${wseat}`;
     if (winFlashKey !== key) {
@@ -1404,6 +1400,9 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     b.className = `action-btn ${cls}`;
     b.innerHTML = `${en}<span class="zh">${zh}</span>`;
     b.addEventListener('click', () => {
+      // Tutorial (v0.2.1 #6): a blocked button does nothing at all — it may
+      // not even open the chow/kong variant chooser.
+      if (view.tutorial && !tutorialAllowsButton(cls, view)) return;
       fn();
       noteManualInput(); // action buttons are manual input (v0.2)
     });
@@ -1584,7 +1583,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   }
 
   // ── tutorial overlay (v0.3): lesson panel + highlights ────────────
-  if (view.tutorial) tutorialOnRender(view, board, forceRerender);
+  if (view.tutorial) tutorialOnRender(view, board, { rerender: forceRerender, exit: exitMatch });
 
   // ── tile flight animations (diff against the previous state) ──────
   animateTransition(board, prevSnap, view, ownClickRect, view.claimGapMs || 1500);
@@ -1686,7 +1685,7 @@ function gameResultOverlay(view: GameView): HTMLElement {
     card.innerHTML = `<h2 class="draw-green">Drawn Game 流局</h2>
       <p style="color:var(--text-dim)">The live wall is exhausted. Nobody scores.</p>`;
     card.appendChild(scoresAfterEl(view));
-    card.appendChild(countdownEl(r.nextAt - view.now, r.lastGame));
+    card.appendChild(nextGameNote(view, r));
     overlay.appendChild(card);
     return overlay;
   }
@@ -1753,10 +1752,23 @@ function gameResultOverlay(view: GameView): HTMLElement {
   card.appendChild(deltas);
 
   card.appendChild(scoresAfterEl(view));
-  card.appendChild(countdownEl(r.nextAt - view.now, r.lastGame));
+  card.appendChild(nextGameNote(view, r));
 
   overlay.appendChild(card);
   return overlay;
+}
+
+/** The scoring screen's footer: a countdown normally, or the tutorial's
+ *  "click Next" prompt (the tutorial only advances on the lesson panel's
+ *  Next button, v0.2.1 #12). */
+function nextGameNote(view: GameView, r: GameResultView): HTMLElement {
+  if (view.tutorial) {
+    const note = document.createElement('div');
+    note.className = 'result-next';
+    note.textContent = 'Click Next in the lesson panel to continue ▸';
+    return note;
+  }
+  return countdownEl(r.nextAt - view.now, r.lastGame);
 }
 
 /** A live "next game / match ends in Ns…" countdown from a relative duration. */
@@ -1808,7 +1820,7 @@ function matchResultOverlay(view: GameView): HTMLElement {
     .join('');
   card.innerHTML = `${banner}<h2>Match Over 終局</h2>
     <table class="pattern-list">${rows}</table>
-    <div class="dialog-btns"><button id="tolobby">Back to Lobby</button></div>`;
+    <div class="dialog-btns"><button id="tolobby">${view.tutorial ? 'Back to Help' : 'Back to Lobby'}</button></div>`;
   const exit = () => {
     const wasTutorial = view.tutorial === true;
     autoMode = 'off';
@@ -1824,25 +1836,28 @@ function matchResultOverlay(view: GameView): HTMLElement {
     location.reload();
   };
   card.querySelector('#tolobby')!.addEventListener('click', exit);
-  // The standings screen closes itself after the server's window.
-  const msRemaining = Math.max(0, view.matchResult!.endsAt - view.now);
-  const note = document.createElement('div');
-  note.className = 'result-next';
-  const localDeadline = Date.now() + msRemaining;
-  const tick = () => {
-    const secs = Math.max(0, Math.ceil((localDeadline - Date.now()) / 1000));
-    note.textContent = `Returning to ${view.tutorial ? 'Help' : 'lobby'} in ${secs}s…`;
-    if (secs <= 0 && note.isConnected) exit();
-  };
-  tick();
-  const timer = window.setInterval(() => {
-    if (!note.isConnected) {
-      clearInterval(timer);
-      return;
-    }
+  // The standings screen closes itself after the server's window — except
+  // in the tutorial, which waits for the lesson panel's Finish (v0.2.1 #12).
+  if (!view.tutorial) {
+    const msRemaining = Math.max(0, view.matchResult!.endsAt - view.now);
+    const note = document.createElement('div');
+    note.className = 'result-next';
+    const localDeadline = Date.now() + msRemaining;
+    const tick = () => {
+      const secs = Math.max(0, Math.ceil((localDeadline - Date.now()) / 1000));
+      note.textContent = `Returning to lobby in ${secs}s…`;
+      if (secs <= 0 && note.isConnected) exit();
+    };
     tick();
-  }, 250);
-  card.appendChild(note);
+    const timer = window.setInterval(() => {
+      if (!note.isConnected) {
+        clearInterval(timer);
+        return;
+      }
+      tick();
+    }, 250);
+    card.appendChild(note);
+  }
   overlay.appendChild(card);
   return overlay;
 }

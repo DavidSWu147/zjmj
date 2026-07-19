@@ -17,6 +17,8 @@ import {
   signOut,
 } from '../account';
 import { playerName, setPlayerName } from '../identity';
+import { containsProfanity, DISPLAY_NAME_RULES, validateDisplayName } from '../../../shared/src/names';
+import { apiPost, updateStoredName } from '../account';
 import { syncSettingsFromServer } from '../settings';
 import { net } from '../net';
 
@@ -138,12 +140,17 @@ export function openSignInDialog(): void {
   $('#fp-cancel').addEventListener('click', () => setMode('signin'));
   $('#rename').addEventListener('click', (e) => {
     e.preventDefault();
-    const name = prompt('Display name:', playerName());
-    if (name) {
-      setPlayerName(name);
-      net.rehello();
-      dlg.close();
+    const name = prompt(`Display name (${DISPLAY_NAME_RULES}):`, playerName())?.trim();
+    if (!name) return;
+    const bad = validateDisplayName(name);
+    if (bad) {
+      net.toast(bad);
+      return;
     }
+    // Rule-violating text is replaced with "---" (v0.2.1 #16).
+    setPlayerName(containsProfanity(name) ? '---' : name);
+    net.rehello();
+    dlg.close();
   });
 
   wireForm(signinForm, $('#si-go'), $('#si-err'), async () => {
@@ -189,6 +196,16 @@ export function openAccountDialog(): void {
     <div class="dialog-btns" style="justify-content:flex-start;margin-top:0">
       <button id="signout">Sign out</button>
     </div>
+
+    <h3 class="auth-section">Display name</h3>
+    <form id="chname">
+      ${field('Display name', 'text', 'dn-new', 'nickname')}
+      <div class="form-hint">Shown to other players; your username stays your sign-in. ${DISPLAY_NAME_RULES} Display names need not be unique.</div>
+      <div class="form-error" id="dn-err"></div>
+      <div class="dialog-btns">
+        <button type="submit" id="dn-go">Change display name</button>
+      </div>
+    </form>
 
     <h3 class="auth-section">Recovery email</h3>
     <form id="chemail">
@@ -240,11 +257,25 @@ export function openAccountDialog(): void {
     });
   });
 
+  $<HTMLInputElement>('#dn-new').value = currentAuth()?.name ?? '';
+
   void getEmail().then((email) => {
     $('#em-current').textContent = email
       ? `Email on file: ${email}`
       : 'No email on file — add one below.';
     $<HTMLButtonElement>('#em-go').textContent = email ? 'Change email' : 'Set email';
+  });
+
+  wireForm($<HTMLFormElement>('#chname'), $('#dn-go'), $('#dn-err'), async () => {
+    const name = $<HTMLInputElement>('#dn-new').value.trim();
+    const bad = validateDisplayName(name);
+    if (bad) throw new Error(bad);
+    // The server replaces rule-violating text with "---" (v0.2.1 #16).
+    const res = await apiPost<{ name: string }>('/api/profile/name', { name });
+    updateStoredName(res.name);
+    net.rehello();
+    dlg.close();
+    net.toast(`Display name changed to ${res.name}.`);
   });
 
   wireForm($<HTMLFormElement>('#chemail'), $('#em-go'), $('#em-err'), async () => {
