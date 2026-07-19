@@ -88,6 +88,14 @@ export class Match {
   private botDifficulty: BotDifficulty;
   /** Weekly Tournament week id; null for regular matches (v0.2). */
   readonly tournamentWeek: string | null;
+  /** Tutorial (v0.3): rigged wall per game index; null for real matches. */
+  private tutorialWalls:
+    | ((gameIndex: number) => { tiles: Tile[]; dice: [number, number, number, number] } | null)
+    | null;
+
+  get isTutorial(): boolean {
+    return this.tutorialWalls !== null;
+  }
 
   constructor(
     settings: RoomSettings,
@@ -96,12 +104,14 @@ export class Match {
     room: { id: number; code: string | null } | null = null,
     botDifficulty: BotDifficulty = 'dummy',
     tournamentWeek: string | null = null,
+    tutorialWalls: Match['tutorialWalls'] = null,
   ) {
     this.settings = settings;
     this.delegate = delegate;
     this.roomInfo = room;
     this.botDifficulty = botDifficulty;
     this.tournamentWeek = tournamentWeek;
+    this.tutorialWalls = tutorialWalls;
     this.timing = { ...DEFAULT_TIMING, ...delegate.timing };
     this.rng = delegate.rng ?? Math.random;
 
@@ -117,10 +127,13 @@ export class Match {
       });
       botNum++;
     }
-    // Random seating regardless of join order (spec).
-    for (let i = seated.length - 1; i > 0; i--) {
-      const j = Math.floor(this.rng() * (i + 1));
-      [seated[i], seated[j]] = [seated[j], seated[i]];
+    // Random seating regardless of join order (spec) — except the tutorial,
+    // where the human always starts East with the bots at S/W/N (v0.3).
+    if (!this.isTutorial) {
+      for (let i = seated.length - 1; i > 0; i--) {
+        const j = Math.floor(this.rng() * (i + 1));
+        [seated[i], seated[j]] = [seated[j], seated[i]];
+      }
     }
     this.players = seated;
   }
@@ -156,6 +169,9 @@ export class Match {
   private makeHost(): GameHost {
     return {
       settings: this.settings,
+      ...(this.tutorialWalls
+        ? { fixedWall: this.tutorialWalls, unlimitedThinking: true }
+        : {}),
       isBot: (seat) => {
         const p = this.playerAt(seat);
         return p.isBot || this.leftIds.has(p.id) || !this.delegate.isConnected(p.id);
@@ -419,6 +435,7 @@ export class Match {
     const seat = (startSeat - (this.game.gameIndex % 4) + 4) % 4;
     const v = this.game.buildView(seat, this.resultView);
     v.room = this.roomInfo;
+    if (this.isTutorial) v.tutorial = true;
     if (this.matchResultView) {
       v.phase = 'matchEnd';
       const earned = this.achievementWinners.get(playerId);

@@ -1751,3 +1751,65 @@ table.data th.num {
 .filter-group input[type='radio'] {
   accent-color: var(--accent);
 }
+
+/* ── Tutorial (v0.3) ──────────────────────────────────────────────── */
+/* The cyan launcher leading the Help page's tab row. */
+.tutorial-btn {
+  background: linear-gradient(160deg, #0e6a72, #0a4c52);
+  border-color: #2ad4e4;
+  color: #b8f4fa;
+  font-weight: 700;
+}
+.tutorial-btn:hover {
+  filter: brightness(1.2);
+}
+
+/* The lesson panel, bottom-left above the player's hand. */
+.tutorial-panel {
+  position: absolute;
+  left: 16px;
+  bottom: calc(var(--tw, 44px) * 4 / 3 + 64px);
+  width: min(360px, 34vw);
+  padding: 12px 14px;
+  background: linear-gradient(160deg, #0d3c41ee, #092a2eee);
+  border: 1px solid #2ad4e4;
+  border-radius: 12px;
+  box-shadow: 0 4px 18px #000a;
+  z-index: 60; /* above the scoring overlays */
+}
+.tutorial-panel .tp-tag {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: #2ad4e4;
+  margin-bottom: 6px;
+}
+.tutorial-panel .tp-text {
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: #e6f8fa;
+  white-space: pre-line;
+}
+.tutorial-panel .tp-next {
+  margin-top: 10px;
+  background: #0e6a72;
+  border-color: #2ad4e4;
+  color: #eafcff;
+  font-weight: 700;
+  padding: 6px 18px;
+}
+
+/* Elements the current lesson step points at. */
+.tutorial-glow {
+  outline: 2px solid #2ad4e4;
+  outline-offset: 2px;
+  border-radius: 6px;
+  animation: tutorial-glow 0.9s ease-in-out infinite alternate;
+}
+@keyframes tutorial-glow {
+  from {
+    box-shadow: 0 0 4px 1px #2ad4e488;
+  }
+  to {
+    box-shadow: 0 0 14px 4px #2ad4e4cc;
+  }
+}

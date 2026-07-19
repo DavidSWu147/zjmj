@@ -12,6 +12,8 @@ import { Db } from './db';
 import { loadDotEnv, playFabEnabled } from './playfab';
 import { Rooms } from './rooms';
 import { currentWeekId, previousWeekId } from './tourney';
+import { Match } from './match';
+import { TUTORIAL_SETTINGS, tutorialWallFor } from './tutorial';
 
 loadDotEnv();
 
@@ -107,6 +109,71 @@ function send(session: Session, msg: ServerMsg): void {
   }
 }
 
+// ── tutorial matches (v0.3) ─────────────────────────────────────────
+// Room-less scripted matches, one per player, excluded from records,
+// statistics and leaderboards. No progress is kept: leaving or
+// disconnecting aborts the tutorial.
+const tutorials = new Map<string, Match>();
+
+function activeTutorial(playerId: string): Match | null {
+  const t = tutorials.get(playerId);
+  return t && !t.finished ? t : null;
+}
+
+function startTutorial(session: Session): void {
+  const room = rooms.roomOf(session.playerId);
+  if (room?.match && !room.match.finished) {
+    send(session, { type: 'toast', message: 'Finish your current match before starting the tutorial.' });
+    return;
+  }
+  // Starting the tutorial exits a waiting room or a spectated match.
+  if (room || rooms.spectatingRoomOf(session.playerId)) rooms.leave(session.playerId);
+  tutorials.get(session.playerId)?.dispose();
+  tutorials.delete(session.playerId);
+
+  const match = new Match(
+    { ...TUTORIAL_SETTINGS },
+    [{ id: session.playerId, name: session.name, isBot: false }],
+    {
+      sendView: sendViewTo,
+      isConnected: (pid) => {
+        const s = sessions.get(pid);
+        return !!s && s.ws !== null && s.ws.readyState === WebSocket.OPEN;
+      },
+      onMatchEnd: (record, aborted) => {
+        void record; // never saved: no records, statistics, or leaderboards
+        setTimeout(() => {
+          if (tutorials.get(session.playerId) === match) {
+            match.dispose();
+            tutorials.delete(session.playerId);
+            broadcastLobby();
+          }
+        }, aborted ? 0 : 15000);
+        // Finishing the tutorial as a registered user earns the achievement.
+        const kind = sessions.get(session.playerId)?.kind ?? session.kind;
+        if (
+          !aborted &&
+          kind === 'account' &&
+          db.awardAchievement(session.playerId, 'journey-of-a-thousand-miles')
+        ) {
+          return {
+            newlyAchieved: [
+              { playerId: session.playerId, achievementId: 'journey-of-a-thousand-miles' },
+            ],
+          };
+        }
+      },
+    },
+    null,
+    'chicken',
+    null,
+    tutorialWallFor,
+  );
+  tutorials.set(session.playerId, match);
+  match.start();
+  broadcastLobby();
+}
+
 function sendViewTo(playerId: string, view: GameView): void {
   const s = sessions.get(playerId);
   if (s) send(s, { type: 'game', view });
@@ -120,10 +187,12 @@ function lobbyMsgFor(session: Session): ServerMsg {
     rooms: rooms.list(session.playerId),
     myRoom: room ? room.id : null,
     myRoomCode: isMember ? (room?.code ?? null) : null,
-    // Spectators count as "in a match" so lobby refreshes never tear down
-    // the board they are watching.
+    // Spectators and tutorial players count as "in a match" so lobby
+    // refreshes never tear down the board they are looking at.
     inMatch:
-      (!!room?.match && !room.match.finished) || rooms.spectatingRoomOf(session.playerId) !== null,
+      (!!room?.match && !room.match.finished) ||
+      rooms.spectatingRoomOf(session.playerId) !== null ||
+      activeTutorial(session.playerId) !== null,
   };
 }
 
@@ -161,9 +230,15 @@ function handleMsg(session: Session, msg: ClientMsg): void {
       break;
     }
     case 'leaveRoom':
-    case 'leaveMatch':
+    case 'leaveMatch': {
+      const tut = activeTutorial(session.playerId);
+      if (tut) tut.leave(session.playerId); // sole human: the tutorial aborts
       rooms.leave(session.playerId);
       broadcastLobby();
+      break;
+    }
+    case 'startTutorial':
+      startTutorial(session);
       break;
     case 'deleteRoom': {
       const err = rooms.deleteRoom(session.playerId);
@@ -200,6 +275,11 @@ function handleMsg(session: Session, msg: ClientMsg): void {
       break;
     }
     case 'action': {
+      const tut = activeTutorial(session.playerId);
+      if (tut) {
+        tut.handleAction(session.playerId, msg.action);
+        break;
+      }
       const room = rooms.roomOf(session.playerId);
       if (room?.match && !room.match.finished) {
         room.match.handleAction(session.playerId, msg.action);
@@ -296,6 +376,10 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     if (!session) return;
     if (session.ws === ws) session.ws = null;
+    // Tutorials keep no progress: a disconnect simply aborts the run.
+    if (session.ws === null) {
+      activeTutorial(session.playerId)?.leave(session.playerId);
+    }
     // Spectator slots are scarce (cap 4): a disconnect frees one at once.
     // Only when no socket is left — a reconnect closing its old socket
     // must not drop the new session's spectator slot.

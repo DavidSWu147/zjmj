@@ -16,6 +16,7 @@ import { meldEl, orientedTile, tileEl, Deg } from '../tileui';
 import { buildHelpContent } from './help';
 import { starSvg } from './achievements';
 import { CHICKENS } from './sliders';
+import { tutorialAllows, tutorialOnRender, tutorialStop } from './tutorial';
 
 /** Top-right ruleset note (v0.2): "4 rounds · Chicken: Scores 1 point · …". */
 function rulesetNote(s: RoomSettings): string {
@@ -107,6 +108,9 @@ function wallsWanted(W: number, H: number): boolean {
 }
 
 function act(action: GameAction): void {
+  // In the tutorial, only the current step's forced move goes through.
+  const v = net.state.gameView;
+  if (v?.tutorial && !tutorialAllows(action, v)) return;
   net.send({ type: 'action', action });
 }
 
@@ -203,6 +207,11 @@ function noteManualInput(): void {
 /** Runs on every server update, whether or not the board is being rendered. */
 function trackInactivity(): void {
   const view = net.state.gameView;
+  // The tutorial has unlimited thinking and no Auto Mode: nothing to track.
+  if (view?.tutorial) {
+    curDecision = null;
+    return;
+  }
   if (!view || view.matchResult) {
     // Match over (or left): system-set Auto Mode does not carry between
     // matches. No systemAuto message — the server already read the state
@@ -292,16 +301,19 @@ function runAutoplay(view: GameView): void {
 // must run on every update, even when the player wandered off the play page.
 net.onUpdate(trackInactivity);
 
-/** Leave the match for the lobby (top-bar ✕ and the standings screen). */
+/** Leave the match for the lobby (top-bar ✕ and the standings screen); a
+ *  tutorial exits back to the Help page instead (v0.3). */
 function exitMatch(): void {
+  const wasTutorial = net.state.gameView?.tutorial === true;
   autoMode = 'off';
   stopAutoTimer();
   curDecision = null;
   resetInactivityStreak();
   closePanel();
+  tutorialStop();
   net.send({ type: 'leaveMatch' });
   net.state.gameView = null;
-  location.hash = '#/play';
+  location.hash = wasTutorial ? '#/help' : '#/play';
 }
 
 // ── in-match Settings / Help panels ─────────────────────────────────
@@ -1502,15 +1514,17 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     mkTop('leave', '✕', spec ? 'Stop watching' : 'Leave the match', () => {
       // Leaving as a spectator loses nothing: no confirmation needed. A
       // tournament match spells out the leaver penalty (v0.2).
-      const tournament = view.room !== null && isTournamentRoomId(view.room.id);
-      const msg = tournament
-        ? 'Leave the tournament match? A bot will take your seat. Leaving mid-match ' +
-          'forfeits all Rank Points gained in this match and bars you from ' +
-          "participating in next week's tournament."
-        : 'Leave the match? A bot will take your seat.';
+      const tournament = view.room !== null && view.room !== undefined && isTournamentRoomId(view.room.id);
+      const msg = view.tutorial
+        ? 'Leave the tutorial? Progress is not saved — it restarts from the beginning next time.'
+        : tournament
+          ? 'Leave the tournament match? A bot will take your seat. Leaving mid-match ' +
+            'forfeits all Rank Points gained in this match and bars you from ' +
+            "participating in next week's tournament."
+          : 'Leave the match? A bot will take your seat.';
       if (spec || confirm(msg)) exitMatch();
     });
-    if (!spec) {
+    if (!spec && !view.tutorial) {
       mkTop(
         'auto' + (autoMode === 'manual' ? ' active' : autoMode === 'system' ? ' system' : ''),
         'A',
@@ -1568,6 +1582,9 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   } else if (view.gameResult) {
     board.appendChild(gameResultOverlay(view));
   }
+
+  // ── tutorial overlay (v0.3): lesson panel + highlights ────────────
+  if (view.tutorial) tutorialOnRender(view, board, forceRerender);
 
   // ── tile flight animations (diff against the previous state) ──────
   animateTransition(board, prevSnap, view, ownClickRect, view.claimGapMs || 1500);
@@ -1793,14 +1810,17 @@ function matchResultOverlay(view: GameView): HTMLElement {
     <table class="pattern-list">${rows}</table>
     <div class="dialog-btns"><button id="tolobby">Back to Lobby</button></div>`;
   const exit = () => {
+    const wasTutorial = view.tutorial === true;
     autoMode = 'off';
     stopAutoTimer();
     resetInactivityStreak();
     closePanel();
+    tutorialStop();
     net.send({ type: 'leaveMatch' });
     net.state.gameView = null;
     net.state.inMatch = false;
-    location.hash = '#/play';
+    // The tutorial returns to the Help page when its timer is up (v0.3).
+    location.hash = wasTutorial ? '#/help' : '#/play';
     location.reload();
   };
   card.querySelector('#tolobby')!.addEventListener('click', exit);
@@ -1811,7 +1831,7 @@ function matchResultOverlay(view: GameView): HTMLElement {
   const localDeadline = Date.now() + msRemaining;
   const tick = () => {
     const secs = Math.max(0, Math.ceil((localDeadline - Date.now()) / 1000));
-    note.textContent = `Returning to lobby in ${secs}s…`;
+    note.textContent = `Returning to ${view.tutorial ? 'Help' : 'lobby'} in ${secs}s…`;
     if (secs <= 0 && note.isConnected) exit();
   };
   tick();

@@ -18,6 +18,11 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     name: 'Breaking Even',
     desc: 'Draw a match by finishing it with a final score of exactly 0.',
   },
+  {
+    id: 'journey-of-a-thousand-miles',
+    name: 'Journey of a Thousand Miles',
+    desc: 'Finish the tutorial.',
+  },
 ];
 
 export function achievementById(id: string): AchievementDef | undefined {

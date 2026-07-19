@@ -250,6 +250,8 @@ export interface GameView {
   phase: GamePhase;
   /** The room settings this match is played under (top-right ruleset note). */
   settings: RoomSettings;
+  /** Scripted tutorial match (v0.3): the client overlays its lesson steps. */
+  tutorial?: boolean;
   /**
    * Server clock (epoch ms) when this view was built. All timestamps in the
    * view (deadline, claim expires, nextAt) are on this clock; clients must
@@ -348,6 +350,8 @@ export type ClientMsg =
   /** The client's inactivity detection put this player in/out of system-set
    *  Auto Mode (v0.2): being in it when a match ends counts as leaving. */
   | { type: 'systemAuto'; on: boolean }
+  /** Start (or restart) the room-less scripted tutorial match (v0.3). */
+  | { type: 'startTutorial' }
   | { type: 'action'; action: GameAction };
 
 export type ServerMsg =

@@ -1,0 +1,61 @@
+Create a tutorial for new players to learn how to play Mahjong
+Access as a cyan blue colored button in the help page, before the button currently labeled "Zung Jung Patterns"
+
+Include another achievement called "Journey of a Thousand Miles", whose condition is finishing the tutorial
+
+Set up as a 1 round match, unlimited thinking time (although some moves will be forced by the tutorial), Chicken Hand worth 1 point, Par Score 25 points, Original Scoring, and No Bonus Tiles
+
+The opponents will be 3 Chicken Bots. The human will be starting East
+
+In general, all walls and therefore starting hands and draws will be rigged for the human to win all 4 games. To achieve this, the chicken bots will be dealt a starting hand that is 0 distance from ready for winning Seven Pairs, but with all three Chicken Bots waiting to win by pairing up the same tile (by convention, usually this will be the lowest priority discard that is not an honor, which for Seven Pairs hand is D9), and the last D9 tile buried deep in the dead wall, the Chicken Bots have no way of winning the hand
+
+For the first hand, deal the human B-13 C-5567 D-112 SNNN
+Deal ChickenBot1, who is Starting South, D-889 EEWWRRGGOO
+Deal ChickenBot2, who is Starting West, B-8899 C-99 D-889 EEWW
+Deal ChickenBot3, who is Starting North, B-8899 C-99 D-9 RRGGOO
+Make sure the last D9 and N are buried in the dead wall
+
+The goal of the first hand is to teach the player about Mahjong having 4 copies of number tiles, and honor tiles, 
+triplets, sequences, pairs, the winning hand, how to Pung, how to Chow, and how to Mahjong
+The player's first draw is B7
+The tutorial should point out features in settings, especially the option to turn English indices on
+Explain triplets (NNN), sequences (C-567), and pairs (D-11)
+Force the player to discard S
+ChickenBot1 must draw D1 and by its logic will discard it
+Explain what Pung is, then force the player to Pung D1, and then discard D2
+ChickenBots 1 and 2 discard anything except C5. Then ChickenBot3 must draw B2 and will discard it
+Explain what Chow is, then force the player to Chow B2, and then discard B7. Player is now waiting on C5 and C8
+Could also explain that discarding C5 is also an option to wait on B7, but that's worse because it has half the chances of winning
+Eventually, have one of the ChickenBots discard C8 for the player to call Mahjong on.
+The player will win a Chicken hand. Explain that while winning is good, it is better to try and make patterns which will provide much higher scores than the measly 1 point from a Chicken hand
+
+In general, for subsequent hands, follow the template of giving the bots Seven Pairs hands that are doomed to never win. But if they need to discard an honor tile, then the tile they have to wait on must be a honor tile later in their discard list. So in that case, make them wait on a Dragon, and discard a Wind that is not their Seat Wind
+However, for the next hand, the player must learn about precedence of claims, so ChickenBot3 will have to have the starting hand
+B-78 C-112233 D-59 EEE
+and the player given 
+B-599 C-444 D-1346 SS R
+giving the other two Chicken Bots clashing Seven Pairs hands as usual. However this time, one of them has to discard a South Wind eventually, so they should wait on White Dragon
+ChickenBot1 sitting East discards something, then ChickenBot2 sitting South discards B9, causing conflicting claims. Explain to the player Pung overrides Chow, and force them to Pung B9 and discard R
+Next, have ChickenBot3 draw B8, and now having five pairs presumably discards E
+Have the player draw R and discard it again. Perhaps lamenting to the player that it happens all the time in Mahjong you draw the exact same tile you discarded last turn
+Now, have ChickenBot3 draw B7, and it will discard D5
+Explain to the player they have a choice of Chows, and force them to Chow with 456 and discard B5. So now they are ready to win on D2, but it is yet another Chicken hand. However, unbeknownst to the player...
+Have the player's next draw be C4, and explain Concealed Kong, forcing them to make a Concealed Kong
+Have the tile drawn from the dead wall be S, and force the player to discard D3, saying that not only making a Kong is a 5 point pattern, having two concealed triplets (here C4 and S) is also 5 points, and concealed Kongs count as concealed triplets too
+Next, ChickenBot1 sitting east must discard S, and explain Big Exposed Kong to the player, force them to make the Big Exposed Kong
+Next, the player must draw B9 from the dead wall, and explain to the player what Small Exposed Kong is and that it can be robbed unlike Concealed Kong, force them to make the Small Exposed Kong
+And finally, the player must draw D1 from the dead wall, force the player to declare Mahjong (self-drawn)
+The player will win a 130 point hand with Three Kongs and Win on Kong
+Explain that this is a humongous scoring hand 
+
+On the third hand, teach the player how to make the pattern Mixed One Suit
+Have the player win on a discarded tile, so you can explain Zung Jung's par score mechanism and that in the first hand, all three opponents paid equally since it was a small hand worth 25 points or less
+But for big hands worth more than 25 points, the non-discarders pay only 25 points while the discarder has to shoulder the rest
+
+And finally, on the fourth hand, teach the player the irregular patterns Seven Pairs, and Thirteen Terminals. Deal the player a hand such as
+B-19 C-147 D-19 SWNRGO that obviously should go for Thirteen Terminals, and have the robots be waiting for D9 as usual, only this time the player has the fourth D9 and do not let the player discard D9 (nor any unique terminal for that matter)
+Eventually, the player should draw the two missing tiles, C9 and E
+Explain that the player is now waiting on a 13 way wait for any of the tiles to pair up and win Thirteen Terminals
+Finally, let the player's next draw be C1 for winning Mahjong
+
+That completes the tutorial. Show the scoring screen as if it were an actual game, then when the timer is up, return to the Help page

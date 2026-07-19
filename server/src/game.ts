@@ -49,6 +49,10 @@ export interface GameTiming {
 
 export interface GameHost {
   settings: RoomSettings;
+  /** Tutorial (v0.3): the rigged wall for this game; null/absent = random. */
+  fixedWall?(gameIndex: number): { tiles: Tile[]; dice: [number, number, number, number] } | null;
+  /** Tutorial (v0.3): no thinking clocks — phases wait for the player. */
+  unlimitedThinking?: boolean;
   /** Is this current seat driven by the server (bot or disconnected human)? */
   isBot(seat: number): boolean;
   /** Bot brain for a server-driven seat (disconnected humans get 'dummy'). */
@@ -165,18 +169,21 @@ export class Game {
   resultScore: ScoreResult | null = null;
   ended = false;
 
-  /** 64-bit seed this game's wall+dice were generated from (v0.2). */
-  readonly wallSeed: bigint;
+  /** 64-bit seed this game's wall+dice were generated from (v0.2); null for
+   *  a rigged tutorial wall, which no seed produces. */
+  readonly wallSeed: bigint | null;
 
   constructor(gameIndex: number, host: GameHost) {
     this.gameIndex = gameIndex;
     this.host = host;
+    const fixed = host.fixedWall?.(gameIndex) ?? null;
     // The wall (and its break dice) comes from a fixed PRNG over a per-game
     // 64-bit seed, so any game is reproducible from its displayed seed. The
     // seed itself is drawn from the host RNG (seeded in tests).
-    this.wallSeed = randomWallSeed(host.rng);
-    this.wall = new Wall(prngFromSeed(this.wallSeed), {
+    this.wallSeed = fixed ? null : randomWallSeed(host.rng);
+    this.wall = new Wall(this.wallSeed !== null ? prngFromSeed(this.wallSeed) : host.rng, {
       bonus: (host.settings.bonusTiles ?? 'none') !== 'none',
+      ...(fixed ? { fixed } : {}),
     });
     this.hands = this.wall.hands.map((h) => sortTiles(h));
     this.startingHands = this.hands.map((h) => [...h]);
@@ -233,6 +240,22 @@ export class Game {
       this.timer = null;
       fn();
     }, ms);
+  }
+
+  /**
+   * A thinking clock (pre-discard, claim, rob). Under the tutorial's
+   * unlimited thinking there is no clock at all: the phase stays open until
+   * the player acts (early-resolution paths still fire once everyone has).
+   */
+  private scheduleThinking(ms: number, fn: () => void): void {
+    if (this.host.unlimitedThinking) {
+      if (this.timer) clearTimeout(this.timer);
+      this.timer = null;
+      this.deadline = null;
+      this.phaseDuration = null;
+      return;
+    }
+    this.schedule(ms, fn);
   }
 
   /** Schedule without a visible countdown (uniform pacing windows). */
@@ -320,7 +343,7 @@ export class Game {
     this.drawnFromDead = source === 'dead';
     this.currentMove = { seat, part1: { t: 'draw', tile } };
 
-    this.schedule(this.thinkingMs(), () => this.preDiscardTimeout(seat));
+    this.scheduleThinking(this.thinkingMs(), () => this.preDiscardTimeout(seat));
     if (this.host.isBot(seat)) {
       this.botTimer = setTimeout(() => {
         this.botTimer = null;
@@ -539,7 +562,7 @@ export class Game {
     }
     this.phase = 'postDiscard';
     this.claim = { discarder, tile, riverbed, slots };
-    this.schedule(this.claimMs(), () => this.resolveClaims(true));
+    this.scheduleThinking(this.claimMs(), () => this.resolveClaims(true));
     this.host.onChange();
   }
 
@@ -633,7 +656,7 @@ export class Game {
       // this claim kind, so on/off cycling cannot farm thinking time.
       if (choice.kind !== 'pass' && !slot.announcedKinds.has(choice.kind as ClaimKind)) {
         slot.announcedKinds.add(choice.kind as ClaimKind);
-        this.schedule(this.claimMs(), () => this.resolveClaims(true));
+        this.scheduleThinking(this.claimMs(), () => this.resolveClaims(true));
       }
       this.checkClaimResolution();
       this.host.onChange();
@@ -1052,7 +1075,7 @@ export class Game {
     }
     this.phase = 'robbing';
     this.rob = { konger: seat, tile, slots, pungMeld };
-    this.schedule(this.claimMs(), () => this.resolveRob(true));
+    this.scheduleThinking(this.claimMs(), () => this.resolveRob(true));
     if (botRobbers) {
       if (this.claimBotTimer) clearTimeout(this.claimBotTimer);
       this.claimBotTimer = setTimeout(() => {
@@ -1448,7 +1471,7 @@ export class Game {
   toRecord(): GameRecord {
     return {
       gameNumber: gameNumberOf(this.gameIndex).latin,
-      seed: displaySeed(this.wallSeed, this.wall.dice),
+      ...(this.wallSeed !== null ? { seed: displaySeed(this.wallSeed, this.wall.dice) } : {}),
       remaining: this.wall.remaining,
       startingHands: this.startingHands,
       moves: this.moves,

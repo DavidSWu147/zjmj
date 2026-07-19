@@ -37,22 +37,37 @@ export class Wall {
   private liveTotal: number;
   private lastColumn: number;
 
-  constructor(rng: () => number = Math.random, opts: { bonus?: boolean } = {}) {
+  constructor(
+    rng: () => number = Math.random,
+    opts: {
+      bonus?: boolean;
+      /** Rigged wall (tutorial): the exact tile sequence and dice to use. */
+      fixed?: { tiles: Tile[]; dice: [number, number, number, number] };
+    } = {},
+  ) {
     this.bonus = opts.bonus ?? false;
     this.liveTotal = this.bonus ? 76 : 70;
     this.lastColumn = this.bonus ? 71 : 67;
-    const d = () => 1 + Math.floor(rng() * 6);
-    this.dice = [d(), d(), d(), d()];
+    if (opts.fixed) {
+      const want = this.bonus ? 144 : 136;
+      if (opts.fixed.tiles.length !== want) {
+        throw new Error(`fixed wall needs ${want} tiles, got ${opts.fixed.tiles.length}`);
+      }
+      this.dice = [...opts.fixed.dice];
+      this.tiles = [...opts.fixed.tiles];
+    } else {
+      const d = () => 1 + Math.floor(rng() * 6);
+      this.dice = [d(), d(), d(), d()];
+      const pool = fullTileSet(this.bonus);
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+      }
+      this.tiles = pool;
+    }
     const firstSum = this.dice[0] + this.dice[1];
     // sum % 4: 1 -> E, 2 -> S, 3 -> W, 0 -> N
     this.breakSeat = [3, 0, 1, 2][firstSum % 4];
-
-    const pool = fullTileSet(this.bonus);
-    for (let i = pool.length - 1; i > 0; i--) {
-      const j = Math.floor(rng() * (i + 1));
-      [pool[i], pool[j]] = [pool[j], pool[i]];
-    }
-    this.tiles = pool;
 
     this.hands = [[], [], [], []];
     // 3 rounds of 4 tiles (2 columns) per player.

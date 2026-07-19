@@ -1,4 +1,6 @@
 import { ADJUSTED_POINTS, OPTIONAL_PATTERN_IDS, PATTERN_IDS, PATTERNS } from '../../../shared/src/scoring';
+import { net } from '../net';
+import { tutorialStart } from './tutorial';
 
 /** The four optional patterns (playable under "Adjusted Scoring with Extra Patterns"). */
 const OPTIONAL_PATTERNS: { id: string; name: string; zh: string; points: number; desc: string }[] = [
@@ -92,6 +94,18 @@ export function renderHelp(root: HTMLElement): void {
     el.querySelector<HTMLElement>('#body')!,
     el.querySelector<HTMLElement>('#tabs-slot')!,
   );
+  // The tutorial launcher (v0.3) leads the tab row — Help page only, never
+  // the in-match panel (players must not abandon a live match for it).
+  const tut = document.createElement('button');
+  tut.className = 'tutorial-btn';
+  tut.textContent = 'Tutorial 教學';
+  tut.title = 'Learn how to play Mahjong in a guided practice match';
+  tut.addEventListener('click', () => {
+    tutorialStart();
+    net.send({ type: 'startTutorial' });
+    location.hash = '#/play';
+  });
+  el.querySelector('.help-tabs')!.prepend(tut);
   root.appendChild(el);
 }
 
