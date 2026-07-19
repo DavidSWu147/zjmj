@@ -49,6 +49,8 @@ const info = (text: string, highlight?: string[]): Step => ({ text, next: true, 
 const wait = (text: string, until: (v: GameView) => boolean): Step => ({ text, until });
 
 const HAND = (t: string) => `.hand-area [data-t="${t}"]`;
+/** Highlights only the LAST matching tile (e.g. the 2nd C5 of a pair). */
+const HAND_LAST = (t: string) => `${HAND(t)}::last`;
 
 const STEPS: Step[] = [
   // ── Game E1: the basics ─────────────────────────────────────────────
@@ -73,7 +75,7 @@ const STEPS: Step[] = [
       'counting the winning one. A set is a TRIPLET (three identical tiles — ' +
       'you hold N N N) or a SEQUENCE (three consecutive tiles of one suit — ' +
       'your Characters 5-6-7). You also hold a PAIR of Dot 1s.',
-    [HAND('N '), HAND('C5'), HAND('C6'), HAND('C7'), HAND('D1')],
+    [HAND('N '), HAND_LAST('C5'), HAND('C6'), HAND('C7'), HAND('D1')],
   ),
   info(
     'The dial in the middle shows the game number and the count of tiles left ' +
@@ -453,6 +455,38 @@ export function tutorialOnRender(
 
   const panel = document.createElement('div');
   panel.className = 'tutorial-panel';
+  // Position (v0.2.1 fix): sit just right of the left opponent's strip,
+  // narrow enough to stay clear of the pinwheel's left wall band, and above
+  // everything at the bottom (the player's wall band and hand) — all
+  // measured from the freshly rendered board.
+  const W = board.clientWidth || window.innerWidth;
+  const H = board.clientHeight || window.innerHeight;
+  const left = 96;
+  const bRect = board.getBoundingClientRect();
+  // Width: capped by the leftmost wall/discard column in the board's left
+  // half (the vertical left wall band, when walls are drawn).
+  let rightLimit = left + Math.min(360, W * 0.34);
+  for (const el of board.querySelectorAll('.discard-zone .tor')) {
+    const r = el.getBoundingClientRect();
+    const midX = r.left + r.width / 2 - bRect.left;
+    const midY = r.top + r.height / 2 - bRect.top;
+    if (midX < W / 2 && midY > H * 0.25 && midY < H * 0.8) {
+      rightLimit = Math.min(rightLimit, r.left - bRect.left - 12);
+    }
+  }
+  const width = Math.max(200, rightLimit - left);
+  panel.style.left = `${left}px`;
+  panel.style.width = `${width}px`;
+  // Bottom: above anything occupying the panel's horizontal span.
+  let limit = H - 16;
+  for (const el of board.querySelectorAll('.discard-zone .tor, .hand-area, .opp-hand')) {
+    const r = el.getBoundingClientRect();
+    const top = r.top - bRect.top;
+    const l = r.left - bRect.left;
+    const rgt = r.right - bRect.left;
+    if (top > H * 0.5 && l < left + width && rgt > left) limit = Math.min(limit, top);
+  }
+  panel.style.bottom = `${H - limit + 12}px`;
   const body = document.createElement('div');
   body.className = 'tp-text';
   body.textContent = step.text;
@@ -484,6 +518,11 @@ export function tutorialOnRender(
   board.appendChild(panel);
 
   for (const sel of step.highlight ?? []) {
-    board.querySelectorAll(sel).forEach((el) => el.classList.add('tutorial-glow'));
+    if (sel.endsWith('::last')) {
+      const els = board.querySelectorAll(sel.slice(0, -'::last'.length));
+      els[els.length - 1]?.classList.add('tutorial-glow');
+    } else {
+      board.querySelectorAll(sel).forEach((el) => el.classList.add('tutorial-glow'));
+    }
   }
 }

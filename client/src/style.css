@@ -1764,12 +1764,12 @@ table.data th.num {
   filter: brightness(1.2);
 }
 
-/* The lesson panel: clear of the left opponent's strip and the hand
-   (v0.2.1 #1). */
+/* The lesson panel: positioned by the tutorial engine, clear of the left
+   opponent's strip, the player's wall band, and the hand (v0.2.1 #1). */
 .tutorial-panel {
   position: absolute;
-  left: 132px;
-  bottom: calc(var(--tw, 44px) * 4 / 3 + 104px);
+  left: 96px;
+  bottom: 240px; /* fallback; the engine measures the real obstacles */
   width: min(360px, 34vw);
   padding: 12px 14px;
   background: linear-gradient(160deg, #0d3c41ee, #092a2eee);
