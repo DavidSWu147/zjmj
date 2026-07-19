@@ -477,7 +477,9 @@ export function tutorialOnRender(
   const width = Math.max(200, rightLimit - left);
   panel.style.left = `${left}px`;
   panel.style.width = `${width}px`;
-  // Bottom: above anything occupying the panel's horizontal span.
+  // Bottom: above anything occupying the panel's horizontal span — and
+  // never below the hand-tile row, even when a short hand slides out of
+  // the span (its top is a hard floor, with ample clearance).
   let limit = H - 16;
   for (const el of board.querySelectorAll('.discard-zone .tor, .hand-area, .opp-hand')) {
     const r = el.getBoundingClientRect();
@@ -486,7 +488,9 @@ export function tutorialOnRender(
     const rgt = r.right - bRect.left;
     if (top > H * 0.5 && l < left + width && rgt > left) limit = Math.min(limit, top);
   }
-  panel.style.bottom = `${H - limit + 12}px`;
+  const hand = board.querySelector('.hand-area');
+  if (hand) limit = Math.min(limit, hand.getBoundingClientRect().top - bRect.top);
+  panel.style.bottom = `${H - limit + 20}px`;
   const body = document.createElement('div');
   body.className = 'tp-text';
   body.textContent = step.text;
