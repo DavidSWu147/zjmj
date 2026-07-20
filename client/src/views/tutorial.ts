@@ -64,8 +64,8 @@ const STEPS: Step[] = [
     'If the Chinese tile faces are unfamiliar, open Settings (the gear, top ' +
       'left) at any time and turn on “English indices” — Character and Wind ' +
       'tiles then show a small index in their corner, where it is needed ' +
-      'most (Bamboo and Dot ranks are countable at a glance — though note ' +
-      'the 1 Bamboo is traditionally drawn as a bird!). Settings also lets ' +
+      'most Note ' +
+      'the 1 Bamboo is traditionally drawn as a bird!. Settings also lets ' +
       'you restyle the tile faces, tile backs, and table felt to your ' +
       'liking. The ? button reopens the pattern tables.',
     ['.top-btn.gear'],
@@ -86,8 +86,8 @@ const STEPS: Step[] = [
   {
     text:
       'You drew Bamboo 7 — useful! The lone South wind is not: you can never ' +
-      'make sequences with honors, only pairs, or triplets which are less ' +
-      'likely. Discard S: click it once to lift it, then click again to ' +
+      'make sequences with honors, only pairs, or sometimes triplets. ' +
+      'Discard S: click it once to lift it, then click again to ' +
       'confirm.',
     allow: allowDiscard('S '),
     until: (v) => discarded(v, 'S '),
@@ -272,7 +272,7 @@ const STEPS: Step[] = [
   // ── Game E3: Mixed One-Suit and the par score ───────────────────────
   info(
     'Game 3 — you sit West now. Look at your hand: almost every tile is ' +
-      'Bamboo! A hand of one suit plus honors scores MIXED ONE-SUIT, worth 40 ' +
+      'Bamboo or honors! A hand of one suit plus honors scores MIXED ONE-SUIT, worth 40 ' +
       'points. Let’s go for it: keep Bamboo and honors, shed everything else.',
   ),
   wait('Your turn is coming…', (v) => myTurn(v) && v.myDrawn === 'B9'),
@@ -304,8 +304,8 @@ const STEPS: Step[] = [
   },
   {
     text:
-      'Discard the Dot 8 — your last off-suit tile. You are READY: another ' +
-      'Bamboo 3 or Bamboo 6 completes the pair.',
+      'Discard the Dot 8 — your last off-suit tile. You are READY: Bamboo 3 or Bamboo 6 completes ' +
+      'the 4-5 — a two-sided wait.',
     allow: allowDiscard('D8'),
     until: (v) => melds(v).length === 1 && discarded(v, 'D8'),
     highlight: [HAND('D8')],
