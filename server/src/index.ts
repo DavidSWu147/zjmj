@@ -216,6 +216,8 @@ function handleMsg(session: Session, msg: ClientMsg): void {
   switch (msg.type) {
     case 'hello':
       break; // handled at connection setup
+    case 'ping':
+      break; // keepalive traffic only (v0.2.3 #3)
     case 'createRoom': {
       if (msg.isPrivate && session.kind !== 'account') {
         send(session, { type: 'toast', message: 'Sign in to create a private room.' });

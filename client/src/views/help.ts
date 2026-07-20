@@ -1,6 +1,118 @@
 import { ADJUSTED_POINTS, OPTIONAL_PATTERN_IDS, PATTERN_IDS, PATTERNS } from '../../../shared/src/scoring';
+import { Tile } from '../../../shared/src/tiles';
 import { net } from '../net';
+import { tileSrc } from '../tileui';
 import { tutorialStart } from './tutorial';
+
+/**
+ * Explanations for the standard patterns (v0.2.3 #1), following the official
+ * "The Patterns in Zung Jung" text.
+ */
+const STANDARD_DESCS: Record<string, string> = {
+  chicken: 'A winning hand that scores no patterns at all. Whether it is allowed, and its value, depend on the room settings.',
+  '1.1': 'The hand contains 4 sequences; no triplets/kong. There are no other restrictions as to the eyes pair, single call, or concealed hand.',
+  '1.2': 'A regular hand which is concealed, without melding any exposed sets before winning. Winning on discard is okay. Concealed kong are okay.',
+  '1.3': 'The hand consists entirely of middle number tiles (2 to 8); no terminals or honors.',
+  '2.1.1': 'The hand consists entirely of number tiles in one suit, plus honor tiles.',
+  '2.1.2': 'The hand consists entirely of number tiles in one suit.',
+  '2.2': 'A 9-way call hand, with “1112345678999” in one suit in your hand, and winning on any one tile in the same suit.',
+  '3.1R': 'A triplet/kong of Red Dragons.',
+  '3.1G': 'A triplet/kong of Green Dragons.',
+  '3.1O': 'A triplet/kong of White Dragons.',
+  '3.1S': 'A triplet/kong of your Seat Wind (your own Wind). In Zung Jung the Prevailing Wind is not recognized.',
+  '3.2.1': 'Two triplet/kong of Dragons, plus a pair of Dragons as the eyes. This hand always includes two Dragon triplets, so it scores at least 40+10+10 = 60 points.',
+  '3.2.2': 'Three triplet/kong of Dragons. This hand always includes three Dragon triplets, so it scores at least 130+10+10+10 = 160 points.',
+  '3.3.1': 'Two triplet/kong of Winds, plus a pair of Winds as the eyes.',
+  '3.3.2': 'Three triplet/kong of Winds.',
+  '3.3.3': 'Three triplet/kong of Winds, plus a pair of Winds as the eyes.',
+  '3.3.4': 'Four triplet/kong of Winds.',
+  '3.4': 'The hand consists entirely of honor tiles.',
+  '4.1': 'The hand contains 4 sets of triplets/kong; no sequences.',
+  '4.2.1': 'The hand contains two concealed triplets/concealed kong.',
+  '4.2.2': 'The hand contains three concealed triplets/concealed kong.',
+  '4.2.3': 'The hand contains four concealed triplets/concealed kong.',
+  '4.3.1': 'The hand contains one kong — irrespective of whether it is exposed or concealed (same below).',
+  '4.3.2': 'The hand contains two kong.',
+  '4.3.3': 'The hand contains three kong.',
+  '4.3.4': 'The hand contains four kong.',
+  '5.1.1': 'Two sequences in the same suit in the same numbers. (Identical sets are sets in the same suit in the same numbers; only sequences can be identical.)',
+  '5.1.2': 'The hand contains two groups of “Two Identical Sequences”.',
+  '5.1.3': 'Three sequences in the same suit in the same numbers.',
+  '5.1.4': 'Four sequences in the same suit in the same numbers.',
+  '6.1': 'Three sequences in the same numbers across three different suits. (In Zung Jung all 3 suits must be present; 2-suit patterns are not recognized.)',
+  '6.2.1': 'Two triplets/kong in the same number in two different suits, and the eye pair in the same number in the third suit.',
+  '6.2.2': 'Three triplets/kong in the same number across three different suits.',
+  '7.1': 'A “123” sequence, a “456” sequence, and a “789” sequence, all in the same suit. The hand must contain exactly the three sequences listed.',
+  '7.2.1': 'Three triplets/kong in consecutive numbers in the same suit.',
+  '7.2.2': 'Four triplets/kong in consecutive numbers in the same suit.',
+  '8.1.1': 'Every one of the 4 sets in the hand, as well as the pair of eyes, includes a terminal tile (a 1 or 9) or an honor tile.',
+  '8.1.2': 'Every one of the 4 sets in the hand, as well as the pair of eyes, includes a terminal number tile (a 1 or 9).',
+  '8.1.3': 'An “All Triplets” or “Seven Pairs” hand which consists entirely of terminal tiles and honor tiles. (Not applicable to a “Thirteen Terminals” hand.)',
+  '8.1.4': 'The hand consists entirely of terminal number tiles.',
+  '9.1.1': 'Self-draw win on the “seabed” tile (the last tile in the wall, excluding the king’s tiles).',
+  '9.1.2': 'Winning on a discarded “riverbed” tile (the last discard by the player who has drawn the seabed tile).',
+  '9.2': 'Self-draw win on a “supplement” tile (after declaring a kong). If the supplement tile is also the seabed tile, both patterns can be counted.',
+  '9.3': 'Winning by robbing a kong (when another player makes a “small exposed kong”).',
+  '9.4.1': 'East winning with his initial 14-tile hand. (This pattern is invalid if East has made a concealed kong.)',
+  '9.4.2': 'A non-East player calling with his initial 13-tile hand, and winning on East’s very first discard. (Invalid if East has made a concealed kong.)',
+  '10.1': 'Among the 13 types of terminals and honors, the hand contains one pair of one type, and one tile each of the other 12 types. (Irregular hands do not count for “Concealed Hand”.)',
+  '10.2': 'The hand consists of seven pairs. Four identical tiles can count as two pairs as long as kong is not declared. A Seven Pairs hand cannot count patterns which specifically require triplets, kong, or sequences, but can count other patterns without such requirements.',
+};
+
+/**
+ * Example hands, exactly the ones illustrated in the official pattern text:
+ * comma-separated sets; a trailing '*' / '+' reproduces the doc's
+ * "(eyes)" / "(eye)" label on that set.
+ */
+const EXAMPLES: Record<string, string> = {
+  '3.2.1': 'O O O, R R R, G G*',
+  '3.2.2': 'O O O, G G G, R R R',
+  '3.3.1': 'W W W, N N N, E E*',
+  '3.3.2': 'E E E, S S S, N N N',
+  '3.3.3': 'E E E, W W W, N N N, S S*',
+  '3.3.4': 'E E E, S S S, W W W, N N N',
+  '5.1.1': 'D3 D4 D5, D3 D4 D5',
+  '5.1.2': 'D3 D4 D5, D3 D4 D5, C7 C8 C9, C7 C8 C9',
+  '5.1.3': 'D3 D4 D5, D3 D4 D5, D3 D4 D5',
+  '5.1.4': 'D3 D4 D5, D3 D4 D5, D3 D4 D5, D3 D4 D5',
+  '6.1': 'D3 D4 D5, B3 B4 B5, C3 C4 C5',
+  '6.2.1': 'D4 D4 D4, C4 C4 C4, B4 B4+',
+  '6.2.2': 'D4 D4 D4, C4 C4 C4, B4 B4 B4',
+  '7.1': 'C1 C2 C3, C4 C5 C6, C7 C8 C9',
+  '7.2.1': 'C4 C4 C4, C5 C5 C5, C6 C6 C6',
+  '7.2.2': 'C4 C4 C4, C5 C5 C5, C6 C6 C6, C7 C7 C7',
+  '8.1.1': 'B1 B1 B1, C1 C2 C3, D7 D8 D9, R R R, C9 C9',
+  '8.1.2': 'B1 B2 B3, C1 C1 C1, C7 C8 C9, D9 D9 D9, B1 B1',
+  '8.1.3': 'B9 B9 B9, C1 C1 C1, W W W, G G G, D1 D1',
+  '8.1.4': 'B1 B1 B1, C9 C9 C9, D1 D1 D1, D9 D9 D9, B9 B9',
+  '10.2': 'B2 B2, C6 C6, D1 D1, D7 D7, O O, W W, N N',
+  // Optional patterns (1.4 has no example in the doc).
+  '2.3': 'B3 B4 B5, D7 D8 D9, S S S, G G G, C6 C6',
+  '8.2': 'B1 B1 B1, C2 C2 C2, D8 D8 D8, B9 B9 B9, C8 C8',
+  '8.3': 'B1 B2 B3, C5 C6 C7, D9 D9 D9, W W W, B4 B4',
+};
+
+/**
+ * Renders an example hand. The tiles deliberately carry no data-t: help
+ * illustrations neither trigger nor receive the same-tile hover highlight
+ * (v0.2.3 #1).
+ */
+function exHtml(spec: string): string {
+  const sets = spec.split(',').map((g) => {
+    let s = g.trim();
+    const label = s.endsWith('*') ? '(eyes)' : s.endsWith('+') ? '(eye)' : null;
+    if (label) s = s.slice(0, -1).trim();
+    const imgs = s
+      .split(/\s+/)
+      .map((code) => {
+        const t = (code.length === 1 ? `${code} ` : code) as Tile;
+        return `<span class="tile"><img src="${tileSrc(t)}" alt="${code}" draggable="false"></span>`;
+      })
+      .join('');
+    return `<span class="ex-set">${imgs}${label ? `<span class="ex-eyes">${label}</span>` : ''}</span>`;
+  });
+  return `<div class="help-ex">${sets.join('')}</div>`;
+}
 
 /** The four optional patterns (playable under "Adjusted Scoring with Extra Patterns"). */
 const OPTIONAL_PATTERNS: { id: string; name: string; zh: string; points: number; desc: string }[] = [
@@ -124,12 +236,18 @@ function standardHtml(): string {
   const rows = orderedIds
     .map((id) => {
       const p = PATTERNS[id];
+      const desc = STANDARD_DESCS[id];
+      const ex = EXAMPLES[id];
       return `<tr>
         <td style="color:var(--text-dim)">${id === 'chicken' ? '0.0' : id}</td>
         <td>${p.name}</td>
         <td style="color:var(--text-dim)">${p.zh}</td>
         <td class="num">${p.points}</td>
-      </tr>`;
+      </tr>${
+        desc || ex
+          ? `<tr><td></td><td colspan="3" class="desc">${desc ?? ''}${ex ? exHtml(ex) : ''}</td></tr>`
+          : ''
+      }`;
     })
     .join('');
   return `
@@ -149,7 +267,7 @@ function optionalHtml(): string {
       <td style="color:var(--text-dim)">${p.zh}</td>
       <td class="num">${p.points}</td>
     </tr>
-    <tr><td></td><td colspan="3" class="desc">${p.desc}</td></tr>`,
+    <tr><td></td><td colspan="3" class="desc">${p.desc}${EXAMPLES[p.id] ? exHtml(EXAMPLES[p.id]) : ''}</td></tr>`,
   ).join('');
   const changes = ADJUSTED_CHANGES.map((c) => {
     const p = PATTERNS[c.id];
@@ -192,6 +310,7 @@ function bonusHtml(): string {
       A hand with any bonus tiles is not a chicken hand — but if Chicken Hand is not allowed,
       bonus tiles alone are not enough: at least one pattern from the first 10 categories is
       required to declare Mahjong.</div>
+    ${exHtml('F1 F2 F3 F4, A1 A2 A3 A4')}
     <table class="data" style="max-width:760px">
       <tr><th>#</th><th>Pattern</th><th></th><th class="num">Points</th></tr>
       ${rows}

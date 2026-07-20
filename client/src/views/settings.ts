@@ -296,6 +296,39 @@ export function buildHotkeySettings(
   renderBindings();
 }
 
+/**
+ * Touch support for a range input (v0.2.3 #4). Mobile browsers only move
+ * a native slider when the drag starts exactly on the thumb, which made
+ * the volume sliders unusable; instead any touch on the control sets the
+ * value from the touch position — tap or drag, every step from 0 (mute)
+ * to 100 reachable, just like with a mouse. Mouse input keeps the native
+ * behavior.
+ */
+function touchSlider(input: HTMLInputElement): void {
+  input.style.touchAction = 'none';
+  const set = (clientX: number): void => {
+    const r = input.getBoundingClientRect();
+    const min = Number(input.min || 0);
+    const max = Number(input.max || 100);
+    const frac = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+    const v = String(Math.round(min + frac * (max - min)));
+    if (v !== input.value) {
+      input.value = v;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  };
+  input.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse') return;
+    e.preventDefault();
+    input.setPointerCapture(e.pointerId);
+    set(e.clientX);
+  });
+  input.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'mouse' || e.buttons === 0) return;
+    set(e.clientX);
+  });
+}
+
 /** BGM/SFX volume sliders + Claims Voice picker (v0.2.2 #12/#13). */
 export function buildSoundSettings(mount: HTMLElement): void {
   const s = getSettings();
@@ -325,6 +358,7 @@ export function buildSoundSettings(mount: HTMLElement): void {
   `;
   const hookVol = (id: string, key: 'bgmVolume' | 'sfxVolume'): void => {
     const input = mount.querySelector<HTMLInputElement>(`#${id}`)!;
+    touchSlider(input);
     input.addEventListener('input', () => {
       mount.querySelector(`#${id}-value`)!.textContent = input.value;
       updateSettings({ [key]: Number(input.value) });

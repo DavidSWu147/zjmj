@@ -356,6 +356,12 @@ dialog::backdrop {
 .slider-group input[type='range'] {
   width: 100%;
 }
+/* Touch screens get a taller strike zone on sliders (v0.2.3 #4). */
+@media (pointer: coarse) {
+  .slider-group input[type='range'] {
+    height: 34px;
+  }
+}
 .slider-value {
   font-size: 14px;
   color: var(--text);
@@ -679,6 +685,28 @@ dialog::backdrop {
   50%,
   100% {
     opacity: 0;
+  }
+}
+/* 56+ point rainbow upgrade (v0.2.3 #7): the area holds 7 diagonal stripe
+   layers (30° off vertical); each hides for 2/7 of the gold period on its
+   own offset, leaving a sliding window of 5 lit colors. */
+.win-flash.rainbow {
+  background: none;
+  animation: none;
+  overflow: hidden;
+}
+.rainbow-stripe {
+  position: absolute;
+  inset: 0;
+  animation: rainbow-stripe 0.8s steps(1) infinite;
+}
+@keyframes rainbow-stripe {
+  0% {
+    opacity: 0;
+  }
+  28.5714%,
+  100% {
+    opacity: 1;
   }
 }
 /* A 125+ point pattern's name in large golden Chinese text mid-board. */
@@ -1380,6 +1408,27 @@ td.desc {
   color: var(--text-dim);
   font-size: 13px;
 }
+/* Example hands on the help pages (v0.2.3 #1). Illustration only: the
+   tiles carry no data-t, so the same-tile hover highlight ignores them. */
+.help-ex {
+  --tw: 30px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 6px 14px;
+  margin: 8px 0 4px;
+}
+.ex-set {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+}
+.ex-eyes {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-left: 4px;
+  align-self: center;
+}
 
 /* ── Stats & records ──────────────────────────────────────────────── */
 
@@ -1920,6 +1969,12 @@ table.data th.num {
   .stats-body > #body {
     grid-column: 1;
     grid-row: 1;
+  }
+  /* Wide desktops read the stat boxes as a 2×6 rectangle again
+     (v0.2.3 #8) instead of the auto-filled 3×4. */
+  .stats-body .stat-grid {
+    grid-template-columns: repeat(2, minmax(240px, 1fr));
+    max-width: 760px;
   }
 }
 

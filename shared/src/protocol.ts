@@ -367,6 +367,9 @@ export type ClientMsg =
   | { type: 'startTutorial' }
   /** Tutorial only: advance past the current scoring screen (v0.2.1 #12). */
   | { type: 'tutorialNext' }
+  /** Keepalive (v0.2.3 #3): traffic so idle connections (e.g. the tutorial's
+   *  clockless waits) are not dropped by proxies or the browser. */
+  | { type: 'ping' }
   | { type: 'action'; action: GameAction };
 
 export type ServerMsg =

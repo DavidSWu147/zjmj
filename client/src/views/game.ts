@@ -62,6 +62,8 @@ let lastViewKey = '';
 let shownBigPattern = '';
 let winFlashKey = '';
 let winFlashStart = 0;
+/** The 7 stripe colors of the 56+ point rainbow flash (v0.2.3 #7). */
+const RAINBOW = ['#e0342c', '#f28c1b', '#f5d327', '#39b54a', '#28c8d4', '#2e6fe4', '#8a3fd1'];
 /** The element renderGame last mounted into (panel + re-render target). */
 let mountEl: HTMLElement | null = null;
 /** In-match overlay panel currently open (top-bar Settings/Help buttons). */
@@ -281,14 +283,46 @@ function noteManualInput(): void {
   exitSystemAuto();
 }
 
+// ── tutorial inactivity (v0.2.3 #3) ─────────────────────────────────
+// The tutorial has no thinking clocks, so its own idle rule applies: two
+// minutes without any input (double the ~1 minute the old idle-socket
+// drop effectively allowed) ends the run and returns to the Help screen.
+const TUTORIAL_IDLE_MS = 120_000;
+let tutIdleTimer: number | null = null;
+
+function armTutorialIdle(): void {
+  if (tutIdleTimer !== null) clearTimeout(tutIdleTimer);
+  tutIdleTimer = window.setTimeout(() => {
+    tutIdleTimer = null;
+    if (net.state.gameView?.tutorial) exitMatch();
+  }, TUTORIAL_IDLE_MS);
+}
+
+function stopTutorialIdle(): void {
+  if (tutIdleTimer !== null) clearTimeout(tutIdleTimer);
+  tutIdleTimer = null;
+}
+
+// Any interaction anywhere (tiles, tutorial Next buttons, panels, keys)
+// counts as tutorial activity.
+document.addEventListener('pointerdown', () => {
+  if (net.state.gameView?.tutorial) armTutorialIdle();
+});
+document.addEventListener('keydown', () => {
+  if (net.state.gameView?.tutorial) armTutorialIdle();
+});
+
 /** Runs on every server update, whether or not the board is being rendered. */
 function trackInactivity(): void {
   const view = net.state.gameView;
-  // The tutorial has unlimited thinking and no Auto Mode: nothing to track.
+  // The tutorial has unlimited thinking and no Auto Mode: nothing to track
+  // beyond its own idle timeout.
   if (view?.tutorial) {
     curDecision = null;
+    if (tutIdleTimer === null) armTutorialIdle();
     return;
   }
+  stopTutorialIdle();
   if (!view || view.matchResult) {
     // Match over (or left): system-set Auto Mode does not carry between
     // matches. No systemAuto message — the server already read the state
@@ -384,6 +418,7 @@ function exitMatch(): void {
   const wasTutorial = net.state.gameView?.tutorial === true;
   autoMode = 'off';
   stopAutoTimer();
+  stopTutorialIdle();
   curDecision = null;
   resetInactivityStreak();
   freeOrder = null;
@@ -1490,7 +1525,28 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       glow.style.top = `${strip.y - 8}px`;
       glow.style.width = `${strip.w + 16}px`;
       glow.style.height = `${strip.h + 16}px`;
-      glow.style.animationDelay = `${-(Date.now() - winFlashStart)}ms`;
+      const elapsed = Date.now() - winFlashStart;
+      if (view.winFlash.value > 55) {
+        // 56+ points upgrade gold to rainbow (v0.2.3 #7): 7 diagonal stripe
+        // layers, each blinking with the same 0.8s period as the gold flash
+        // but offset by 1/7 of it, so a sliding window of 5 colors is lit —
+        // Red–Cyan, then Orange–Blue, then Yellow–Violet, and so on.
+        glow.classList.add('rainbow');
+        const T = 800;
+        const sw = 26; // stripe width in px
+        RAINBOW.forEach((color, i) => {
+          const s = document.createElement('div');
+          s.className = 'rainbow-stripe';
+          s.style.background = `repeating-linear-gradient(120deg, transparent 0px, transparent ${i * sw}px, ${color} ${i * sw}px, ${color} ${(i + 1) * sw}px, transparent ${(i + 1) * sw}px, transparent ${7 * sw}px)`;
+          // Layer i goes dark while the window start passes stripes i+1 and
+          // i+2 — the keyframes' first 2/7 — placed via a negative delay,
+          // phase-anchored to the flash's first appearance like the gold.
+          s.style.animationDelay = `${((i + 1) * T) / 7 - T - (elapsed % T)}ms`;
+          glow.appendChild(s);
+        });
+      } else {
+        glow.style.animationDelay = `${-elapsed}ms`;
+      }
       board.prepend(glow);
     }
   }

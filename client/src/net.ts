@@ -30,6 +30,7 @@ class Net {
   private listeners = new Set<Listener>();
   private reconnectTimer: number | null = null;
   private toastTimer: number | null = null;
+  private pingTimer: number | null = null;
 
   connect(): void {
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
@@ -49,6 +50,11 @@ class Net {
     ws.onopen = () => {
       this.state.connected = true;
       this.sendRaw({ type: 'hello', token, name: playerName() });
+      // Keepalive (v0.2.3 #3): the tutorial's clockless waits produce zero
+      // traffic, and idle sockets get dropped after ~a minute — which used
+      // to abort the tutorial out from under the player.
+      if (this.pingTimer !== null) clearInterval(this.pingTimer);
+      this.pingTimer = window.setInterval(() => this.sendRaw({ type: 'ping' }), 25_000);
       this.emit();
     };
     ws.onmessage = (ev) => {
@@ -62,6 +68,10 @@ class Net {
     };
     ws.onclose = () => {
       this.state.connected = false;
+      if (this.pingTimer !== null) {
+        clearInterval(this.pingTimer);
+        this.pingTimer = null;
+      }
       this.emit();
       this.scheduleReconnect();
     };
@@ -88,7 +98,11 @@ class Net {
         // a lobby update saying "not in a match" must not tear it down; the
         // overlay dismisses itself and clears the view.
         if (!msg.inMatch && this.state.gameView?.phase !== 'matchEnd') {
+          // A tutorial dying under the player (disconnect abort) returns
+          // them to the Help screen, not the lobby (v0.2.3 #3).
+          const wasTutorial = this.state.gameView?.tutorial === true;
           this.state.gameView = null;
+          if (wasTutorial && location.hash.includes('play')) location.hash = '#/help';
         }
         break;
       case 'game':

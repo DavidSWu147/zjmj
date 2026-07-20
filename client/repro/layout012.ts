@@ -117,6 +117,13 @@ if (scenario === 'walls') {
   v.winFlash = { seat: 0, value: 45 };
   renderGame(app, v);
   requestAnimationFrame(done);
+} else if (scenario === 'rainbow') {
+  // v0.2.3 #7: a 56+ point win upgrades the gold flash to the staggered
+  // 7-color rainbow stripes.
+  const v = baseView();
+  v.winFlash = { seat: 0, value: 130 };
+  renderGame(app, v);
+  requestAnimationFrame(done);
 } else if (scenario === 'bonusanim') {
   // Item 4: a drawn bonus tile must fly to the bonus row, then the
   // replacement must follow from the dead wall — two explicit flights.
