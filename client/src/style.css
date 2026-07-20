@@ -1429,6 +1429,10 @@ td.desc {
   margin-left: 4px;
   align-self: center;
 }
+/* The bonus-tile row shows at double size (v0.2.3 follow-up #2). */
+.help-ex.help-ex-big {
+  --tw: 60px;
+}
 
 /* ── Stats & records ──────────────────────────────────────────────── */
 
@@ -1970,11 +1974,10 @@ table.data th.num {
     grid-column: 1;
     grid-row: 1;
   }
-  /* Wide desktops read the stat boxes as a 2×6 rectangle again
+  /* Wide desktops read the stat boxes as 2 rows of 6 columns again
      (v0.2.3 #8) instead of the auto-filled 3×4. */
-  .stats-body .stat-grid {
-    grid-template-columns: repeat(2, minmax(240px, 1fr));
-    max-width: 760px;
+  .stats-body .stat-grid-main {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 }
 

@@ -124,6 +124,22 @@ if (scenario === 'walls') {
   v.winFlash = { seat: 0, value: 130 };
   renderGame(app, v);
   requestAnimationFrame(done);
+} else if (scenario === 'kongvoice') {
+  // v0.2.3 follow-up #3: two kong keywords for the same seat, the second
+  // arriving AFTER the first expired with no render in between (small kong
+  // on the heels of a big kong during the tutorial's clockless wait). Both
+  // must voice — the harness counts AudioBufferSourceNode starts.
+  const t = Date.now();
+  const v1 = baseView();
+  v1.now = t;
+  v1.claims = [{ seat: 0, kind: 'kong', expires: t + 1600 }];
+  renderGame(app, v1);
+  const v2 = baseView();
+  v2.now = t + 5000;
+  v2.claims = [{ seat: 0, kind: 'kong', expires: t + 6600 }];
+  renderGame(app, v2);
+  out.textContent = `kong keywords in final render: ${app.querySelectorAll('.claim-word').length}\n`;
+  done();
 } else if (scenario === 'bonusanim') {
   // Item 4: a drawn bonus tile must fly to the bonus row, then the
   // replacement must follow from the dead wall — two explicit flights.

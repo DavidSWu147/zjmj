@@ -308,7 +308,7 @@ export function renderStats(root: HTMLElement): void {
       <div class="stat-grid" style="margin-bottom:10px">
         ${card('High Score 最高和牌', `${highScore || '—'} <span style="font-size:13px;color:var(--text-dim)">(max 480)</span>`)}
       </div>
-      <div class="stat-grid">
+      <div class="stat-grid stat-grid-main">
         ${card('Total points won', `${s.games.pointsWon} <span style="font-size:13px;color:var(--text-dim)">(avg ${N ? fmt(s.games.pointsWon / N) : '—'})</span>`)}
         ${card('Total points lost', `${s.games.pointsLost} <span style="font-size:13px;color:var(--text-dim)">(avg ${N ? fmt(s.games.pointsLost / N) : '—'})</span>`)}
         ${card('Games drawn', `${s.games.draws} <span style="font-size:13px;color:var(--text-dim)">(${pct(s.games.draws, N)})</span>`)}

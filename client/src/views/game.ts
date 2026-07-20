@@ -54,7 +54,9 @@ const KW_LABEL: Record<string, { en: string; zh: string; cls: string }> = {
 let selKey: string | null = null;
 let lastTurnKey = '';
 let lastGameNumber = '';
-let shownKW = new Set<string>();
+/** Claim keywords on screen at the last render, with their expiry (Infinity
+ *  for clock-less entries like pending claim slots). */
+let shownKW = new Map<string, number>();
 let resizeHooked = false;
 let prevSnap: BoardSnapshot | null = null;
 let ownClickRect: Rect | null = null;
@@ -636,7 +638,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   }
   if (view.gameNumber !== lastGameNumber) {
     lastGameNumber = view.gameNumber;
-    shownKW = new Set();
+    shownKW = new Map();
     selKey = null;
     lastTurnKey = '';
     prevSnap = null;
@@ -1559,16 +1561,25 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     [cx, cy - D],
     [cx - D, cy],
   ];
-  const shownNow = new Set<string>();
+  const shownNow = new Map<string, number>();
   for (const c of view.claims) {
     // Compare against the server clock: client clocks may be skewed.
     if (c.expires && c.expires <= view.now) continue;
     const kwKey = `${c.seat}:${c.kind}`;
-    shownNow.add(kwKey);
+    const expires = c.expires ?? Infinity;
+    const prevExpires = shownKW.get(kwKey);
+    shownNow.set(kwKey, expires);
     const rel = (c.seat - view.mySeat + 4) % 4;
     const kw = KW_LABEL[c.kind];
     const w = document.createElement('div');
-    const firstShowing = !shownKW.has(kwKey);
+    // A NEW showing, not a re-render of one already up. Renders only happen
+    // on updates, so the previous entry may have expired long ago with no
+    // render in between (the tutorial's clockless waits): a later-expiring
+    // entry after the old one's expiry is a fresh keyword — e.g. a small
+    // kong right after a big kong, which used to lose its voice
+    // (v0.2.3 follow-up #3).
+    const firstShowing =
+      prevExpires === undefined || (prevExpires <= view.now && expires > prevExpires);
     w.className = 'claim-word' + (firstShowing ? ' pop' : '');
     w.style.color = `var(--kw-${kw.cls})`;
     w.textContent = `${kw.en} ${kw.zh}`;

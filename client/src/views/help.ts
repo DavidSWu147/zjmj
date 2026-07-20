@@ -97,7 +97,7 @@ const EXAMPLES: Record<string, string> = {
  * illustrations neither trigger nor receive the same-tile hover highlight
  * (v0.2.3 #1).
  */
-function exHtml(spec: string): string {
+function exHtml(spec: string, cls = ''): string {
   const sets = spec.split(',').map((g) => {
     let s = g.trim();
     const label = s.endsWith('*') ? '(eyes)' : s.endsWith('+') ? '(eye)' : null;
@@ -111,7 +111,7 @@ function exHtml(spec: string): string {
       .join('');
     return `<span class="ex-set">${imgs}${label ? `<span class="ex-eyes">${label}</span>` : ''}</span>`;
   });
-  return `<div class="help-ex">${sets.join('')}</div>`;
+  return `<div class="help-ex${cls ? ` ${cls}` : ''}">${sets.join('')}</div>`;
 }
 
 /** The four optional patterns (playable under "Adjusted Scoring with Extra Patterns"). */
@@ -310,7 +310,7 @@ function bonusHtml(): string {
       A hand with any bonus tiles is not a chicken hand — but if Chicken Hand is not allowed,
       bonus tiles alone are not enough: at least one pattern from the first 10 categories is
       required to declare Mahjong.</div>
-    ${exHtml('F1 F2 F3 F4, A1 A2 A3 A4')}
+    ${exHtml('F1 F2 F3 F4, A1 A2 A3 A4', 'help-ex-big')}
     <table class="data" style="max-width:760px">
       <tr><th>#</th><th>Pattern</th><th></th><th class="num">Points</th></tr>
       ${rows}
