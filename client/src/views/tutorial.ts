@@ -63,9 +63,8 @@ const STEPS: Step[] = [
   info(
     'If the Chinese tile faces are unfamiliar, open Settings (the gear, top ' +
       'left) at any time and turn on “English indices” — Character and Wind ' +
-      'tiles then show a small index in their corner, where it is needed ' +
-      'most Note ' +
-      'the 1 Bamboo is traditionally drawn as a bird!. Settings also lets ' +
+      'tiles then show a small index in their corner. Note ' +
+      'the 1 Bamboo is traditionally drawn as a bird! Settings also lets ' +
       'you restyle the tile faces, tile backs, and table felt to your ' +
       'liking. The ? button reopens the pattern tables.',
     ['.top-btn.gear'],
