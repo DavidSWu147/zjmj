@@ -124,9 +124,9 @@ function computePlaystyle(s: StatsResponse): Playstyle {
     Math.min(1, Math.max(0, (v - min) / (max - min))) * weight;
 
   const atkRaw =
-    part(s.games.pointsWon / N, 0, 60, 60) +
-    part(mean(s.games.winValuesSelf), 0, 60, 10) +
-    part(mean(s.games.winValuesDiscard), 0, 60, 30);
+    part(s.games.pointsWon / N, 0, 50, 60) +
+    part(mean(s.games.winValuesSelf), 0, 50, 10) +
+    part(mean(s.games.winValuesDiscard), 0, 50, 30);
   const spdRaw =
     part((100 * s.games.wins) / N, 0, 50, 60) +
     part(
@@ -137,9 +137,9 @@ function computePlaystyle(s: StatsResponse): Playstyle {
     );
   // Zero deal-ins leaves the "average opponent hand" component at its best.
   const defRaw =
-    part(s.games.pointsLost / N, 60, 0, 30) +
+    part(s.games.pointsLost / N, 50, 0, 30) +
     part((100 * s.games.discarderCount) / N, 37.5, 0, 30) +
-    part(mean(s.games.dealInValues), 60, 0, 40);
+    part(mean(s.games.dealInValues), 50, 0, 40);
 
   // Scores run 01–99: round, then pull the extremes off 00 and 100.
   const score = (raw: number) => Math.min(99, Math.max(1, Math.round(raw)));
