@@ -16,15 +16,31 @@ const BGM_TRACKS = Object.values(
 const SILENT_URL = '/audio/silent.mp3';
 
 let bgm: HTMLAudioElement | null = null;
+let bgmGain: GainNode | null = null;
 let inGame = false;
 let trackIdx = 0;
 
 const bgmVolume = (): number => Math.min(100, Math.max(0, getSettings().bgmVolume)) / 100;
 const sfxVolume = (): number => Math.min(100, Math.max(0, getSettings().sfxVolume)) / 100;
 
+/** BGM level lives on the gain node: iOS/Safari ignores HTMLAudioElement.volume. */
+function applyBgmVolume(): void {
+  if (bgmGain) bgmGain.gain.value = inGame ? bgmVolume() : 0;
+}
+
 function ensureBgm(): HTMLAudioElement {
   if (!bgm) {
     bgm = new Audio();
+    bgm.volume = 1; // real level is set on bgmGain below (iOS ignores .volume)
+    // Route the element through WebAudio so a GainNode controls volume —
+    // iOS/Safari ignores HTMLAudioElement.volume but honors gain. Shares the
+    // SFX AudioContext, already unlocked on the first user gesture.
+    const c = ensureCtx();
+    const source = c.createMediaElementSource(bgm);
+    bgmGain = c.createGain();
+    bgmGain.gain.value = 0;
+    source.connect(bgmGain);
+    bgmGain.connect(c.destination);
     // Playlist advance; a single track simply restarts.
     bgm.addEventListener('ended', () => {
       if (inGame && BGM_TRACKS.length > 0) {
@@ -38,9 +54,7 @@ function ensureBgm(): HTMLAudioElement {
     document.addEventListener('pointerdown', () => {
       if (bgm && bgm.paused && bgm.src) void bgm.play().catch(() => {});
     });
-    onSettingsChange(() => {
-      if (bgm) bgm.volume = inGame ? bgmVolume() : 0;
-    });
+    onSettingsChange(applyBgmVolume);
   }
   return bgm;
 }
@@ -50,13 +64,12 @@ export function updateAudioScene(nowInGame: boolean): void {
   const el = ensureBgm();
   if (inGame === nowInGame && el.src !== '') return;
   inGame = nowInGame;
+  applyBgmVolume();
   if (inGame && BGM_TRACKS.length > 0) {
     el.loop = false;
-    el.volume = bgmVolume();
     el.src = BGM_TRACKS[trackIdx % BGM_TRACKS.length];
   } else {
     el.loop = true;
-    el.volume = 0;
     el.src = SILENT_URL;
   }
   void el.play().catch(() => {});
