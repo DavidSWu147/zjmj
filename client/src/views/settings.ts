@@ -72,7 +72,7 @@ export function buildTileSettings(container: HTMLElement, onChange?: () => void)
   const preview = container.querySelector<HTMLElement>('#tile-preview')!;
   const renderPreview = () => {
     preview.innerHTML = '';
-    for (const t of ['B3', 'C7', 'D5', 'E ', 'N ', 'R ', 'G ', 'O ']) preview.appendChild(tileEl(t));
+    for (const t of ['C2', 'C4', 'C6', 'C8', 'E ', 'S ', 'W ', 'N ']) preview.appendChild(tileEl(t));
   };
   renderPreview();
   // A tile-style change elsewhere (the Graphics card) must swap these

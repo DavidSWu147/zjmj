@@ -175,7 +175,7 @@ const STEPS: Step[] = [
   wait('Play continues…', (v) => myTurn(v) && v.myDrawn === 'R '),
   {
     text:
-      'Ha — you drew the very Red Dragon you just discarded! It happens all ' +
+      'Oops, you drew the very Red Dragon you just discarded! It happens all ' +
       'the time in Mahjong. Discard it again.',
     allow: allowDiscard('R '),
     until: (v) => discarded(v, 'R ', 2),
