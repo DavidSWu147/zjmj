@@ -1896,13 +1896,17 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       if (spec || confirm(msg)) exitMatch();
     });
     if (!spec && !view.tutorial) {
-      mkTop(
+      const autoBtn = mkTop(
         'auto' + (autoMode === 'manual' ? ' active' : autoMode === 'system' ? ' system' : ''),
         'A',
         autoMode === 'system'
           ? 'Auto Mode was set by inactivity — click to take back control'
           : 'Auto Mode: discard every draw and pass all claims, but always take a win',
         () => {
+          // No toggling on the scoring screen: the forced re-render rebuilds
+          // the next-game countdown from a stale view.now, visibly resetting
+          // it. The button sleeps until the next game starts.
+          if (net.state.gameView?.gameResult) return;
           if (autoMode === 'system') {
             exitSystemAuto(); // also re-renders
             return;
@@ -1915,6 +1919,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
           if (autoMode !== 'off' && v) runAutoplay(v);
         },
       );
+      if (view.gameResult) autoBtn.disabled = true;
     }
     mkTop('gear' + (panelOpen === 'settings' ? ' active' : ''), '⚙', 'Settings', () =>
       togglePanel('settings'),

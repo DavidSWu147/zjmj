@@ -1166,6 +1166,12 @@ dialog::backdrop {
 .top-btn.auto {
   color: var(--kw-mahjong);
 }
+/* Asleep on the scoring screen (v0.2.4): toggling would force a re-render
+   that rebuilds the next-game countdown from a stale clock. */
+.top-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
 .top-btn.gear {
   color: #b9c4bd;
 }
