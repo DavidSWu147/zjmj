@@ -1015,6 +1015,12 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     board.appendChild(zone);
   }
 
+  // Where the player's own furniture ends and the run-up to their hand
+  // begins: below the 3rd discard row, or below the bottom wall when the
+  // walls render (the walls block refines it with the real wall metrics).
+  // The own username sits just past this line (v0.2.4 follow-up).
+  let ownFurnitureBottom = cy + P / 2 + gap + 3 * dh;
+
   // ── physical tile walls (desktop only) ────────────────────────────
   // The four walls form a pinwheel around the discard windmill the way four
   // players push them together in real life: each wall's owner-RIGHT end
@@ -1043,6 +1049,9 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     const cw = Math.max(6, Math.min((inner + Math.min(...extLimits)) / L, wallCwMax));
     const wh = (cw * 4) / 3;
     const peek = Math.max(2, wh * 0.13);
+    // Bottom wall outer edge: base row at cy + inner, wh tall, top tiles
+    // stacked a peek further out.
+    ownFurnitureBottom = cy + inner + wh + peek;
 
     const lp = wi.livePointer;
     const kd = wi.kongDrawn;
@@ -1487,6 +1496,43 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     handLeft = handAnchor - handWrap.getBoundingClientRect().width;
   }
   handWrap.style.left = `${handLeft}px`;
+
+  // ── own username (v0.2.4 follow-up) ───────────────────────────────
+  // Centered behind the player's furniture — just outside the bottom wall
+  // when walls render, just below the own 3rd discard row otherwise — and
+  // in front of the hand. Hidden when a small exposed kong's pocket reaches
+  // into its band, or when the window leaves no room for it.
+  {
+    const ownTag = document.createElement('div');
+    ownTag.dataset.ownname = '1';
+    ownTag.textContent = `${mine.name}${mine.isBot ? ' 🤖' : ''}${mine.connected ? '' : ' (away)'}`;
+    ownTag.style.cssText =
+      'position:absolute;font-size:11px;color:#dfe7e2;text-shadow:0 1px 2px #000;white-space:nowrap;z-index:5;';
+    ownTag.style.left = `${cx}px`;
+    ownTag.style.transform = 'translateX(-50%)';
+    ownTag.style.top = `${ownFurnitureBottom + 4}px`;
+    board.appendChild(ownTag);
+    const lr = rectOf(ownTag, board);
+    // The hand line a plain tile reaches; the label must clear it.
+    const handTop = H - 10 - th;
+    let hide = !lr || lr.y + lr.h > handTop - 2;
+    if (!hide && lr) {
+      for (const pk of handWrap.querySelectorAll<HTMLElement>('.kong-pocket')) {
+        const pr = rectOf(pk, board);
+        if (
+          pr &&
+          lr.x < pr.x + pr.w &&
+          pr.x < lr.x + lr.w &&
+          lr.y < pr.y + pr.h &&
+          pr.y < lr.y + lr.h
+        ) {
+          hide = true;
+          break;
+        }
+      }
+    }
+    if (hide) ownTag.remove();
+  }
 
   // ── Auto Mode gray backdrop (v0.2) ────────────────────────────────
   // The hand & meld area (same area as the 30+ point gold flash) turns

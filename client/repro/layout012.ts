@@ -110,6 +110,9 @@ if (scenario === 'walls') {
   v.wall = { breakSeat: 2, cols: 68, diceSum: 9, livePointer: 54, kongDrawn: 1 };
   for (const s of v.seats) s.bonus = [];
   v.seats[0].melds = [chow, chow, smallKong];
+  // A wide username stresses the own-name label: near the walls it shares a
+  // band with the kong pocket and must hide on overlap.
+  v.seats[0].name = 'AVeryLongUsername20';
   v.myHand = ['B4', 'B5', 'B6', 'E '];
   renderGame(app, v);
   requestAnimationFrame(done);

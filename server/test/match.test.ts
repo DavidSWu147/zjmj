@@ -683,4 +683,51 @@ describe('extra thinking time (v0.2.4 #10)', () => {
     expect(v.deadline! - v.now).toBeGreaterThan(600_000);
     match.dispose();
   }, 20000);
+
+  it('a human leaving mid-request auto-agrees their bot seat AND broadcasts the grant', async () => {
+    const views = new Map<string, GameView>();
+    const match = new Match(
+      settings(1),
+      [
+        { id: 'a', name: 'P-a', isBot: false },
+        { id: 'b', name: 'P-b', isBot: false },
+      ],
+      {
+        sendView: (pid, view) => views.set(pid, view),
+        isConnected: () => true,
+        onMatchEnd: () => {},
+        rng: mulberry32(7),
+        timing: FAST,
+      },
+    );
+    match.start();
+    const humanTurn = (): boolean => {
+      const va = views.get('a');
+      const vb = views.get('b');
+      return (
+        !!va &&
+        !!vb &&
+        va.phase === 'preDiscard' &&
+        va.deadline !== null &&
+        (va.turnSeat === va.mySeat || vb.turnSeat === vb.mySeat)
+      );
+    };
+    const end = Date.now() + 15000;
+    while (!humanTurn() && Date.now() < end) await sleep(2);
+    expect(humanTurn()).toBe(true);
+
+    match.handleAction('a', { kind: 'requestTime' });
+    expect(views.get('a')!.timeRequest!.grants).toBe(0); // waiting on 'b'
+
+    // 'b' leaves: their seat is bot-held now, so it must agree at once and
+    // the grant must reach the remaining player's view WITHOUT any further
+    // game action (the clock used to run down against a silently re-armed
+    // server deadline, looking like a stall).
+    match.leave('b');
+    const v = views.get('a')!;
+    expect(v.timeRequest).toEqual({ seats: [], grants: 1 });
+    expect(v.phaseDuration).toBe(615_000);
+    expect(v.deadline! - v.now).toBeGreaterThan(600_000);
+    match.dispose();
+  }, 20000);
 });

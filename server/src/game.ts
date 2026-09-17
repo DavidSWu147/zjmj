@@ -316,19 +316,28 @@ export class Game {
   /**
    * Bot-held seats (real bots, and takeover of away humans — they cannot
    * click) agree to a pending time request; grants when unanimous. Also run
-   * from nudgeBots so a human disconnecting mid-request cannot strand it.
+   * from nudgeBots so a human leaving/disconnecting mid-request cannot
+   * strand it. Any change broadcasts: a grant from the nudge path used to
+   * re-arm the server clock silently, leaving every client's visible timer
+   * running down against a deadline that no longer existed.
    */
   private sweepTimeAgreement(): void {
     const req = this.timeReq;
     if (!req || req.seats.size === 0 || req.grants >= 3) return;
+    let changed = false;
     for (let s = 0; s < 4; s++) {
-      if (!req.seats.has(s) && this.host.isBot(s)) req.seats.add(s);
+      if (!req.seats.has(s) && this.host.isBot(s)) {
+        req.seats.add(s);
+        changed = true;
+      }
     }
     if (req.seats.size === 4) {
       this.extendDeadline();
       req.grants++;
       req.seats.clear(); // a fresh round of clicks may request again
+      changed = true;
     }
+    if (changed) this.host.onChange();
   }
 
   private thinkingMs(): number {
