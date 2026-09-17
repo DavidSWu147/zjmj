@@ -18,3 +18,7 @@ indicated by a non-flashing golden highlight around the central circle fading aw
 Any bots in the game will automatically agree to do so once the first player clicks the central circle, but must never initiate. 
 Reset to normal thinking time when the current move has been completed either normally by discarding or other game action, 
 or a natural timeout occured because not all human players agreed to extend the thinking time. Disabled in the tutorial of course, which already has unlimited thinking time.
+
+11. Added space between discard area and hand tiles with small exposed kong when display tile walls turned off
+12. Added player's own username displayed inside such space, hidden when it would collide with a small exposed kong 
+13. Player cannot toggle manual auto mode when on the scoring screen anymore
