@@ -1018,7 +1018,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   // Where the player's own furniture ends and the run-up to their hand
   // begins: below the 3rd discard row, or below the bottom wall when the
   // walls render (the walls block refines it with the real wall metrics).
-  // The own username sits just past this line (v0.2.4 follow-up).
+  // The own username must stay below this line (v0.2.4 follow-up).
   let ownFurnitureBottom = cy + P / 2 + gap + 3 * dh;
 
   // ── physical tile walls (desktop only) ────────────────────────────
@@ -1498,24 +1498,28 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   handWrap.style.left = `${handLeft}px`;
 
   // ── own username (v0.2.4 follow-up) ───────────────────────────────
-  // Centered behind the player's furniture — just outside the bottom wall
-  // when walls render, just below the own 3rd discard row otherwise — and
-  // in front of the hand. Hidden when a small exposed kong's pocket reaches
-  // into its band, or when the window leaves no room for it.
+  // Sits on top of the player's own tiles, centered over the hand strip —
+  // above the selection lift (0.28·tw) and, when hotkeys are enabled, above
+  // the floating key caps too. Hidden when it cannot clear the furniture
+  // above it (wall / discards) or when a small exposed kong's pocket
+  // overlaps it.
   {
     const ownTag = document.createElement('div');
     ownTag.dataset.ownname = '1';
     ownTag.textContent = `${mine.name}${mine.isBot ? ' 🤖' : ''}${mine.connected ? '' : ' (away)'}`;
-    ownTag.style.cssText =
-      'position:absolute;font-size:11px;color:#dfe7e2;text-shadow:0 1px 2px #000;white-space:nowrap;z-index:5;';
-    ownTag.style.left = `${cx}px`;
-    ownTag.style.transform = 'translateX(-50%)';
-    ownTag.style.top = `${ownFurnitureBottom + 4}px`;
+    const fs = Math.min(18, Math.max(14, tw * 0.2));
+    ownTag.style.cssText = `position:absolute;font-size:${fs}px;font-weight:600;color:#dfe7e2;text-shadow:0 1px 2px #000;white-space:nowrap;z-index:5;`;
     board.appendChild(ownTag);
+    const hr = rectOf(handWrap, board);
+    ownTag.style.left = `${hr ? hr.x + hr.w / 2 : cx}px`;
+    ownTag.style.transform = 'translateX(-50%)';
+    // Selected tiles rise 0.28·tw; hotkey caps overhang 19px above the tile
+    // tops (.hk-label top: -19px) whenever the setting is on.
+    const clearance = Math.max(Math.ceil(tw * 0.28) + 4, getSettings().hotkeys ? 25 : 0);
+    const labelH = rectOf(ownTag, board)?.h ?? 16;
+    ownTag.style.top = `${H - 10 - th - clearance - labelH}px`;
     const lr = rectOf(ownTag, board);
-    // The hand line a plain tile reaches; the label must clear it.
-    const handTop = H - 10 - th;
-    let hide = !lr || lr.y + lr.h > handTop - 2;
+    let hide = !lr || lr.y < ownFurnitureBottom + 2;
     if (!hide && lr) {
       for (const pk of handWrap.querySelectorAll<HTMLElement>('.kong-pocket')) {
         const pr = rectOf(pk, board);
