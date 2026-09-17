@@ -1498,11 +1498,11 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   handWrap.style.left = `${handLeft}px`;
 
   // ── own username (v0.2.4 follow-up) ───────────────────────────────
-  // Sits on top of the player's own tiles, centered over the hand strip —
-  // above the selection lift (0.28·tw) and, when hotkeys are enabled, above
-  // the floating key caps too. Hidden when it cannot clear the furniture
-  // above it (wall / discards) or when a small exposed kong's pocket
-  // overlaps it.
+  // Sits on top of the player's own tiles, on the board's center line so it
+  // aligns with the top opponent's name — above the selection lift (0.28·tw)
+  // and, when hotkeys are enabled, above the floating key caps too. Hidden
+  // when it cannot clear the furniture above it (wall / discards) or when a
+  // small exposed kong's pocket overlaps it.
   {
     const ownTag = document.createElement('div');
     ownTag.dataset.ownname = '1';
@@ -1510,8 +1510,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     const fs = Math.min(18, Math.max(14, tw * 0.2));
     ownTag.style.cssText = `position:absolute;font-size:${fs}px;font-weight:600;color:#dfe7e2;text-shadow:0 1px 2px #000;white-space:nowrap;z-index:5;`;
     board.appendChild(ownTag);
-    const hr = rectOf(handWrap, board);
-    ownTag.style.left = `${hr ? hr.x + hr.w / 2 : cx}px`;
+    ownTag.style.left = `${cx}px`;
     ownTag.style.transform = 'translateX(-50%)';
     // Selected tiles rise 0.28·tw; hotkey caps overhang 19px above the tile
     // tops (.hk-label top: -19px) whenever the setting is on.
