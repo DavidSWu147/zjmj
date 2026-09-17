@@ -96,11 +96,11 @@ export function installTileHighlight(): void {
     for (const el of lit) el.classList.remove('tile-same');
     lit = [];
   };
-  // Scoring screens, the claim/variant preview bars, and the settings
-  // previews don't count as "visible tiles": they neither trigger nor
-  // receive the highlight.
+  // Scoring screens, the claim/variant preview bars, the settings previews,
+  // and the stats playstyle emblem don't count as "visible tiles": they
+  // neither trigger nor receive the highlight.
   const excluded = (el: HTMLElement) =>
-    el.closest('.result-card, .variant-bar, .tile-preview') !== null;
+    el.closest('.result-card, .variant-bar, .tile-preview, .playstyle') !== null;
   document.addEventListener('pointerover', (e) => {
     const target = e.target as HTMLElement | null;
     const tile = target?.closest?.<HTMLElement>('.tile[data-t]') ?? null;
@@ -150,7 +150,9 @@ export function meldEl(m: MeldView, rel: 0 | 1 | 2 | 3): HTMLElement {
   m.tiles.forEach((t, i) => {
     if (m.stacked && i === m.tiles.length - 1) return; // pocket tile, drawn with the rotated one
     const isRot = m.rotated === i;
-    const opts: TileOpts = { back: m.faceDown.includes(i) };
+    // A meld claimed from a drawn-and-discarded tile dims wholesale — every
+    // tile, pocket included — matching such tiles in the discards (v0.2.4 #4).
+    const opts: TileOpts = { back: m.faceDown.includes(i), dimmed: m.fromDraw };
     if (!isRot) {
       const el = orientedTile(t, baseDeg, opts);
       el.dataset.mt = String(i);
@@ -164,7 +166,7 @@ export function meldEl(m: MeldView, rel: 0 | 1 | 2 | 3): HTMLElement {
       const claimed = orientedTile(t, rotDeg, opts);
       claimed.dataset.mt = String(i);
       claimed.dataset.claimed = '1';
-      const pocket = orientedTile(m.tiles[m.tiles.length - 1], rotDeg, {});
+      const pocket = orientedTile(m.tiles[m.tiles.length - 1], rotDeg, { dimmed: m.fromDraw });
       pocket.dataset.pocket = '1';
       // The pocket tile sits on the board-center side of the claimed tile:
       // bottom seat: center is up (column, pocket first); right seat: center

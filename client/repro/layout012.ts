@@ -77,6 +77,7 @@ function baseView(): GameView {
     selected: null,
     deadline: null,
     phaseDuration: null,
+    timeRequest: null,
     lastDiscard: null,
     claims: [],
     myOptions: {},
@@ -98,6 +99,18 @@ if (scenario === 'walls') {
   const v = baseView();
   v.wall = { breakSeat: 2, cols: 68, diceSum: 9, livePointer: 54, kongDrawn: 1 };
   for (const s of v.seats) s.bonus = [];
+  renderGame(app, v);
+  requestAnimationFrame(done);
+} else if (scenario === 'ownkong') {
+  // v0.2.4 #11: with physical walls OFF, the own small kong's pocket must
+  // clear the player's 3rd discard row. The kong sits LAST in the meld
+  // strip (rightmost — under the discard windmill) and the own discards
+  // overflow into row 3. Run with localStorage physicalWalls=false.
+  const v = baseView();
+  v.wall = { breakSeat: 2, cols: 68, diceSum: 9, livePointer: 54, kongDrawn: 1 };
+  for (const s of v.seats) s.bonus = [];
+  v.seats[0].melds = [chow, chow, smallKong];
+  v.myHand = ['B4', 'B5', 'B6', 'E '];
   renderGame(app, v);
   requestAnimationFrame(done);
 } else if (scenario === 'kongs') {

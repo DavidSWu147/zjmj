@@ -64,6 +64,7 @@ const view: GameView = {
   selected: null,
   deadline: null,
   phaseDuration: null,
+  timeRequest: null,
   lastDiscard: null,
   claims: [{ seat: 2, kind: 'mahjong', expires: Date.now() + 60000 }],
   myOptions: {},

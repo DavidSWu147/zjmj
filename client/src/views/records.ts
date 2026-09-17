@@ -8,12 +8,19 @@ interface MatchListEntry {
   matchId: number;
   createdAt: number;
   matchLength: number;
+  /** Scoring mode as its record integer: original/adjusted/extra → 0/1/2. */
+  scoring: number;
+  /** Bonus-tile mode as its record integer: none/half/full → 0/1/2. */
+  flowers: number;
   players: { name: string; isBot: boolean }[];
   finalScores: number[];
   mySeat: number;
   myScore: number;
   myResult: 'WIN' | 'LOSE' | 'DRAW';
 }
+
+const SCORING_LABELS = ['Original', 'Adjusted', 'Extra Patterns'];
+const FLOWERS_LABELS = ['None', 'Half Value', 'Full Value'];
 
 const SEAT_LETTERS = ['E', 'S', 'W', 'N'];
 
@@ -69,6 +76,8 @@ export function renderRecords(root: HTMLElement): void {
             return `<tr class="record-row" data-id="${m.matchId}">
               <td>${date}</td>
               <td class="num">${m.matchLength}</td>
+              <td class="num" title="Scoring: ${SCORING_LABELS[m.scoring] ?? m.scoring}">${m.scoring ?? 0}</td>
+              <td class="num" title="Bonus Tiles: ${FLOWERS_LABELS[m.flowers] ?? m.flowers}">${m.flowers ?? 0}</td>
               <td>${players}</td>
               <td class="num ${cls}" style="font-weight:700">${m.myResult}</td>
               <td class="num row-actions">
@@ -79,7 +88,7 @@ export function renderRecords(root: HTMLElement): void {
           })
           .join('');
         body.innerHTML = `<table class="data">
-          <tr><th>Date</th><th class="num">Rounds</th><th>Players (final score)</th><th class="num">Result</th><th></th></tr>
+          <tr><th>Date</th><th class="num">Rounds</th><th class="num">Scoring</th><th class="num">Flowers</th><th>Players (final score)</th><th class="num">Result</th><th></th></tr>
           ${rows}
         </table>`;
         body.querySelectorAll<HTMLElement>('.record-row').forEach((r) => {

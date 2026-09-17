@@ -54,9 +54,10 @@ const KW_LABEL: Record<string, { en: string; zh: string; cls: string }> = {
 let selKey: string | null = null;
 let lastTurnKey = '';
 let lastGameNumber = '';
-/** Claim keywords on screen at the last render, with their expiry (Infinity
- *  for clock-less entries like pending claim slots). */
-let shownKW = new Map<string, number>();
+/** Claim keywords on screen at the last render: expiry (Infinity for
+ *  clock-less entries like pending claim slots) and when the keyword first
+ *  appeared (local clock), so the pop animation survives re-renders. */
+let shownKW = new Map<string, { expires: number; shownAt: number }>();
 let resizeHooked = false;
 let prevSnap: BoardSnapshot | null = null;
 let ownClickRect: Rect | null = null;
@@ -70,6 +71,8 @@ const RAINBOW = ['#e0342c', '#f28c1b', '#f5d327', '#39b54a', '#28c8d4', '#2e6fe4
 let mountEl: HTMLElement | null = null;
 /** In-match overlay panel currently open (top-bar Settings/Help buttons). */
 let panelOpen: 'settings' | 'help' | null = null;
+/** Scoring/match-over panel faded away to reveal the discards (v0.2.4 #7). */
+let resultFaded = false;
 /**
  * Auto Mode (v0.2): auto-discard the draw and pass claims, but always take a
  * win. 'manual' is the player's own A-button toggle (expires each game);
@@ -263,7 +266,7 @@ function enterSystemAuto(): void {
   autoKey = '';
   resetInactivityStreak();
   net.send({ type: 'systemAuto', on: true });
-  forceRerender();
+  rerenderKeepFlights();
 }
 
 function exitSystemAuto(): void {
@@ -272,7 +275,7 @@ function exitSystemAuto(): void {
   stopAutoTimer();
   resetInactivityStreak();
   net.send({ type: 'systemAuto', on: false });
-  forceRerender();
+  rerenderKeepFlights();
 }
 
 /**
@@ -333,6 +336,14 @@ function trackInactivity(): void {
     resetInactivityStreak();
     if (autoMode === 'system') autoMode = 'off';
     if (!view) return;
+  }
+  // Player-set Auto Mode ends at the scoring screen (v0.2.4 #9): by the
+  // time scores show, the gray backdrop is gone and the A button reads
+  // unchecked, whoever won (or drew). System-set auto persists — it only
+  // clears on manual input or match end.
+  if (view.gameResult && autoMode === 'manual') {
+    autoMode = 'off';
+    stopAutoTimer();
   }
   const d = decisionOf(view);
   if (curDecision && (!d || d.key !== curDecision.key)) {
@@ -645,6 +656,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     ownClickRect = null;
     lastViewKey = '';
     shownBigPattern = '';
+    resultFaded = false;
     clearFlights();
     freeOrder = null; // every game starts from the sorted deal (v0.2.1 #20)
     // Manually set Auto Mode never carries into a new game: accidentally
@@ -718,7 +730,10 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   const topReserve = bonusActive
     ? Math.max(oth + 32, oppMeldDepth + otw + 22)
     : oth + 32; // top opponent strip + name tag
-  const bottomReserve = (showWalls ? ownMeldDepth : th) + 30;
+  // Both modes budget the full pocket depth: with walls off, a plain-tile
+  // reserve let a small exposed kong's pocket overlap the own 3rd discard
+  // row at desktop sizes (v0.2.4 #11).
+  const bottomReserve = ownMeldDepth + 30;
   const availV = H - topReserve - bottomReserve - 28;
   const availH = W / 2 - (8 + oppMeldDepth + (bonusActive ? oth + 6 : 0) + 30);
   // Central area: panel P = 4.5·dt plus 3 discard rows on each side; the
@@ -848,6 +863,53 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     circle.addEventListener('pointerdown', dismiss);
   } else {
     showInfoCircle();
+    // Extra thinking time (v0.2.4 #10): a player clicks the circle to
+    // request it; unanimous agreement (bots auto-agree) resets the move's
+    // clock to 600s + its normal time, up to 3 grants per move.
+    const timedPhase =
+      view.phase === 'preDiscard' || view.phase === 'postDiscard' || view.phase === 'robbing';
+    const tr = view.timeRequest;
+    const grants = tr?.grants ?? 0;
+    const extended = grants > 0 && (view.phaseDuration ?? 0) >= 600_000;
+    if (
+      !spec &&
+      !view.tutorial &&
+      timedPhase &&
+      view.deadline !== null &&
+      grants < 3 &&
+      !tr?.seats.includes(view.mySeat)
+    ) {
+      circle.style.cursor = 'pointer';
+      circle.title =
+        tr && tr.seats.length > 0
+          ? `Extra time requested (${tr.seats.length}/4) — click to agree`
+          : 'Request extra thinking time (all four players must agree)';
+      circle.addEventListener('pointerdown', () => act({ kind: 'requestTime' }));
+    }
+    if (tr && tr.seats.length > 0) {
+      // Request pending: flashing golden ring until everyone has agreed.
+      circle.classList.add('ccircle-request');
+    } else if (extended) {
+      // Granted: a steady golden ring drains clockwise from the top over
+      // the extended window, on the server clock like the timer bar.
+      const ring = document.createElement('div');
+      ring.className = 'ccircle-ring';
+      const dur = view.phaseDuration!;
+      const localDeadline = Date.now() + Math.max(0, view.deadline! - view.now);
+      const tick = (): void => {
+        const frac = Math.max(0, Math.min(1, (localDeadline - Date.now()) / dur));
+        ring.style.setProperty('--tr', `${(frac * 360).toFixed(2)}deg`);
+      };
+      tick();
+      const ringTimer = window.setInterval(() => {
+        if (!ring.isConnected) {
+          clearInterval(ringTimer);
+          return;
+        }
+        tick();
+      }, 300);
+      circle.appendChild(ring);
+    }
   }
   panel.appendChild(circle);
   board.appendChild(panel);
@@ -1179,7 +1241,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     // "(left)" = gone for good; "(away)" = disconnected, may return (v0.2).
     // Bots always wear the robot emoji so no display name can imitate one
     // (v0.2.1 #15).
-    tag.textContent = `${sv.name}${sv.isBot ? ' 🤖' : ''}${sv.left ? ' (left)' : sv.connected ? '' : ' (away)'}`;
+    tag.textContent = `${sv.name}${sv.isBot ? ' 🤖' : ''}${sv.connected ? '' : ' (away)'}`;
     tag.style.cssText =
       'position:absolute;font-size:11px;color:#dfe7e2;text-shadow:0 1px 2px #000;white-space:nowrap;z-index:5;';
     const sideTop = cy - handW13 / 2 - otw * 1.7 - 16;
@@ -1430,7 +1492,12 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   // The hand & meld area (same area as the 30+ point gold flash) turns
   // gray while Auto Mode is on: solid for the player's own toggle, flashing
   // while system-set by inactivity. Prepended so it paints behind the tiles.
-  if (autoMode !== 'off' && !spec) {
+  // The gray yields to the celebration: while the local player's own 26+
+  // win flash covers the same rectangle, showing both just muddies the gold
+  // (v0.2.4 #9), so the celebration alone is displayed.
+  const celebrating =
+    view.winFlash !== null && view.winFlash.seat === view.mySeat && view.winFlash.value > 25;
+  if (autoMode !== 'off' && !spec && !celebrating) {
     const strip = rectOf(handWrap, board);
     if (strip) {
       const gray = document.createElement('div');
@@ -1561,14 +1628,13 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     [cx, cy - D],
     [cx - D, cy],
   ];
-  const shownNow = new Map<string, number>();
+  const shownNow = new Map<string, { expires: number; shownAt: number }>();
   for (const c of view.claims) {
     // Compare against the server clock: client clocks may be skewed.
     if (c.expires && c.expires <= view.now) continue;
     const kwKey = `${c.seat}:${c.kind}`;
     const expires = c.expires ?? Infinity;
-    const prevExpires = shownKW.get(kwKey);
-    shownNow.set(kwKey, expires);
+    const prev = shownKW.get(kwKey);
     const rel = (c.seat - view.mySeat + 4) % 4;
     const kw = KW_LABEL[c.kind];
     const w = document.createElement('div');
@@ -1578,17 +1644,25 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     // entry after the old one's expiry is a fresh keyword — e.g. a small
     // kong right after a big kong, which used to lose its voice
     // (v0.2.3 follow-up #3).
-    const firstShowing =
-      prevExpires === undefined || (prevExpires <= view.now && expires > prevExpires);
-    w.className = 'claim-word' + (firstShowing ? ' pop' : '');
-    w.style.color = `var(--kw-${kw.cls})`;
-    w.textContent = `${kw.en} ${kw.zh}`;
+    const firstShowing = prev === undefined || (prev.expires <= view.now && expires > prev.expires);
+    const shownAt = firstShowing ? Date.now() : prev!.shownAt;
+    shownNow.set(kwKey, { expires, shownAt });
     // On a discard win, DEAL-IN pops on the feeder a beat before MAHJONG.
     const delayedMahjong =
       c.kind === 'mahjong' && view.claims.some((o) => o.kind === 'dealin');
-    if (firstShowing && delayedMahjong) {
-      w.style.animationDelay = '0.3s';
+    // The pop is phase-anchored to when the keyword first appeared, so a
+    // re-render landing mid-animation resumes it instead of cutting it off
+    // (v0.2.4 #3) — same trick as the win flash below.
+    const elapsed = Date.now() - shownAt;
+    const inPop = elapsed < (delayedMahjong ? 600 : 300);
+    w.className = 'claim-word' + (inPop ? ' pop' : '');
+    w.style.color = `var(--kw-${kw.cls})`;
+    w.textContent = `${kw.en} ${kw.zh}`;
+    if (inPop && delayedMahjong) {
+      w.style.animationDelay = `${300 - elapsed}ms`;
       w.style.animationFillMode = 'backwards';
+    } else if (inPop && !firstShowing) {
+      w.style.animationDelay = `${-elapsed}ms`;
     }
     // Voiced claim call (v0.2.2 #11), timed with the word's pop.
     if (firstShowing && c.kind !== 'cancel' && c.kind !== 'dealin') {
@@ -1787,7 +1861,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
           autoMode = autoMode === 'off' ? 'manual' : 'off';
           if (autoMode === 'off') stopAutoTimer();
           autoKey = ''; // re-evaluate the current situation right away
-          forceRerender();
+          rerenderKeepFlights(); // don't snap discard flights mid-air (v0.2.4 #8)
           const v = net.state.gameView;
           if (autoMode !== 'off' && v) runAutoplay(v);
         },
@@ -1927,6 +2001,29 @@ function scoresAfterEl(view: GameView): HTMLElement {
   return wrap;
 }
 
+/**
+ * The top-left fade toggle of a result panel (v0.2.4 #7): fading the panel
+ * (scrim and card together) reveals the discards it normally covers. The
+ * flag survives re-renders and resets with each new game.
+ */
+function fadeToggleBtn(overlay: HTMLElement): HTMLElement {
+  overlay.classList.toggle('faded', resultFaded);
+  const b = document.createElement('button');
+  b.className = 'result-fade-btn';
+  const sync = () => {
+    b.textContent = '👁';
+    b.title = resultFaded ? 'Show the panel again' : 'Fade the panel to see the discards behind it';
+  };
+  sync();
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    resultFaded = !resultFaded;
+    overlay.classList.toggle('faded', resultFaded);
+    sync();
+  });
+  return b;
+}
+
 function gameResultOverlay(view: GameView): HTMLElement {
   const r = view.gameResult!;
   const overlay = document.createElement('div');
@@ -1939,6 +2036,7 @@ function gameResultOverlay(view: GameView): HTMLElement {
       <p style="color:var(--text-dim)">The live wall is exhausted. Nobody scores.</p>`;
     card.appendChild(scoresAfterEl(view));
     card.appendChild(nextGameNote(view, r));
+    card.appendChild(fadeToggleBtn(overlay));
     overlay.appendChild(card);
     return overlay;
   }
@@ -2006,6 +2104,7 @@ function gameResultOverlay(view: GameView): HTMLElement {
 
   card.appendChild(scoresAfterEl(view));
   card.appendChild(nextGameNote(view, r));
+  card.appendChild(fadeToggleBtn(overlay));
 
   overlay.appendChild(card);
   return overlay;
@@ -2074,6 +2173,7 @@ function matchResultOverlay(view: GameView): HTMLElement {
   card.innerHTML = `${banner}<h2>Match Over 終局</h2>
     <table class="pattern-list">${rows}</table>
     <div class="dialog-btns"><button id="tolobby">${view.tutorial ? 'Back to Help' : 'Back to Lobby'}</button></div>`;
+  card.appendChild(fadeToggleBtn(overlay));
   const exit = () => {
     const wasTutorial = view.tutorial === true;
     autoMode = 'off';

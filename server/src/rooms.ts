@@ -101,6 +101,8 @@ export class Room {
       inGame: this.match !== null,
       isPrivate: this.code !== null,
       spectators: this.match && !this.match.finished ? this.match.spectatorCount : 0,
+      // Per-viewer (v0.2.4 #6): a leaver sees Rejoin instead of Watch.
+      ...(viewerId && this.match && this.match.canRejoin(viewerId) ? { canRejoin: true } : {}),
       botDifficulty: this.botDifficulty,
       ...(this.isTournament ? { tournament: true } : {}),
       ...(this.startingAt !== null
@@ -328,6 +330,26 @@ export class Rooms {
     }
     const err = room.match.addSpectator(session.playerId);
     if (err) return err;
+    this.delegate.onLobbyChanged();
+    return null;
+  }
+
+  /**
+   * Take back a seat in a running match previously left via the X button
+   * (v0.2.4 #6). Membership is NOT re-added here: `roomOf`'s match clause
+   * reattaches the player automatically once `hasLeft` turns false, which
+   * restores socket routing, lobby state, and leave-again handling.
+   */
+  rejoin(session: SessionLike, roomId: number): string | null {
+    const room = this.rooms.get(roomId);
+    if (!room || !room.match || room.match.finished) return 'No match in progress.';
+    if (this.roomOf(session.playerId)) return 'Leave your room first.';
+    // (A leaver can only be watching some OTHER match: addSpectator rejects
+    // this match's own players, left or not.)
+    if (this.spectatingRoomOf(session.playerId)) return 'Already watching a match.';
+    const err = room.match.rejoin(session.playerId);
+    if (err) return err;
+    room.touch();
     this.delegate.onLobbyChanged();
     return null;
   }

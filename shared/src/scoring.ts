@@ -29,6 +29,9 @@ export interface Meld {
   claimedFrom?: number;
   /** Which tile of the meld was the claimed one (display). */
   claimedTile?: Tile;
+  /** The claimed tile was itself a drawn-and-discarded wall tile, so the
+   *  whole meld renders dimmed like such discards (display, v0.2.4 #4). */
+  claimedFromDraw?: boolean;
   /** Turn counter when the meld was made (small-kong restriction). */
   turnId?: number;
 }

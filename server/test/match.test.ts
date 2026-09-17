@@ -277,6 +277,9 @@ describe('match simulation', () => {
     expect(s.games.remainingCount).toBe(2);
     expect(s.games.remainingWinsSum).toBe(20);
     expect(s.games.remainingWinsCount).toBe(1);
+    // Hand-built records with no moves cannot be replayed into a hand:
+    // bestHand degrades to null instead of failing the stats (v0.2.4 #1).
+    expect(s.bestHand).toBeNull();
     // 'b' finished both matches; the drawn game 3 counts for them.
     expect(computeStats(db, 'b').matches.finished['1']).toBe(2);
     // Filters: these were bot matches (a bot filled seat N).
@@ -382,6 +385,20 @@ describe('match simulation', () => {
       (g, gi) => g.result.winnerSeat !== null && rec.players[(g.result.winnerSeat + gi) % 4].id === 'a',
     ).length;
     expect(stats.games.wins).toBe(totalWins);
+    // v0.2.4 #1: the actual highest scoring hand, replayed from the record.
+    const highest = Math.max(0, ...stats.games.winValuesSelf, ...stats.games.winValuesDiscard);
+    if (totalWins > 0) {
+      const bh = stats.bestHand!;
+      expect(bh).not.toBeNull();
+      expect(bh.value).toBe(highest);
+      expect(bh.date).toBe(rec.matchId);
+      // A legal winning shape: 14 tiles, plus one extra per kong.
+      const meldTiles = bh.melds.reduce((n, m) => n + m.tiles.length, 0);
+      const kongs = bh.melds.filter((m) => m.kind === 'kong').length;
+      expect(bh.concealed.length + meldTiles + 1).toBe(14 + kongs);
+    } else {
+      expect(stats.bestHand).toBeNull();
+    }
     const played = stats.matches.played['1'] + stats.matches.played['2'] + stats.matches.played['4'];
     expect(played).toBe(1);
     db.close();
@@ -532,4 +549,138 @@ describe('match simulation', () => {
     expect(consumptions).toBe(76);
     expect(replayGame(g)).toHaveLength(g.moves.length + 1);
   }, 30000);
+});
+
+describe('leave and rejoin (v0.2.4 #6)', () => {
+  it('a rejoined finisher is not recorded as an abandoner', async () => {
+    const record = await runGreedyMatch(settings(1), 42, 7, {
+      afterStart: (match) => {
+        setTimeout(() => {
+          match.leave('a');
+          expect(match.canRejoin('a')).toBe(true);
+          expect(match.rejoin('a')).toBeNull();
+          expect(match.hasLeft('a')).toBe(false);
+        }, 40);
+      },
+    });
+    expect(record.abandonedBy).toEqual([]);
+  }, 90000);
+
+  it('a leaver who never rejoins stays an abandoner', async () => {
+    const record = await runGreedyMatch(settings(1), 42, 7, {
+      afterStart: (match) => {
+        setTimeout(() => match.leave('a'), 40);
+      },
+    });
+    expect(record.abandonedBy).toEqual(['a']);
+  }, 90000);
+});
+
+describe('extra thinking time (v0.2.4 #10)', () => {
+  const until = async (pred: () => boolean): Promise<void> => {
+    const end = Date.now() + 15000;
+    while (!pred() && Date.now() < end) await sleep(2);
+    expect(pred()).toBe(true);
+  };
+
+  it('bots auto-agree; each grant re-arms 600s + normal time, max 3 per move', async () => {
+    const views = new Map<string, GameView>();
+    const match = new Match(
+      settings(1),
+      [{ id: 'a', name: 'P-a', isBot: false }],
+      {
+        sendView: (pid, view) => views.set(pid, view),
+        isConnected: () => true,
+        onMatchEnd: () => {},
+        rng: mulberry32(7),
+        timing: FAST,
+      },
+    );
+    match.start();
+    const myTurn = (): boolean => {
+      const v = views.get('a');
+      return (
+        !!v &&
+        v.phase === 'preDiscard' &&
+        v.turnSeat === v.mySeat &&
+        !!v.myOptions.discard &&
+        v.deadline !== null
+      );
+    };
+    await until(myTurn);
+
+    // With 3 bot seats the human's request is unanimous at once.
+    match.handleAction('a', { kind: 'requestTime' });
+    let v = views.get('a')!;
+    expect(v.timeRequest).toEqual({ seats: [], grants: 1 });
+    expect(v.phaseDuration).toBe(615_000); // 600s + the 15s thinking time
+    expect(v.deadline! - v.now).toBeGreaterThan(600_000);
+
+    // Repeatable up to the third grant; the fourth request is refused.
+    match.handleAction('a', { kind: 'requestTime' });
+    match.handleAction('a', { kind: 'requestTime' });
+    v = views.get('a')!;
+    expect(v.timeRequest).toEqual({ seats: [], grants: 3 });
+    const deadlineAfterThird = v.deadline;
+    match.handleAction('a', { kind: 'requestTime' });
+    v = views.get('a')!;
+    expect(v.timeRequest).toEqual({ seats: [], grants: 3 });
+    expect(v.deadline).toBe(deadlineAfterThird);
+
+    // Completing the move (the discard) clears the state.
+    const tile = pickDiscard(v.myHand, v.myDrawn);
+    match.handleAction('a', { kind: 'discard', tile, fromDrawn: tile === v.myDrawn });
+    await until(() => views.get('a')?.timeRequest === null);
+    match.dispose();
+  }, 20000);
+
+  it('stays pending until every human agrees; the clock is untouched meanwhile', async () => {
+    const views = new Map<string, GameView>();
+    const match = new Match(
+      settings(1),
+      [
+        { id: 'a', name: 'P-a', isBot: false },
+        { id: 'b', name: 'P-b', isBot: false },
+      ],
+      {
+        sendView: (pid, view) => views.set(pid, view),
+        isConnected: () => true,
+        onMatchEnd: () => {},
+        rng: mulberry32(7),
+        timing: FAST,
+      },
+    );
+    match.start();
+    // Wait for a HUMAN's turn: a bot's pre-discard flashes by in a beat, so
+    // a request sent into it could land after the phase already moved on.
+    const humanTurn = (): boolean => {
+      const va = views.get('a');
+      const vb = views.get('b');
+      return (
+        !!va &&
+        !!vb &&
+        va.phase === 'preDiscard' &&
+        va.deadline !== null &&
+        (va.turnSeat === va.mySeat || vb.turnSeat === vb.mySeat)
+      );
+    };
+    await until(humanTurn);
+
+    const before = views.get('a')!.deadline;
+    match.handleAction('a', { kind: 'requestTime' });
+    let v = views.get('a')!;
+    // The requester plus the two bot seats: still waiting on the other human.
+    expect(v.timeRequest!.grants).toBe(0);
+    expect(v.timeRequest!.seats).toHaveLength(3);
+    expect(v.deadline).toBe(before);
+    // Duplicate clicks from the same seat change nothing.
+    match.handleAction('a', { kind: 'requestTime' });
+    expect(views.get('a')!.timeRequest!.seats).toHaveLength(3);
+
+    match.handleAction('b', { kind: 'requestTime' });
+    v = views.get('b')!;
+    expect(v.timeRequest).toEqual({ seats: [], grants: 1 });
+    expect(v.deadline! - v.now).toBeGreaterThan(600_000);
+    match.dispose();
+  }, 20000);
 });

@@ -276,6 +276,13 @@ function handleMsg(session: Session, msg: ClientMsg): void {
       if (err) send(session, { type: 'toast', message: err });
       break;
     }
+    case 'rejoinMatch': {
+      // On success, rooms.rejoin broadcasts the lobby and the match pushes
+      // the rejoined player their board view.
+      const err = rooms.rejoin(sessionLike(session), msg.roomId);
+      if (err) send(session, { type: 'toast', message: err });
+      break;
+    }
     case 'spectateSeat': {
       rooms.spectatingRoomOf(session.playerId)?.match?.setSpectatorSeat(session.playerId, msg.seat);
       break;

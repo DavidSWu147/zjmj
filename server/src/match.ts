@@ -188,10 +188,6 @@ export class Match {
         const p = this.playerAt(seat);
         return p.isBot ? true : !this.leftIds.has(p.id) && this.delegate.isConnected(p.id);
       },
-      hasLeftSeat: (seat) => {
-        const p = this.playerAt(seat);
-        return !p.isBot && this.leftIds.has(p.id);
-      },
       scoreOf: (seat) => this.scores[this.startSeatOf(seat)],
       onChange: () => this.broadcast(),
       onGameEnd: (record, deltas) => this.handleGameEnd(record, deltas),
@@ -350,9 +346,34 @@ export class Match {
     this.game?.nudgeBots();
   }
 
-  /** Has this player permanently left the match (a bot holds their seat)? */
+  /** Has this player left the match (a bot holds their seat until rejoin)? */
   hasLeft(playerId: string): boolean {
     return this.leftIds.has(playerId);
+  }
+
+  /** Can this player take their seat back (v0.2.4 #6)? Only a human player
+   *  of a still-running match who left via the X button. */
+  canRejoin(playerId: string): boolean {
+    return (
+      !this.finished &&
+      this.leftIds.has(playerId) &&
+      this.players.some((p) => !p.isBot && p.id === playerId)
+    );
+  }
+
+  /**
+   * Takes a leaver's seat back (v0.2.4 #6). Clearing `leftIds` restores
+   * everything at once: views flow again, actions are accepted, and bot
+   * takeover ends. A player seated again at match end is NOT recorded in
+   * `abandonedBy` (that list is an end-state snapshot, like
+   * `disconnectedAtEnd`); the abandonment abort condition is untouched —
+   * once no human remains the match has already ended.
+   */
+  rejoin(playerId: string): string | null {
+    if (!this.canRejoin(playerId)) return 'You cannot rejoin this match.';
+    this.leftIds.delete(playerId);
+    this.broadcast();
+    return null;
   }
 
   /** Client-reported system-set Auto Mode state (v0.2 inactivity). */

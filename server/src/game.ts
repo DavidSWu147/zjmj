@@ -60,8 +60,6 @@ export interface GameHost {
   nameOf(seat: number): string;
   isBotPlayer(seat: number): boolean;
   isConnected(seat: number): boolean;
-  /** Human permanently left the match — "(left)", not "(away)" (v0.2). */
-  hasLeftSeat(seat: number): boolean;
   scoreOf(seat: number): number;
   onChange(): void;
   onGameEnd(record: GameRecord, deltas: number[]): void;
@@ -145,6 +143,11 @@ export class Game {
   private deadline: number | null = null;
   private phaseDuration: number | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /** The callback `schedule()` armed, kept so a granted time extension can
+   *  re-arm the same per-phase timeout with the longer window (v0.2.4 #10). */
+  private timerFn: (() => void) | null = null;
+  /** Extra-thinking-time agreement for the current move (v0.2.4 #10). */
+  private timeReq: { seats: Set<number>; grants: number } | null = null;
   private botTimer: ReturnType<typeof setTimeout> | null = null;
   /** Drives ChickenBot claim/rob decisions within the shared phase timer. */
   private claimBotTimer: ReturnType<typeof setTimeout> | null = null;
@@ -158,12 +161,17 @@ export class Game {
 
   private moves: MoveRecord[] = [];
   private currentMove: { seat: number; part1: MovePart1 } | null = null;
-  /** Transient keyword announcements (kong declarations, wins, cancels). */
+  /** Transient keyword announcements (kong declarations, wins, cancels,
+   *  and losing claims kept visible past resolution — v0.2.4 #3). */
   private announcements: {
     seat: number;
-    kind: 'kong' | 'mahjong' | 'selfdraw' | 'cancel' | 'dealin';
+    kind: 'chow' | 'pung' | 'kong' | 'mahjong' | 'selfdraw' | 'cancel' | 'dealin';
     expires: number;
   }[] = [];
+  /** Set while a bot batch registers claims, so resolution (which nulls the
+   *  claim and would cut the batch short) waits until every bot has shown
+   *  its keyword (v0.2.4 #3). */
+  private deferClaimResolution = false;
 
   result: GameResultRecord | null = null;
   resultScore: ScoreResult | null = null;
@@ -226,8 +234,10 @@ export class Game {
     if (this.botTimer) clearTimeout(this.botTimer);
     if (this.claimBotTimer) clearTimeout(this.claimBotTimer);
     this.timer = null;
+    this.timerFn = null;
     this.botTimer = null;
     this.claimBotTimer = null;
+    this.timeReq = null;
   }
 
   // ── timers ────────────────────────────────────────────────────────────────
@@ -236,6 +246,7 @@ export class Game {
     if (this.timer) clearTimeout(this.timer);
     this.deadline = Date.now() + ms;
     this.phaseDuration = ms;
+    this.timerFn = fn;
     this.timer = setTimeout(() => {
       this.timer = null;
       fn();
@@ -251,6 +262,7 @@ export class Game {
     if (this.host.unlimitedThinking) {
       if (this.timer) clearTimeout(this.timer);
       this.timer = null;
+      this.timerFn = null;
       this.deadline = null;
       this.phaseDuration = null;
       return;
@@ -263,10 +275,60 @@ export class Game {
     if (this.timer) clearTimeout(this.timer);
     this.deadline = null;
     this.phaseDuration = null;
+    this.timerFn = null;
     this.timer = setTimeout(() => {
       this.timer = null;
       fn();
     }, ms);
+  }
+
+  /**
+   * Extra thinking time (v0.2.4 #10): re-arms the CURRENT move's timeout —
+   * whichever phase callback is on the clock — with 600s plus that phase's
+   * normal allotment. The agreement state itself lives in `timeReq`.
+   */
+  private extendDeadline(): void {
+    if (this.deadline === null || this.timerFn === null) return;
+    const base = this.phase === 'preDiscard' ? this.thinkingMs() : this.claimMs();
+    this.schedule(600_000 + base, this.timerFn);
+  }
+
+  /**
+   * A player clicked the central circle to request extra thinking time.
+   * Unanimous agreement (bot-held seats agree automatically the moment a
+   * human initiates; bots never initiate) resets the current move's clock
+   * to 600s + its normal time, up to 3 grants per move.
+   */
+  private handleTimeRequest(seat: number): void {
+    if (this.ended || this.host.unlimitedThinking) return; // tutorial: no clocks
+    if (this.deadline === null) return; // no visible clock to extend
+    if (this.phase !== 'preDiscard' && this.phase !== 'postDiscard' && this.phase !== 'robbing') {
+      return;
+    }
+    if (this.host.isBot(seat)) return;
+    const req = (this.timeReq ??= { seats: new Set(), grants: 0 });
+    if (req.grants >= 3 || req.seats.has(seat)) return;
+    req.seats.add(seat);
+    this.sweepTimeAgreement();
+    this.host.onChange();
+  }
+
+  /**
+   * Bot-held seats (real bots, and takeover of away humans — they cannot
+   * click) agree to a pending time request; grants when unanimous. Also run
+   * from nudgeBots so a human disconnecting mid-request cannot strand it.
+   */
+  private sweepTimeAgreement(): void {
+    const req = this.timeReq;
+    if (!req || req.seats.size === 0 || req.grants >= 3) return;
+    for (let s = 0; s < 4; s++) {
+      if (!req.seats.has(s) && this.host.isBot(s)) req.seats.add(s);
+    }
+    if (req.seats.size === 4) {
+      this.extendDeadline();
+      req.grants++;
+      req.seats.clear(); // a fresh round of clicks may request again
+    }
   }
 
   private thinkingMs(): number {
@@ -301,7 +363,7 @@ export class Game {
 
   private announce(
     seat: number,
-    kind: 'kong' | 'mahjong' | 'selfdraw' | 'cancel' | 'dealin',
+    kind: 'chow' | 'pung' | 'kong' | 'mahjong' | 'selfdraw' | 'cancel' | 'dealin',
     ms = 1600,
   ): void {
     const now = Date.now();
@@ -318,6 +380,7 @@ export class Game {
     this.claim = null;
     this.rob = null;
     this.justPunged = null;
+    this.timeReq = null; // extra thinking time never spans moves (v0.2.4 #10)
     this.selected[seat] = null;
 
     // A drawn bonus tile is revealed and replaced from the dead wall until a
@@ -347,7 +410,14 @@ export class Game {
     if (this.host.isBot(seat)) {
       this.botTimer = setTimeout(() => {
         this.botTimer = null;
-        if (this.phase === 'preDiscard' && this.turnSeat === seat && !this.ended) {
+        // Re-check isBot: the human may have rejoined/reconnected while the
+        // timer was pending (v0.2.4 #6) — the seat is theirs again.
+        if (
+          this.phase === 'preDiscard' &&
+          this.turnSeat === seat &&
+          !this.ended &&
+          this.host.isBot(seat)
+        ) {
           this.botTurn(seat);
         }
       }, this.host.timing.botDelayMs);
@@ -487,6 +557,7 @@ export class Game {
   }
 
   private enterClaimPhase(discarder: number, tile: Tile): void {
+    this.timeReq = null; // the discard completed the move (v0.2.4 #10)
     const riverbed = this.isSeabedTurn();
     const slots = new Map<number, ClaimSlot>();
     // ChickenBots decide up front; a slot exists only when they will claim
@@ -672,10 +743,14 @@ export class Game {
       slot.kongAfter = null;
       // A newly visible claim resets the phase timer so higher-priority
       // holders can amend (spec) — but only the first time this seat shows
-      // this claim kind, so on/off cycling cannot farm thinking time.
+      // this claim kind, so on/off cycling cannot farm thinking time. Never
+      // while an extra-time extension is running: the reset would collapse
+      // the 600s window back to seconds (v0.2.4 #10).
       if (choice.kind !== 'pass' && !slot.announcedKinds.has(choice.kind as ClaimKind)) {
         slot.announcedKinds.add(choice.kind as ClaimKind);
-        this.scheduleThinking(this.claimMs(), () => this.resolveClaims(true));
+        if (!this.timeReq || this.timeReq.grants === 0) {
+          this.scheduleThinking(this.claimMs(), () => this.resolveClaims(true));
+        }
       }
       this.checkClaimResolution();
       this.host.onChange();
@@ -722,20 +797,32 @@ export class Game {
   ): void {
     if (this.phase !== 'postDiscard' || !this.claim || this.ended) return;
     if (step === 1) {
-      for (const [s, dec] of botClaims) {
-        if (!this.claim || this.phase !== 'postDiscard') break; // resolved mid-loop
-        const slot = this.claim.slots.get(s);
-        if (!dec || !slot || slot.choice !== null) continue;
-        if (dec.kind === 'mahjong') this.handleClaimAction(s, { kind: 'claim', claim: 'mahjong' });
-        else if (dec.kind === 'kong') this.handleClaimAction(s, { kind: 'claim', claim: 'kong' });
-        else if (dec.kind === 'pung') this.handleClaimAction(s, { kind: 'claim', claim: 'pung' });
-        else {
-          this.handleClaimAction(s, {
-            kind: 'claim',
-            claim: 'chow',
-            chowLow: tileFromIndex(dec.low),
-          });
+      // Resolution is deferred until every bot has registered: a mahjong (or
+      // kong) resolving mid-batch used to swallow the later bots' claims
+      // entirely — no keyword, no voice (v0.2.4 #3).
+      this.deferClaimResolution = true;
+      try {
+        for (const [s, dec] of botClaims) {
+          if (!this.claim || this.phase !== 'postDiscard') break; // resolved mid-loop
+          const slot = this.claim.slots.get(s);
+          if (!dec || !slot || slot.choice !== null) continue;
+          if (dec.kind === 'mahjong') this.handleClaimAction(s, { kind: 'claim', claim: 'mahjong' });
+          else if (dec.kind === 'kong') this.handleClaimAction(s, { kind: 'claim', claim: 'kong' });
+          else if (dec.kind === 'pung') this.handleClaimAction(s, { kind: 'claim', claim: 'pung' });
+          else {
+            this.handleClaimAction(s, {
+              kind: 'claim',
+              claim: 'chow',
+              chowLow: tileFromIndex(dec.low),
+            });
+          }
         }
+      } finally {
+        this.deferClaimResolution = false;
+      }
+      if (this.claim && this.phase === 'postDiscard' && !this.ended) {
+        this.checkClaimResolution();
+        this.host.onChange();
       }
       const needsDiscard = [...botClaims.values()].some(
         (d) => d && (d.kind === 'pung' || d.kind === 'chow'),
@@ -813,6 +900,7 @@ export class Game {
    * neither be beaten nor amended-over; otherwise the deadline resolves.
    */
   private checkClaimResolution(): void {
+    if (this.deferClaimResolution) return; // a bot batch is still registering
     const c = this.claim!;
     const slots = [...c.slots.entries()];
 
@@ -957,30 +1045,46 @@ export class Game {
     const [seat, kind] = best;
     const slot = c.slots.get(seat)!;
 
+    // Losing visible claims outlive resolution as timed announcements, so
+    // every claimant's keyword stays on screen even when a higher-priority
+    // claim (a mahjong especially) wins the tile instantly (v0.2.4 #3).
+    const now = Date.now();
+    for (const [ls, lslot] of c.slots) {
+      if (ls === seat || !lslot.choice || lslot.choice.kind === 'pass') continue;
+      // A timed-out unconfirmed pung/chow already shows CANCEL (above).
+      if (this.announcements.some((a) => a.seat === ls && a.kind === 'cancel' && a.expires > now)) {
+        continue;
+      }
+      this.announce(ls, lslot.choice.kind, 1400);
+    }
+
     if (kind === 'mahjong') {
       this.claim = null;
       this.winByDiscard(seat, c.discarder, c.tile, false);
       return;
     }
 
-    // Take the claimed tile off the table.
-    this.discards[c.discarder].pop();
+    // Take the claimed tile off the table; a drawn-and-discarded tile keeps
+    // that provenance on the meld so it stays dimmed (v0.2.4 #4).
+    const taken = this.discards[c.discarder].pop();
+    const claimedFromDraw = taken?.fromDraw === true || undefined;
 
     if (kind === 'kong') {
       this.claim = null;
-      this.takeBigKong(seat, c.discarder, c.tile);
+      this.takeBigKong(seat, c.discarder, c.tile, claimedFromDraw);
       return;
     }
 
     // Pung / chow.
     const meld: Meld =
       kind === 'pung'
-        ? { kind: 'pung', tile: c.tile, claimedFrom: c.discarder, claimedTile: c.tile }
+        ? { kind: 'pung', tile: c.tile, claimedFrom: c.discarder, claimedTile: c.tile, claimedFromDraw }
         : {
             kind: 'chow',
             tile: tileFromIndex((slot.choice as { kind: 'chow'; low: number }).low),
             claimedFrom: c.discarder,
             claimedTile: c.tile,
+            claimedFromDraw,
           };
     // Remove the meld tiles from hand.
     const rest = this.handAfterClaim(seat, slot)!;
@@ -1025,7 +1129,7 @@ export class Game {
 
   // ── kongs ─────────────────────────────────────────────────────────────────
 
-  private takeBigKong(seat: number, discarder: number, tile: Tile): void {
+  private takeBigKong(seat: number, discarder: number, tile: Tile, claimedFromDraw?: boolean): void {
     // Remove the three matching tiles from hand.
     for (let k = 0; k < 3; k++) {
       const i = this.hands[seat].indexOf(tile);
@@ -1037,6 +1141,7 @@ export class Game {
       kongType: 'big',
       claimedFrom: discarder,
       claimedTile: tile,
+      claimedFromDraw,
     });
     this.turnSeat = seat;
     this.recordMove({ seat, part1: { t: 'bigKong', tile } });
@@ -1092,6 +1197,7 @@ export class Game {
       return;
     }
     this.phase = 'robbing';
+    this.timeReq = null; // the kong completed the move (v0.2.4 #10)
     this.rob = { konger: seat, tile, slots, pungMeld };
     this.scheduleThinking(this.claimMs(), () => this.resolveRob(true));
     if (botRobbers) {
@@ -1099,11 +1205,22 @@ export class Game {
       this.claimBotTimer = setTimeout(() => {
         this.claimBotTimer = null;
         if (this.phase !== 'robbing' || !this.rob || this.ended) return;
-        for (const [s, v] of [...this.rob.slots]) {
-          if (!this.rob || this.phase !== 'robbing') break;
-          if (v === 'undecided' && this.host.isBot(s)) {
-            this.handleRobAction(s, { kind: 'claim', claim: 'mahjong' });
+        // Defer resolution so every robbing bot's MAHJONG registers before
+        // the top-priority one wins the tile (v0.2.4 #3).
+        this.deferClaimResolution = true;
+        try {
+          for (const [s, v] of [...this.rob.slots]) {
+            if (!this.rob || this.phase !== 'robbing') break;
+            if (v === 'undecided' && this.host.isBot(s)) {
+              this.handleRobAction(s, { kind: 'claim', claim: 'mahjong' });
+            }
           }
+        } finally {
+          this.deferClaimResolution = false;
+        }
+        if (this.rob && this.phase === 'robbing' && !this.ended) {
+          this.checkRobResolution();
+          this.host.onChange();
         }
       }, this.host.timing.botDelayMs);
     }
@@ -1131,6 +1248,7 @@ export class Game {
   }
 
   private checkRobResolution(): void {
+    if (this.deferClaimResolution) return; // a bot batch is still registering
     const r = this.rob!;
     const entries = [...r.slots.entries()].sort(
       (a, b) => ((a[0] - r.konger + 4) % 4) - ((b[0] - r.konger + 4) % 4),
@@ -1156,6 +1274,9 @@ export class Game {
       return;
     }
     const winner = entries[0][0];
+    // Losing robbers' MAHJONG calls stay visible past resolution, like
+    // losing claims do (v0.2.4 #3, interception rule).
+    for (const [ls] of entries.slice(1)) this.announce(ls, 'mahjong', 1400);
     this.rob = null;
     this.winByDiscard(winner, r.konger, r.tile, true);
   }
@@ -1164,6 +1285,12 @@ export class Game {
 
   handleAction(seat: number, action: GameAction): void {
     if (this.ended) return;
+    // A time request may come from ANY seat during any timed phase, so it
+    // dispatches before the per-phase/turn gates (v0.2.4 #10).
+    if (action.kind === 'requestTime') {
+      this.handleTimeRequest(seat);
+      return;
+    }
     if (this.phase === 'postDiscard') {
       this.handleClaimAction(seat, action);
       return;
@@ -1412,11 +1539,13 @@ export class Game {
     this.resultScore = score;
     this.claim = null;
     this.rob = null;
+    this.timeReq = null;
     this.deadline = null;
     this.phaseDuration = null;
     if (this.timer) clearTimeout(this.timer);
     if (this.botTimer) clearTimeout(this.botTimer);
     if (this.claimBotTimer) clearTimeout(this.claimBotTimer);
+    this.timerFn = null;
     this.botTimer = null;
     this.claimBotTimer = null;
     this.host.onChange();
@@ -1457,12 +1586,21 @@ export class Game {
   /** Called when a human leaves/disconnects so a stalled phase moves along. */
   nudgeBots(): void {
     if (this.ended) return;
+    // A seat that just became bot-held cannot click agree: sweep any pending
+    // time request so it is not stranded (v0.2.4 #10).
+    this.sweepTimeAgreement();
     if (this.phase === 'preDiscard' && this.host.isBot(this.turnSeat)) {
       const seat = this.turnSeat;
       if (this.drawn[seat] !== null && !this.botTimer) {
         this.botTimer = setTimeout(() => {
           this.botTimer = null;
-          if (this.phase === 'preDiscard' && this.turnSeat === seat && !this.ended) {
+          // Re-check isBot: the human may have rejoined while pending.
+          if (
+            this.phase === 'preDiscard' &&
+            this.turnSeat === seat &&
+            !this.ended &&
+            this.host.isBot(seat)
+          ) {
             this.botTurn(seat);
           }
         }, this.host.timing.botDelayMs);
@@ -1506,10 +1644,17 @@ export class Game {
   // ── views ─────────────────────────────────────────────────────────────────
 
   private meldView(m: Meld, ownerSeat: number): MeldView {
+    const fromDraw = m.claimedFromDraw === true || undefined;
     if (m.kind === 'chow') {
       const low = tileIndex(m.tile);
       const tiles = [0, 1, 2].map((k) => tileFromIndex(low + k));
-      return { kind: 'chow', tiles, rotated: tiles.indexOf(m.claimedTile ?? tiles[0]), faceDown: [] };
+      return {
+        kind: 'chow',
+        tiles,
+        rotated: tiles.indexOf(m.claimedTile ?? tiles[0]),
+        faceDown: [],
+        fromDraw,
+      };
     }
     const size = m.kind === 'kong' ? 4 : 3;
     const tiles = new Array(size).fill(m.tile) as Tile[];
@@ -1523,10 +1668,18 @@ export class Game {
       // pocket tile itself, so pointing `rotated` at it (as the generic
       // size-1 formula does for rel 1) would leave no tile rotated at all.
       const pungRotated = rel === 3 ? 0 : rel === 2 ? 1 : 2;
-      return { kind: 'kong', kongType: 'small', tiles, rotated: pungRotated, faceDown: [], stacked: true };
+      return {
+        kind: 'kong',
+        kongType: 'small',
+        tiles,
+        rotated: pungRotated,
+        faceDown: [],
+        stacked: true,
+        fromDraw,
+      };
     }
     const rotated = rel === 3 ? 0 : rel === 2 ? 1 : size - 1;
-    return { kind: m.kind as 'pung' | 'kong', kongType: m.kongType, tiles, rotated, faceDown: [] };
+    return { kind: m.kind as 'pung' | 'kong', kongType: m.kongType, tiles, rotated, faceDown: [], fromDraw };
   }
 
   buildView(viewer: number, gameResultView: GameResultView | null): GameView {
@@ -1537,7 +1690,6 @@ export class Game {
         name: this.host.nameOf(s),
         isBot: this.host.isBotPlayer(s),
         connected: this.host.isConnected(s),
-        left: this.host.hasLeftSeat(s),
         score: this.host.scoreOf(s),
         handCount: this.hands[s].length,
         hasDrawn: this.drawn[s] !== null,
@@ -1699,6 +1851,9 @@ export class Game {
       selected: this.selected[viewer],
       deadline: this.deadline,
       phaseDuration: this.phaseDuration,
+      timeRequest: this.timeReq
+        ? { seats: [...this.timeReq.seats].sort((a, b) => a - b), grants: this.timeReq.grants }
+        : null,
       lastDiscard:
         this.phase === 'postDiscard' && this.claim
           ? { seat: this.claim.discarder, tile: this.claim.tile }

@@ -560,7 +560,7 @@ export function replayGame(g: GameRecord): ReplayStep[] {
   };
 
   /** Removes the newest discard on the table (the claimed tile). */
-  const claimLastDiscard = (claimer: number, tile: Tile): number => {
+  const claimLastDiscard = (claimer: number, tile: Tile): { from: number; fromDraw: boolean } => {
     let from = -1;
     let bestSeq = -1;
     for (let s = 0; s < 4; s++) {
@@ -573,9 +573,9 @@ export function replayGame(g: GameRecord): ReplayStep[] {
       }
     }
     if (from < 0) throw new Error(`replay: claimed tile ${tile} not on table`);
-    discards[from].pop();
+    const taken = discards[from].pop()!;
     discardOrder[from].pop();
-    return from;
+    return { from, fromDraw: taken.fromDraw };
   };
 
   const rotatedIndexFor = (claimer: number, from: number, size: number): number => {
@@ -596,7 +596,7 @@ export function replayGame(g: GameRecord): ReplayStep[] {
         addDiscard(seat, p1.tile, true);
         break;
       case 'chow': {
-        claimLastDiscard(seat, p1.tile);
+        const claimed = claimLastDiscard(seat, p1.tile);
         const low = tileIndex(p1.low);
         const seqTiles = [0, 1, 2].map((k) => tileFromIndex(low + k));
         const fromHand = [...seqTiles];
@@ -607,29 +607,32 @@ export function replayGame(g: GameRecord): ReplayStep[] {
           tiles: seqTiles,
           rotated: seqTiles.indexOf(p1.tile),
           faceDown: [],
+          fromDraw: claimed.fromDraw || undefined,
         });
         break;
       }
       case 'pung': {
-        const from = claimLastDiscard(seat, p1.tile);
+        const claimed = claimLastDiscard(seat, p1.tile);
         removeFromHand(seat, [p1.tile, p1.tile]);
         melds[seat].push({
           kind: 'pung',
           tiles: [p1.tile, p1.tile, p1.tile],
-          rotated: rotatedIndexFor(seat, from, 3),
+          rotated: rotatedIndexFor(seat, claimed.from, 3),
           faceDown: [],
+          fromDraw: claimed.fromDraw || undefined,
         });
         break;
       }
       case 'bigKong': {
-        const from = claimLastDiscard(seat, p1.tile);
+        const claimed = claimLastDiscard(seat, p1.tile);
         removeFromHand(seat, [p1.tile, p1.tile, p1.tile]);
         melds[seat].push({
           kind: 'kong',
           kongType: 'big',
           tiles: [p1.tile, p1.tile, p1.tile, p1.tile],
-          rotated: rotatedIndexFor(seat, from, 4),
+          rotated: rotatedIndexFor(seat, claimed.from, 4),
           faceDown: [],
+          fromDraw: claimed.fromDraw || undefined,
         });
         break;
       }
