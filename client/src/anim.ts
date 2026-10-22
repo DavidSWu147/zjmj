@@ -178,6 +178,7 @@ function fly(
   ms: number,
   fromDeg: Deg,
   delay = 0,
+  dimmed = false,
 ): void {
   if (!overlay) return;
   const dest = board.querySelector<HTMLElement>(destSel);
@@ -191,7 +192,7 @@ function fly(
   clone.className = 'flight';
   const shortSide = Math.min(to.w, to.h);
   clone.style.setProperty('--tw', `${toDeg % 180 === 0 ? to.w : to.h}px`);
-  clone.appendChild(orientedTile(tile, toDeg, tile === null ? { back: true } : {}));
+  clone.appendChild(orientedTile(tile, toDeg, tile === null ? { back: true, dimmed } : { dimmed }));
   clone.style.left = `${to.x}px`;
   clone.style.top = `${to.y}px`;
   clone.style.width = `${to.w}px`;
@@ -366,7 +367,16 @@ export function animateTransition(
         const fromDeg = degOfSeat(isClaimed ? claimedFrom : s, view.mySeat);
         const face = meld.faceDown.includes(ti) ? null : meld.tiles[ti];
         if (from) {
-          fly(board, face, from, `[data-meld="${s}-${mi}"] [data-mt="${ti}"]`, MELD_MS, fromDeg);
+          fly(
+            board,
+            face,
+            from,
+            `[data-meld="${s}-${mi}"] [data-mt="${ti}"]`,
+            MELD_MS,
+            fromDeg,
+            0,
+            meld.fromDraw === true,
+          );
         }
       });
     } else if (sv.melds.length === prev.meldCounts[s]) {
@@ -384,6 +394,8 @@ export function animateTransition(
               `[data-meld="${s}-${mi}"] [data-pocket]`,
               MELD_MS,
               degOfSeat(s, view.mySeat),
+              0,
+              m.fromDraw === true,
             );
           }
         }

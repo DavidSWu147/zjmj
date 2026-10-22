@@ -1,8 +1,9 @@
-import { OPTIONAL_PATTERN_IDS, PATTERN_IDS, PATTERNS } from '../../../shared/src/scoring';
+import { MeldView } from '../../../shared/src/protocol';
+import { OPTIONAL_PATTERN_IDS, PATTERN_IDS, PatternHit, PATTERNS } from '../../../shared/src/scoring';
 import { Tile } from '../../../shared/src/tiles';
 import { apiGet, apiPost } from '../account';
 import { net } from '../net';
-import { tileEl } from '../tileui';
+import { meldEl, tileEl } from '../tileui';
 
 interface StatsResponse {
   patternCounts: Record<string, number>;
@@ -29,6 +30,17 @@ interface StatsResponse {
     remainingWinsSum: number;
     remainingWinsCount: number;
   };
+  /** The actual highest scoring hand among the filtered matches (v0.2.4 #1). */
+  bestHand: {
+    concealed: Tile[];
+    melds: MeldView[];
+    winTile: Tile;
+    bonus: Tile[];
+    value: number;
+    patterns: PatternHit[];
+    winBy: 'self' | 'discard';
+    date: number;
+  } | null;
 }
 
 const fmt = (n: number, digits = 2): string =>
@@ -306,7 +318,18 @@ export function renderStats(root: HTMLElement): void {
 
       <h2 style="margin:22px 0 10px;font-size:16px">Games (N = ${N})</h2>
       <div class="stat-grid" style="margin-bottom:10px">
-        ${card('High Score 最高和牌', `${highScore || '—'} <span style="font-size:13px;color:var(--text-dim)">(max 480)</span>`)}
+        ${card('High Score 最高和牌', `${(s.bestHand?.value ?? highScore) || '—'} <span style="font-size:13px;color:var(--text-dim)">(max 480)</span>`)}
+        ${
+          s.bestHand
+            ? `<div class="stat-card best-hand-card">
+                <div class="k">Highest Scoring Hand 最高和牌</div>
+                <div class="result-hand stats-best-hand" id="best-hand"></div>
+                <div class="best-hand-note">${s.bestHand.value} points · ${
+                  s.bestHand.winBy === 'self' ? 'Self-Draw 自摸' : 'Mahjong 和'
+                } · ${new Date(s.bestHand.date).toLocaleDateString()}</div>
+              </div>`
+            : ''
+        }
       </div>
       <div class="stat-grid stat-grid-main">
         ${card('Total points won', `${s.games.pointsWon} <span style="font-size:13px;color:var(--text-dim)">(avg ${N ? fmt(s.games.pointsWon / N) : '—'})</span>`)}
@@ -336,6 +359,29 @@ export function renderStats(root: HTMLElement): void {
         ${patternRows}
       </table>
     `;
+
+    // Highest scoring hand (v0.2.4 #1): tiles laid out like the scoring
+    // screen's winning-hand row — melds, concealed tiles, the win tile
+    // highlighted, bonus tiles dimmed.
+    const bhEl = body.querySelector<HTMLElement>('#best-hand');
+    if (bhEl && s.bestHand) {
+      const bh = s.bestHand;
+      const gap = () => {
+        const gel = document.createElement('div');
+        gel.style.width = '10px';
+        gel.style.flexShrink = '0';
+        return gel;
+      };
+      for (const m of bh.melds) bhEl.appendChild(meldEl(m, 0));
+      if (bh.melds.length > 0) bhEl.appendChild(gap());
+      for (const t of bh.concealed) bhEl.appendChild(tileEl(t));
+      bhEl.appendChild(gap());
+      bhEl.appendChild(tileEl(bh.winTile, { highlight: true }));
+      if (bh.bonus.length > 0) {
+        bhEl.appendChild(gap());
+        for (const t of bh.bonus) bhEl.appendChild(tileEl(t, { dimmed: true }));
+      }
+    }
 
     // Playstyle (v0.2.2 #4/#5): the overall honor tile on the left, the
     // three attribute bars (dragon colors; White shown as blue) to its right.

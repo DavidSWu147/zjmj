@@ -54,9 +54,10 @@ const KW_LABEL: Record<string, { en: string; zh: string; cls: string }> = {
 let selKey: string | null = null;
 let lastTurnKey = '';
 let lastGameNumber = '';
-/** Claim keywords on screen at the last render, with their expiry (Infinity
- *  for clock-less entries like pending claim slots). */
-let shownKW = new Map<string, number>();
+/** Claim keywords on screen at the last render: expiry (Infinity for
+ *  clock-less entries like pending claim slots) and when the keyword first
+ *  appeared (local clock), so the pop animation survives re-renders. */
+let shownKW = new Map<string, { expires: number; shownAt: number }>();
 let resizeHooked = false;
 let prevSnap: BoardSnapshot | null = null;
 let ownClickRect: Rect | null = null;
@@ -263,7 +264,7 @@ function enterSystemAuto(): void {
   autoKey = '';
   resetInactivityStreak();
   net.send({ type: 'systemAuto', on: true });
-  forceRerender();
+  rerenderKeepFlights();
 }
 
 function exitSystemAuto(): void {
@@ -272,7 +273,7 @@ function exitSystemAuto(): void {
   stopAutoTimer();
   resetInactivityStreak();
   net.send({ type: 'systemAuto', on: false });
-  forceRerender();
+  rerenderKeepFlights();
 }
 
 /**
@@ -333,6 +334,14 @@ function trackInactivity(): void {
     resetInactivityStreak();
     if (autoMode === 'system') autoMode = 'off';
     if (!view) return;
+  }
+  // Player-set Auto Mode ends at the scoring screen (v0.2.4 #9): by the
+  // time scores show, the gray backdrop is gone and the A button reads
+  // unchecked, whoever won (or drew). System-set auto persists — it only
+  // clears on manual input or match end.
+  if (view.gameResult && autoMode === 'manual') {
+    autoMode = 'off';
+    stopAutoTimer();
   }
   const d = decisionOf(view);
   if (curDecision && (!d || d.key !== curDecision.key)) {
@@ -718,7 +727,10 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   const topReserve = bonusActive
     ? Math.max(oth + 32, oppMeldDepth + otw + 22)
     : oth + 32; // top opponent strip + name tag
-  const bottomReserve = (showWalls ? ownMeldDepth : th) + 30;
+  // Both modes budget the full pocket depth: with walls off, a plain-tile
+  // reserve let a small exposed kong's pocket overlap the own 3rd discard
+  // row at desktop sizes (v0.2.4 #11).
+  const bottomReserve = ownMeldDepth + 30;
   const availV = H - topReserve - bottomReserve - 28;
   const availH = W / 2 - (8 + oppMeldDepth + (bonusActive ? oth + 6 : 0) + 30);
   // Central area: panel P = 4.5·dt plus 3 discard rows on each side; the
@@ -848,6 +860,53 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     circle.addEventListener('pointerdown', dismiss);
   } else {
     showInfoCircle();
+    // Extra thinking time (v0.2.4 #10): a player clicks the circle to
+    // request it; unanimous agreement (bots auto-agree) resets the move's
+    // clock to 600s + its normal time, up to 3 grants per move.
+    const timedPhase =
+      view.phase === 'preDiscard' || view.phase === 'postDiscard' || view.phase === 'robbing';
+    const tr = view.timeRequest;
+    const grants = tr?.grants ?? 0;
+    const extended = grants > 0 && (view.phaseDuration ?? 0) >= 600_000;
+    if (
+      !spec &&
+      !view.tutorial &&
+      timedPhase &&
+      view.deadline !== null &&
+      grants < 3 &&
+      !tr?.seats.includes(view.mySeat)
+    ) {
+      circle.style.cursor = 'pointer';
+      circle.title =
+        tr && tr.seats.length > 0
+          ? `Extra time requested (${tr.seats.length}/4) — click to agree`
+          : 'Request extra thinking time (all four players must agree)';
+      circle.addEventListener('pointerdown', () => act({ kind: 'requestTime' }));
+    }
+    if (tr && tr.seats.length > 0) {
+      // Request pending: flashing golden ring until everyone has agreed.
+      circle.classList.add('ccircle-request');
+    } else if (extended) {
+      // Granted: a steady golden ring drains clockwise from the top over
+      // the extended window, on the server clock like the timer bar.
+      const ring = document.createElement('div');
+      ring.className = 'ccircle-ring';
+      const dur = view.phaseDuration!;
+      const localDeadline = Date.now() + Math.max(0, view.deadline! - view.now);
+      const tick = (): void => {
+        const frac = Math.max(0, Math.min(1, (localDeadline - Date.now()) / dur));
+        ring.style.setProperty('--tr', `${(frac * 360).toFixed(2)}deg`);
+      };
+      tick();
+      const ringTimer = window.setInterval(() => {
+        if (!ring.isConnected) {
+          clearInterval(ringTimer);
+          return;
+        }
+        tick();
+      }, 300);
+      circle.appendChild(ring);
+    }
   }
   panel.appendChild(circle);
   board.appendChild(panel);
@@ -953,6 +1012,12 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     board.appendChild(zone);
   }
 
+  // Where the player's own furniture ends and the run-up to their hand
+  // begins: below the 3rd discard row, or below the bottom wall when the
+  // walls render (the walls block refines it with the real wall metrics).
+  // The own username must stay below this line (v0.2.4 follow-up).
+  let ownFurnitureBottom = cy + P / 2 + gap + 3 * dh;
+
   // ── physical tile walls (desktop only) ────────────────────────────
   // The four walls form a pinwheel around the discard windmill the way four
   // players push them together in real life: each wall's owner-RIGHT end
@@ -981,6 +1046,9 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     const cw = Math.max(6, Math.min((inner + Math.min(...extLimits)) / L, wallCwMax));
     const wh = (cw * 4) / 3;
     const peek = Math.max(2, wh * 0.13);
+    // Bottom wall outer edge: base row at cy + inner, wh tall, top tiles
+    // stacked a peek further out.
+    ownFurnitureBottom = cy + inner + wh + peek;
 
     const lp = wi.livePointer;
     const kd = wi.kongDrawn;
@@ -1179,7 +1247,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     // "(left)" = gone for good; "(away)" = disconnected, may return (v0.2).
     // Bots always wear the robot emoji so no display name can imitate one
     // (v0.2.1 #15).
-    tag.textContent = `${sv.name}${sv.isBot ? ' 🤖' : ''}${sv.left ? ' (left)' : sv.connected ? '' : ' (away)'}`;
+    tag.textContent = `${sv.name}${sv.isBot ? ' 🤖' : ''}${sv.connected ? '' : ' (away)'}`;
     tag.style.cssText =
       'position:absolute;font-size:11px;color:#dfe7e2;text-shadow:0 1px 2px #000;white-space:nowrap;z-index:5;';
     const sideTop = cy - handW13 / 2 - otw * 1.7 - 16;
@@ -1426,11 +1494,56 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   }
   handWrap.style.left = `${handLeft}px`;
 
+  // ── own username (v0.2.4 follow-up) ───────────────────────────────
+  // Sits on top of the player's own tiles, on the board's center line so it
+  // aligns with the top opponent's name — above the selection lift (0.28·tw)
+  // and, when hotkeys are enabled, above the floating key caps too. Hidden
+  // when it cannot clear the furniture above it (wall / discards) or when a
+  // small exposed kong's pocket overlaps it.
+  {
+    const ownTag = document.createElement('div');
+    ownTag.dataset.ownname = '1';
+    ownTag.textContent = `${mine.name}${mine.isBot ? ' 🤖' : ''}${mine.connected ? '' : ' (away)'}`;
+    const fs = Math.min(18, Math.max(14, tw * 0.2));
+    ownTag.style.cssText = `position:absolute;font-size:${fs}px;font-weight:600;color:#dfe7e2;text-shadow:0 1px 2px #000;white-space:nowrap;z-index:5;`;
+    board.appendChild(ownTag);
+    ownTag.style.left = `${cx}px`;
+    ownTag.style.transform = 'translateX(-50%)';
+    // Selected tiles rise 0.28·tw; hotkey caps overhang 19px above the tile
+    // tops (.hk-label top: -19px) whenever the setting is on.
+    const clearance = Math.max(Math.ceil(tw * 0.28) + 4, getSettings().hotkeys ? 25 : 0);
+    const labelH = rectOf(ownTag, board)?.h ?? 16;
+    ownTag.style.top = `${H - 10 - th - clearance - labelH}px`;
+    const lr = rectOf(ownTag, board);
+    let hide = !lr || lr.y < ownFurnitureBottom + 2;
+    if (!hide && lr) {
+      for (const pk of handWrap.querySelectorAll<HTMLElement>('.kong-pocket')) {
+        const pr = rectOf(pk, board);
+        if (
+          pr &&
+          lr.x < pr.x + pr.w &&
+          pr.x < lr.x + lr.w &&
+          lr.y < pr.y + pr.h &&
+          pr.y < lr.y + lr.h
+        ) {
+          hide = true;
+          break;
+        }
+      }
+    }
+    if (hide) ownTag.remove();
+  }
+
   // ── Auto Mode gray backdrop (v0.2) ────────────────────────────────
   // The hand & meld area (same area as the 30+ point gold flash) turns
   // gray while Auto Mode is on: solid for the player's own toggle, flashing
   // while system-set by inactivity. Prepended so it paints behind the tiles.
-  if (autoMode !== 'off' && !spec) {
+  // The gray yields to the celebration: while the local player's own 26+
+  // win flash covers the same rectangle, showing both just muddies the gold
+  // (v0.2.4 #9), so the celebration alone is displayed.
+  const celebrating =
+    view.winFlash !== null && view.winFlash.seat === view.mySeat && view.winFlash.value > 25;
+  if (autoMode !== 'off' && !spec && !celebrating) {
     const strip = rectOf(handWrap, board);
     if (strip) {
       const gray = document.createElement('div');
@@ -1561,14 +1674,13 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     [cx, cy - D],
     [cx - D, cy],
   ];
-  const shownNow = new Map<string, number>();
+  const shownNow = new Map<string, { expires: number; shownAt: number }>();
   for (const c of view.claims) {
     // Compare against the server clock: client clocks may be skewed.
     if (c.expires && c.expires <= view.now) continue;
     const kwKey = `${c.seat}:${c.kind}`;
     const expires = c.expires ?? Infinity;
-    const prevExpires = shownKW.get(kwKey);
-    shownNow.set(kwKey, expires);
+    const prev = shownKW.get(kwKey);
     const rel = (c.seat - view.mySeat + 4) % 4;
     const kw = KW_LABEL[c.kind];
     const w = document.createElement('div');
@@ -1578,17 +1690,25 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     // entry after the old one's expiry is a fresh keyword — e.g. a small
     // kong right after a big kong, which used to lose its voice
     // (v0.2.3 follow-up #3).
-    const firstShowing =
-      prevExpires === undefined || (prevExpires <= view.now && expires > prevExpires);
-    w.className = 'claim-word' + (firstShowing ? ' pop' : '');
-    w.style.color = `var(--kw-${kw.cls})`;
-    w.textContent = `${kw.en} ${kw.zh}`;
+    const firstShowing = prev === undefined || (prev.expires <= view.now && expires > prev.expires);
+    const shownAt = firstShowing ? Date.now() : prev!.shownAt;
+    shownNow.set(kwKey, { expires, shownAt });
     // On a discard win, DEAL-IN pops on the feeder a beat before MAHJONG.
     const delayedMahjong =
       c.kind === 'mahjong' && view.claims.some((o) => o.kind === 'dealin');
-    if (firstShowing && delayedMahjong) {
-      w.style.animationDelay = '0.3s';
+    // The pop is phase-anchored to when the keyword first appeared, so a
+    // re-render landing mid-animation resumes it instead of cutting it off
+    // (v0.2.4 #3) — same trick as the win flash below.
+    const elapsed = Date.now() - shownAt;
+    const inPop = elapsed < (delayedMahjong ? 600 : 300);
+    w.className = 'claim-word' + (inPop ? ' pop' : '');
+    w.style.color = `var(--kw-${kw.cls})`;
+    w.textContent = `${kw.en} ${kw.zh}`;
+    if (inPop && delayedMahjong) {
+      w.style.animationDelay = `${300 - elapsed}ms`;
       w.style.animationFillMode = 'backwards';
+    } else if (inPop && !firstShowing) {
+      w.style.animationDelay = `${-elapsed}ms`;
     }
     // Voiced claim call (v0.2.2 #11), timed with the word's pop.
     if (firstShowing && c.kind !== 'cancel' && c.kind !== 'dealin') {
@@ -1773,13 +1893,17 @@ export function renderGame(el: HTMLElement, view: GameView): void {
       if (spec || confirm(msg)) exitMatch();
     });
     if (!spec && !view.tutorial) {
-      mkTop(
+      const autoBtn = mkTop(
         'auto' + (autoMode === 'manual' ? ' active' : autoMode === 'system' ? ' system' : ''),
         'A',
         autoMode === 'system'
           ? 'Auto Mode was set by inactivity — click to take back control'
           : 'Auto Mode: discard every draw and pass all claims, but always take a win',
         () => {
+          // No toggling on the scoring screen: the forced re-render rebuilds
+          // the next-game countdown from a stale view.now, visibly resetting
+          // it. The button sleeps until the next game starts.
+          if (net.state.gameView?.gameResult) return;
           if (autoMode === 'system') {
             exitSystemAuto(); // also re-renders
             return;
@@ -1787,11 +1911,12 @@ export function renderGame(el: HTMLElement, view: GameView): void {
           autoMode = autoMode === 'off' ? 'manual' : 'off';
           if (autoMode === 'off') stopAutoTimer();
           autoKey = ''; // re-evaluate the current situation right away
-          forceRerender();
+          rerenderKeepFlights(); // don't snap discard flights mid-air (v0.2.4 #8)
           const v = net.state.gameView;
           if (autoMode !== 'off' && v) runAutoplay(v);
         },
       );
+      if (view.gameResult) autoBtn.disabled = true;
     }
     mkTop('gear' + (panelOpen === 'settings' ? ' active' : ''), '⚙', 'Settings', () =>
       togglePanel('settings'),

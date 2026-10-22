@@ -1,7 +1,8 @@
 import express from 'express';
-import { RoomSettings } from '../../shared/src/protocol';
-import { MatchRecord, matchToTxt } from '../../shared/src/records';
-import { PATTERN_IDS } from '../../shared/src/scoring';
+import { MeldView, RoomSettings } from '../../shared/src/protocol';
+import { GameRecord, MatchRecord, matchToTxt, replayGame } from '../../shared/src/records';
+import { PatternHit, PATTERN_IDS } from '../../shared/src/scoring';
+import { Tile } from '../../shared/src/tiles';
 import { ACHIEVEMENTS } from '../../shared/src/achievements';
 import { containsProfanity, validateDisplayName } from '../../shared/src/names';
 import { sessionFromRequest } from './auth';
@@ -55,6 +56,22 @@ export interface StatsResponse {
     remainingWinsSum: number;
     remainingWinsCount: number;
   };
+  /**
+   * The player's actual highest scoring hand among the filtered matches
+   * (v0.2.4 #1), reconstructed by replaying the winning game's record.
+   * Ties break toward the most recent hand. Null with no wins on record.
+   */
+  bestHand: {
+    concealed: Tile[];
+    melds: MeldView[];
+    winTile: Tile;
+    bonus: Tile[];
+    value: number;
+    patterns: PatternHit[];
+    winBy: 'self' | 'discard';
+    /** Match start time (epoch ms). */
+    date: number;
+  } | null;
 }
 
 function matchesFilter(record: MatchRecord, f: StatsFilter): boolean {
@@ -109,6 +126,20 @@ export function computeStats(
     remainingWinsSum: 0,
     remainingWinsCount: 0,
   };
+  // Argmax win for the best-hand display. DB row order is arbitrary, so the
+  // tie-break is explicit: higher value, then later match (matchId is the
+  // start epoch), then later game within the match. (Boxed so narrowing
+  // survives the forEach closure below.)
+  const bestBox: {
+    best: {
+      value: number;
+      matchId: number;
+      gameIndex: number;
+      game: GameRecord;
+      seat: number;
+      winBy: 'self' | 'discard';
+    } | null;
+  } = { best: null };
 
   for (const { record, startSeat, result, abandoned } of db.matchesForStats(playerId)) {
     if (!matchesFilter(record, filter)) continue;
@@ -148,6 +179,24 @@ export function computeStats(
         } else {
           g.winValuesDiscard.push(game.result.value ?? 0);
         }
+        const value = game.result.value ?? 0;
+        const best = bestBox.best;
+        if (
+          !best ||
+          value > best.value ||
+          (value === best.value &&
+            (record.matchId > best.matchId ||
+              (record.matchId === best.matchId && gi > best.gameIndex)))
+        ) {
+          bestBox.best = {
+            value,
+            matchId: record.matchId,
+            gameIndex: gi,
+            game,
+            seat: mySeat,
+            winBy: effSelf ? 'self' : 'discard',
+          };
+        }
         for (const p of game.result.patterns ?? []) {
           if (patternCounts[p.id] !== undefined) patternCounts[p.id]++;
         }
@@ -161,7 +210,32 @@ export function computeStats(
     });
   }
 
-  return { patternCounts, matches: { played, finished, won, drawn }, games: g };
+  // Replay only the single argmax game to reconstruct the winning hand. A
+  // malformed old record must degrade to "no hand", never fail the stats.
+  let bestHand: StatsResponse['bestHand'] = null;
+  const best = bestBox.best;
+  if (best) {
+    try {
+      const last = replayGame(best.game).at(-1);
+      const winTile = last?.drawn[best.seat];
+      if (last && winTile) {
+        bestHand = {
+          concealed: last.hands[best.seat],
+          melds: last.melds[best.seat],
+          winTile,
+          bonus: last.bonus[best.seat],
+          value: best.value,
+          patterns: best.game.result.patterns ?? [],
+          winBy: best.winBy,
+          date: best.matchId,
+        };
+      }
+    } catch {
+      bestHand = null;
+    }
+  }
+
+  return { patternCounts, matches: { played, finished, won, drawn }, games: g, bestHand };
 }
 
 export function makeApi(db: Db): express.Router {

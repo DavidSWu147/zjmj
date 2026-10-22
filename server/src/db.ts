@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import type { DatabaseSync } from 'node:sqlite';
-import { broadAbandoned, MatchRecord } from '../../shared/src/records';
+import { bonusTilesInt, broadAbandoned, MatchRecord, scoringInt } from '../../shared/src/records';
 
 // node:sqlite is a prefix-only builtin that some bundlers fail to recognize;
 // loading it via createRequire keeps vitest/vite/esbuild all happy.
@@ -29,6 +29,10 @@ export interface MatchListEntry {
   matchId: number;
   createdAt: number;
   matchLength: number;
+  /** Scoring mode as its record integer: original/adjusted/extra → 0/1/2. */
+  scoring: number;
+  /** Bonus-tile mode as its record integer: none/half/full → 0/1/2. */
+  flowers: number;
   players: { name: string; isBot: boolean }[];
   finalScores: number[];
   mySeat: number;
@@ -281,6 +285,8 @@ export class Db {
         matchId: r.id,
         createdAt: r.created_at,
         matchLength: r.match_length,
+        scoring: scoringInt(rec.settings.scoring),
+        flowers: bonusTilesInt(rec.settings.bonusTiles),
         players: rec.players.map((p) => ({ name: p.name, isBot: p.isBot })),
         finalScores: rec.finalScores,
         mySeat: r.start_seat,

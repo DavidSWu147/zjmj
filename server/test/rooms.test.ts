@@ -202,6 +202,52 @@ describe('spectating', () => {
   });
 });
 
+describe('leave and rejoin (v0.2.4 #6)', () => {
+  it('a leaver can rejoin while another human keeps the match alive', () => {
+    const { rooms } = makeRooms();
+    const room = rooms.create(session('host'), { ...DEFAULT_SETTINGS }) as Room;
+    rooms.join(session('p2'), room.id);
+    expect(rooms.startMatch('host')).toBeNull();
+    const match = room.match!;
+
+    rooms.leave('p2'); // one human remains: the match lives on
+    expect(match.finished).toBe(false);
+    expect(match.hasLeft('p2')).toBe(true);
+    expect(rooms.roomOf('p2')).toBeNull();
+    // Rejoin is offered only to the leaver themselves.
+    expect(room.summary('p2').canRejoin).toBe(true);
+    expect(room.summary('host').canRejoin).toBeUndefined();
+
+    expect(rooms.rejoin(session('p2'), room.id)).toBeNull();
+    expect(match.hasLeft('p2')).toBe(false);
+    expect(rooms.roomOf('p2')?.id).toBe(room.id); // reattached (socket routing)
+    expect(room.summary('p2').canRejoin).toBeUndefined();
+
+    // Leaving again still works, and the abandonment abort is unchanged:
+    // the moment no human remains the match ends.
+    rooms.leave('p2');
+    expect(match.hasLeft('p2')).toBe(true);
+    rooms.leave('host');
+    expect(match.finished).toBe(true);
+  });
+
+  it('rejoin is refused for outsiders, room members, and dead matches', () => {
+    const { rooms } = makeRooms();
+    const room = rooms.create(session('host'), { ...DEFAULT_SETTINGS }) as Room;
+    rooms.join(session('p2'), room.id);
+    expect(rooms.startMatch('host')).toBeNull();
+    rooms.leave('p2');
+
+    expect(rooms.rejoin(session('nobody'), room.id)).toBe('You cannot rejoin this match.');
+    rooms.join(session('p2'), 0); // joined another room since leaving
+    expect(rooms.rejoin(session('p2'), room.id)).toBe('Leave your room first.');
+    rooms.leave('p2');
+
+    rooms.leave('host'); // last human: the match aborts
+    expect(rooms.rejoin(session('p2'), room.id)).toBe('No match in progress.');
+  });
+});
+
 describe('weekly tournaments (v0.2)', () => {
   // 2026-07-18 is a Saturday; noon UTC-7 = 19:00 UTC.
   const SATURDAY_NOON = Date.parse('2026-07-18T19:00:00Z');

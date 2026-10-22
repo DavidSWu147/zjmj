@@ -180,19 +180,29 @@ function roomRow(room: RoomSummary, myRoom: number | null): HTMLElement {
     btns.appendChild(tag);
     const specs = room.spectators ?? 0;
     const b = document.createElement('button');
-    b.textContent = specs > 0 ? `Watch 👁${specs}` : 'Watch';
-    b.title = 'Watch this match as a spectator (up to 4 watchers)';
-    b.disabled = myRoom !== null || specs >= 4;
-    b.dataset.action = 'join'; // lobby Enter watches an in-game room too
-    b.addEventListener('click', () => {
-      if (room.isPrivate) {
-        const code = prompt(`Room #${room.id} is private. Enter its 4-digit code:`)?.trim();
-        if (!code) return;
-        net.send({ type: 'watchMatch', roomId: room.id, code });
-      } else {
-        net.send({ type: 'watchMatch', roomId: room.id });
-      }
-    });
+    if (room.canRejoin) {
+      // This viewer left the running match via the X button: their seat is
+      // bot-held and waiting — the button takes it back (v0.2.4 #6).
+      b.textContent = 'Rejoin';
+      b.title = 'Take your seat in this match back from the bot';
+      b.disabled = myRoom !== null;
+      b.dataset.action = 'join';
+      b.addEventListener('click', () => net.send({ type: 'rejoinMatch', roomId: room.id }));
+    } else {
+      b.textContent = specs > 0 ? `Watch 👁${specs}` : 'Watch';
+      b.title = 'Watch this match as a spectator (up to 4 watchers)';
+      b.disabled = myRoom !== null || specs >= 4;
+      b.dataset.action = 'join'; // lobby Enter watches an in-game room too
+      b.addEventListener('click', () => {
+        if (room.isPrivate) {
+          const code = prompt(`Room #${room.id} is private. Enter its 4-digit code:`)?.trim();
+          if (!code) return;
+          net.send({ type: 'watchMatch', roomId: room.id, code });
+        } else {
+          net.send({ type: 'watchMatch', roomId: room.id });
+        }
+      });
+    }
     btns.appendChild(b);
   } else if (isMine) {
     if (tourney) {

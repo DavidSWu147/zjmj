@@ -162,6 +162,9 @@ export interface RoomSummary {
   isPrivate: boolean;
   /** Spectators currently watching the running match (cap 4). */
   spectators?: number;
+  /** Per-viewer (v0.2.4 #6): this viewer left the running match via the X
+   *  button and can take their seat back (the button reads Rejoin). */
+  canRejoin?: boolean;
   /** Brain for the bots that fill empty seats (host-toggled). */
   botDifficulty: BotDifficulty;
   /** Weekly Tournament room (v0.2): system-created, Saturdays only. */
@@ -182,15 +185,17 @@ export interface MeldView {
   faceDown: number[];
   /** For a small exposed kong, the added tile stacks on the rotated tile. */
   stacked?: boolean;
+  /** Claimed tile was a drawn-and-discarded wall tile: the meld renders
+   *  dimmed like such discards do (v0.2.4 #4). */
+  fromDraw?: boolean;
 }
 
 export interface SeatView {
   name: string;
   isBot: boolean;
+  /** False shows "(away)" — covers both disconnects and players who left
+   *  via the X button, who can rejoin from the lobby (v0.2.4 #6). */
   connected: boolean;
-  /** Left the match for good (shows "(left)"); a mere disconnect that could
-   *  still reconnect shows "(away)" (v0.2). */
-  left?: boolean;
   score: number;
   handCount: number;
   hasDrawn: boolean;
@@ -297,6 +302,13 @@ export interface GameView {
   selected: Tile | null;
   deadline: number | null; // epoch ms when the phase times out
   phaseDuration: number | null; // ms
+  /**
+   * Extra-thinking-time agreement for the current move (v0.2.4 #10): seats
+   * that have agreed to the pending request (empty between rounds), and how
+   * many extensions were already granted this move (max 3). Null when no
+   * request has been made this move. Public — spectators see it too.
+   */
+  timeRequest: { seats: number[]; grants: number } | null;
   lastDiscard: { seat: number; tile: Tile } | null;
   /** Length of the uniform post-discard window (drives the discard slide). */
   claimGapMs: number;
@@ -343,7 +355,9 @@ export type GameAction =
   | { kind: 'kong'; tile: Tile; variant: 'concealed' | 'small' }
   | { kind: 'mahjong' }
   | { kind: 'claim'; claim: 'pass' | 'pung' | 'kong' | 'mahjong' }
-  | { kind: 'claim'; claim: 'chow'; chowLow: Tile };
+  | { kind: 'claim'; claim: 'chow'; chowLow: Tile }
+  /** Clicked the central circle to request extra thinking time (v0.2.4 #10). */
+  | { kind: 'requestTime' };
 
 export type ClientMsg =
   | { type: 'hello'; token: string; name?: string }
@@ -358,6 +372,9 @@ export type ClientMsg =
   /** Join a running match as a spectator (up to 4 per match). Watching a
    *  private room's match needs its 4-digit code, same as joining. */
   | { type: 'watchMatch'; roomId: number; code?: string }
+  /** Take back a seat left via the X button while the match still runs
+   *  (v0.2.4 #6). No code needed: the player is a known participant. */
+  | { type: 'rejoinMatch'; roomId: number }
   /** Spectator only: switch the viewing perspective to this current seat. */
   | { type: 'spectateSeat'; seat: number }
   /** The client's inactivity detection put this player in/out of system-set
