@@ -71,8 +71,6 @@ const RAINBOW = ['#e0342c', '#f28c1b', '#f5d327', '#39b54a', '#28c8d4', '#2e6fe4
 let mountEl: HTMLElement | null = null;
 /** In-match overlay panel currently open (top-bar Settings/Help buttons). */
 let panelOpen: 'settings' | 'help' | null = null;
-/** Scoring/match-over panel faded away to reveal the discards (v0.2.4 #7). */
-let resultFaded = false;
 /**
  * Auto Mode (v0.2): auto-discard the draw and pass claims, but always take a
  * win. 'manual' is the player's own A-button toggle (expires each game);
@@ -656,7 +654,6 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     ownClickRect = null;
     lastViewKey = '';
     shownBigPattern = '';
-    resultFaded = false;
     clearFlights();
     freeOrder = null; // every game starts from the sorted deal (v0.2.1 #20)
     // Manually set Auto Mode never carries into a new game: accidentally
@@ -2055,29 +2052,6 @@ function scoresAfterEl(view: GameView): HTMLElement {
   return wrap;
 }
 
-/**
- * The top-left fade toggle of a result panel (v0.2.4 #7): fading the panel
- * (scrim and card together) reveals the discards it normally covers. The
- * flag survives re-renders and resets with each new game.
- */
-function fadeToggleBtn(overlay: HTMLElement): HTMLElement {
-  overlay.classList.toggle('faded', resultFaded);
-  const b = document.createElement('button');
-  b.className = 'result-fade-btn';
-  const sync = () => {
-    b.textContent = '👁';
-    b.title = resultFaded ? 'Show the panel again' : 'Fade the panel to see the discards behind it';
-  };
-  sync();
-  b.addEventListener('click', (e) => {
-    e.stopPropagation();
-    resultFaded = !resultFaded;
-    overlay.classList.toggle('faded', resultFaded);
-    sync();
-  });
-  return b;
-}
-
 function gameResultOverlay(view: GameView): HTMLElement {
   const r = view.gameResult!;
   const overlay = document.createElement('div');
@@ -2090,7 +2064,6 @@ function gameResultOverlay(view: GameView): HTMLElement {
       <p style="color:var(--text-dim)">The live wall is exhausted. Nobody scores.</p>`;
     card.appendChild(scoresAfterEl(view));
     card.appendChild(nextGameNote(view, r));
-    card.appendChild(fadeToggleBtn(overlay));
     overlay.appendChild(card);
     return overlay;
   }
@@ -2158,7 +2131,6 @@ function gameResultOverlay(view: GameView): HTMLElement {
 
   card.appendChild(scoresAfterEl(view));
   card.appendChild(nextGameNote(view, r));
-  card.appendChild(fadeToggleBtn(overlay));
 
   overlay.appendChild(card);
   return overlay;
@@ -2227,7 +2199,6 @@ function matchResultOverlay(view: GameView): HTMLElement {
   card.innerHTML = `${banner}<h2>Match Over 終局</h2>
     <table class="pattern-list">${rows}</table>
     <div class="dialog-btns"><button id="tolobby">${view.tutorial ? 'Back to Help' : 'Back to Lobby'}</button></div>`;
-  card.appendChild(fadeToggleBtn(overlay));
   const exit = () => {
     const wasTutorial = view.tutorial === true;
     autoMode = 'off';

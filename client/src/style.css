@@ -1280,7 +1280,6 @@ dialog::backdrop {
   z-index: 20;
 }
 .result-card {
-  position: relative;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -1289,42 +1288,6 @@ dialog::backdrop {
   max-width: 86vw;
   max-height: 86vh;
   overflow-y: auto;
-}
-/* Fade toggle (v0.2.4 #7): the panel (scrim + card) fades so the discards
-   behind it stay readable; only the eye button keeps taking clicks. */
-.result-fade-btn {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  border: 1px solid var(--line);
-  background: transparent;
-  color: var(--text-dim);
-  font-size: 15px;
-  line-height: 1;
-  cursor: pointer;
-  pointer-events: auto;
-  z-index: 1;
-}
-.result-fade-btn:hover {
-  border-color: var(--text-dim);
-}
-.overlay.faded {
-  background: transparent;
-  pointer-events: none;
-}
-.overlay.faded .result-card {
-  background: transparent;
-  border-color: transparent;
-}
-.overlay.faded .result-card > :not(.result-fade-btn) {
-  opacity: 0.12;
-}
-.overlay.faded .result-fade-btn {
-  opacity: 1;
-  border-color: var(--text-dim);
 }
 .result-card h2 {
   font-size: 22px;
