@@ -514,6 +514,12 @@ export interface ReplayStep {
   drawn: (Tile | null)[];
   /** Revealed flowers & seasons per seat. */
   bonus: Tile[][];
+  /**
+   * Set once a win was claimed off another player's tile: the winner's
+   * `drawn` tile is that claimed tile (shown sideways), and `fromDraw` says
+   * the discard had itself just been drawn from the wall (shown faded).
+   */
+  claimedWin?: { seat: number; fromDraw: boolean };
 }
 
 /**
@@ -530,10 +536,11 @@ export function replayGame(g: GameRecord): ReplayStep[] {
   let discardSeq = 0;
   // Set when a small exposed kong is being robbed: the tile awaiting the winner.
   let robbedTile: { seat: number; tile: Tile } | null = null;
+  let claimedWin: { seat: number; fromDraw: boolean } | undefined;
 
   const snapshot = (moveIndex: number, text: string): ReplayStep =>
     JSON.parse(
-      JSON.stringify({ moveIndex, text, hands, melds, discards, drawn, bonus }),
+      JSON.stringify({ moveIndex, text, hands, melds, discards, drawn, bonus, claimedWin }),
     ) as ReplayStep;
 
   const steps: ReplayStep[] = [snapshot(-1, 'Initial deal')];
@@ -639,8 +646,9 @@ export function replayGame(g: GameRecord): ReplayStep[] {
       case 'mahjongDiscard': {
         if (robbedTile && robbedTile.tile === p1.tile) {
           robbedTile = null;
+          claimedWin = { seat, fromDraw: false };
         } else {
-          claimLastDiscard(seat, p1.tile);
+          claimedWin = { seat, fromDraw: claimLastDiscard(seat, p1.tile).fromDraw };
         }
         drawn[seat] = p1.tile;
         break;

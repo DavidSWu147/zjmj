@@ -194,7 +194,9 @@ export function computeStats(
             gameIndex: gi,
             game,
             seat: mySeat,
-            winBy: effSelf ? 'self' : 'discard',
+            // The literal win type (drives the sideways win tile), not the
+            // no-responsible-party "effective self-draw" the counters use.
+            winBy: game.result.winBy === 'discard' ? 'discard' : 'self',
           };
         }
         for (const p of game.result.patterns ?? []) {

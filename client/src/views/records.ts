@@ -1,7 +1,7 @@
 import { matchFromTxt, MatchRecord, ReplayStep, replayGame } from '../../../shared/src/records';
 import { apiDelete, apiGet } from '../account';
 import { net } from '../net';
-import { meldEl, tileEl } from '../tileui';
+import { meldEl, orientedTile, tileEl } from '../tileui';
 import { escapeHtml } from './play';
 
 interface MatchListEntry {
@@ -255,7 +255,14 @@ function buildViewer(body: HTMLElement, rec: MatchRecord): void {
         const drawnRow = document.createElement('div');
         drawnRow.className = 'tile-row';
         drawnRow.style.marginLeft = '8px';
-        drawnRow.appendChild(tileEl(step.drawn[seat], { highlight: true }));
+        // A tile won off a discard lies sideways — and faded when that
+        // discard had itself just been drawn from the wall.
+        const claimed = step.claimedWin?.seat === seat ? step.claimedWin : null;
+        drawnRow.appendChild(
+          claimed
+            ? orientedTile(step.drawn[seat], 90, { highlight: true, dimmed: claimed.fromDraw })
+            : tileEl(step.drawn[seat], { highlight: true }),
+        );
         handLine.appendChild(drawnRow);
       }
       const bonus = step.bonus?.[seat] ?? [];

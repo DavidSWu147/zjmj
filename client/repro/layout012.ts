@@ -116,6 +116,30 @@ if (scenario === 'walls') {
   v.myHand = ['B4', 'B5', 'B6', 'E '];
   renderGame(app, v);
   requestAnimationFrame(done);
+} else if (scenario === 'result') {
+  // Scoring screen for a win off a discard: the winning tile lies sideways,
+  // and a meld claimed from a drawn-and-discarded tile is NOT faded here
+  // (that fade belongs to the live board only).
+  const v = baseView();
+  v.phase = 'gameEnd';
+  v.gameResult = {
+    draw: false,
+    winnerSeat: 0,
+    winBy: 'discard',
+    responsibleSeat: 2,
+    winningHand: {
+      concealed: ['B4', 'B5', 'B6', 'C1', 'C2', 'C3', 'D1', 'D2', 'D3', 'E '],
+      melds: [{ ...chow, fromDraw: true }],
+      winTile: 'E ',
+    },
+    patterns: [],
+    total: 10,
+    deltas: [30, -5, -20, -5],
+    nextAt: Date.now() + 10000,
+    lastGame: false,
+  };
+  renderGame(app, v);
+  requestAnimationFrame(done);
 } else if (scenario === 'kongs') {
   // Every player melds four big kongs: hands must extend away from the
   // fixed drawn-tile spot instead of drifting or colliding.

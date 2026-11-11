@@ -2083,7 +2083,9 @@ function gameResultOverlay(view: GameView): HTMLElement {
   if (r.winningHand) {
     const handRow = document.createElement('div');
     handRow.className = 'result-hand';
-    for (const m of r.winningHand.melds) handRow.appendChild(meldEl(m, 0));
+    // The scoring screen never shows the drawn-and-discarded fade: that
+    // distinction belongs to the live board only.
+    for (const m of r.winningHand.melds) handRow.appendChild(meldEl({ ...m, fromDraw: false }, 0));
     if (r.winningHand.melds.length > 0) {
       const g = document.createElement('div');
       g.style.width = '14px';
@@ -2093,7 +2095,12 @@ function gameResultOverlay(view: GameView): HTMLElement {
     const g2 = document.createElement('div');
     g2.style.width = '14px';
     handRow.appendChild(g2);
-    handRow.appendChild(tileEl(r.winningHand.winTile, { highlight: true }));
+    // A win off a discard shows its winning tile turned sideways.
+    handRow.appendChild(
+      r.winBy === 'discard'
+        ? orientedTile(r.winningHand.winTile, 90, { highlight: true })
+        : tileEl(r.winningHand.winTile, { highlight: true }),
+    );
     const winnerBonus = view.seats[r.winnerSeat!]?.bonus ?? [];
     if (winnerBonus.length > 0) {
       const g3 = document.createElement('div');
