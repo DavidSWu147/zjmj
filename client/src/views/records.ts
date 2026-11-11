@@ -235,7 +235,7 @@ function buildViewer(body: HTMLElement, rec: MatchRecord): void {
       head.innerHTML = `<b style="color:var(--text)">${SEAT_LETTERS[seat]}</b>
         <span>${escapeHtml(player.name)}${player.isBot ? ' 🤖' : ''}</span>
         <span style="color:var(--text-dim)">${before > 0 ? '+' : ''}${before}</span>
-        ${isWinner ? `<span class="win-gold">${game.result.winBy === 'self' ? 'Self-Draw 自摸' : 'Mahjong 和'} · ${game.result.value} pts</span>` : ''}
+        ${isWinner ? `<span class="win-gold">${game.result.winBy === 'self' ? 'SELF-DRAW 自摸' : 'MAHJONG 和'} · ${game.result.value} pts</span>` : ''}
         ${stepIdx === steps.length - 1 && game.result.responsibleSeat === seat ? '<span class="lose-gray">Discarder 放銃</span>' : ''}`;
       seatDiv.appendChild(head);
 
