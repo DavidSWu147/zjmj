@@ -116,6 +116,32 @@ if (scenario === 'walls') {
   v.myHand = ['B4', 'B5', 'B6', 'E '];
   renderGame(app, v);
   requestAnimationFrame(done);
+} else if (scenario === 'bonuswalls') {
+  // Bonus tiles vs the physical walls, parameterized for sweeps:
+  //   b=n0,n1,n2,n3  bonus tiles per seat (0..8)
+  //   m=none|kongs|small  meld load on every seat (shifts the strips)
+  //   lp=<livePointer>    how much of the wall is still standing
+  const q = new URLSearchParams(location.search);
+  const counts = (q.get('b') ?? '8,8,8,8').split(',').map(Number);
+  const meldMode = q.get('m') ?? 'none';
+  const ALL_BONUS = ['F1', 'F2', 'F3', 'F4', 'A1', 'A2', 'A3', 'A4'];
+  const v = baseView();
+  const total = counts.reduce((x, y) => x + y, 0);
+  v.wall = { breakSeat: 2, cols: 72, diceSum: 9, livePointer: Number(q.get('lp') ?? 0), kongDrawn: total };
+  const melds =
+    meldMode === 'kongs'
+      ? [bigKong('B9'), bigKong('C9'), bigKong('D9'), bigKong('E ')]
+      : meldMode === 'small'
+        ? [chow, chow, chow, smallKong]
+        : [];
+  for (let i = 0; i < 4; i++) {
+    v.seats[i].bonus = ALL_BONUS.slice(0, counts[i] ?? 0);
+    v.seats[i].melds = melds;
+    v.seats[i].handCount = 13 - 3 * melds.length;
+  }
+  v.myHand = v.myHand.slice(0, 13 - 3 * melds.length);
+  renderGame(app, v);
+  requestAnimationFrame(done);
 } else if (scenario === 'result') {
   // Scoring screen for a win off a discard: a meld claimed from a
   // drawn-and-discarded tile is NOT faded here (that fade belongs to the
