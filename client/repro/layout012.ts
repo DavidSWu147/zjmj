@@ -117,9 +117,9 @@ if (scenario === 'walls') {
   renderGame(app, v);
   requestAnimationFrame(done);
 } else if (scenario === 'result') {
-  // Scoring screen for a win off a discard: the winning tile lies sideways,
-  // and a meld claimed from a drawn-and-discarded tile is NOT faded here
-  // (that fade belongs to the live board only).
+  // Scoring screen for a win off a discard: a meld claimed from a
+  // drawn-and-discarded tile is NOT faded here (that fade belongs to the
+  // live board only), and the winning tile stays upright.
   const v = baseView();
   v.phase = 'gameEnd';
   v.gameResult = {

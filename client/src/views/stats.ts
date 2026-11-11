@@ -3,7 +3,7 @@ import { OPTIONAL_PATTERN_IDS, PATTERN_IDS, PatternHit, PATTERNS } from '../../.
 import { Tile } from '../../../shared/src/tiles';
 import { apiGet, apiPost } from '../account';
 import { net } from '../net';
-import { meldEl, orientedTile, tileEl } from '../tileui';
+import { meldEl, tileEl } from '../tileui';
 
 interface StatsResponse {
   patternCounts: Record<string, number>;
@@ -377,12 +377,7 @@ export function renderStats(root: HTMLElement): void {
       if (bh.melds.length > 0) bhEl.appendChild(gap());
       for (const t of bh.concealed) bhEl.appendChild(tileEl(t));
       bhEl.appendChild(gap());
-      // A win off a discard shows its winning tile turned sideways.
-      bhEl.appendChild(
-        bh.winBy === 'discard'
-          ? orientedTile(bh.winTile, 90, { highlight: true })
-          : tileEl(bh.winTile, { highlight: true }),
-      );
+      bhEl.appendChild(tileEl(bh.winTile, { highlight: true }));
       if (bh.bonus.length > 0) {
         bhEl.appendChild(gap());
         for (const t of bh.bonus) bhEl.appendChild(tileEl(t, { dimmed: true }));

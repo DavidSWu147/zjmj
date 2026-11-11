@@ -2095,12 +2095,7 @@ function gameResultOverlay(view: GameView): HTMLElement {
     const g2 = document.createElement('div');
     g2.style.width = '14px';
     handRow.appendChild(g2);
-    // A win off a discard shows its winning tile turned sideways.
-    handRow.appendChild(
-      r.winBy === 'discard'
-        ? orientedTile(r.winningHand.winTile, 90, { highlight: true })
-        : tileEl(r.winningHand.winTile, { highlight: true }),
-    );
+    handRow.appendChild(tileEl(r.winningHand.winTile, { highlight: true }));
     const winnerBonus = view.seats[r.winnerSeat!]?.bonus ?? [];
     if (winnerBonus.length > 0) {
       const g3 = document.createElement('div');
