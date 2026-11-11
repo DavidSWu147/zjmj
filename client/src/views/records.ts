@@ -268,7 +268,7 @@ function buildViewer(body: HTMLElement, rec: MatchRecord): void {
         const bonusRow = document.createElement('div');
         bonusRow.className = 'tile-row';
         bonusRow.style.marginLeft = '16px';
-        for (const t of bonus) bonusRow.appendChild(tileEl(t, { dimmed: true }));
+        for (const t of bonus) bonusRow.appendChild(tileEl(t));
         handLine.appendChild(bonusRow);
       }
       rows.appendChild(handLine);

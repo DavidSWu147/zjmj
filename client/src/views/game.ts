@@ -2101,7 +2101,7 @@ function gameResultOverlay(view: GameView): HTMLElement {
       const g3 = document.createElement('div');
       g3.style.width = '14px';
       handRow.appendChild(g3);
-      for (const t of winnerBonus) handRow.appendChild(tileEl(t, { dimmed: true }));
+      for (const t of winnerBonus) handRow.appendChild(tileEl(t));
     }
     card.appendChild(handRow);
   }

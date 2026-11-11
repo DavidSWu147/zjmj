@@ -362,7 +362,7 @@ export function renderStats(root: HTMLElement): void {
 
     // Highest scoring hand (v0.2.4 #1): tiles laid out like the scoring
     // screen's winning-hand row — melds, concealed tiles, the win tile
-    // highlighted, bonus tiles dimmed.
+    // highlighted, then the bonus tiles.
     const bhEl = body.querySelector<HTMLElement>('#best-hand');
     if (bhEl && s.bestHand) {
       const bh = s.bestHand;
@@ -380,7 +380,7 @@ export function renderStats(root: HTMLElement): void {
       bhEl.appendChild(tileEl(bh.winTile, { highlight: true }));
       if (bh.bonus.length > 0) {
         bhEl.appendChild(gap());
-        for (const t of bh.bonus) bhEl.appendChild(tileEl(t, { dimmed: true }));
+        for (const t of bh.bonus) bhEl.appendChild(tileEl(t));
       }
     }
 
