@@ -91,6 +91,8 @@ interface ClaimSlot {
   discardSelFromDrawn: boolean;
   discardConfirmed: boolean;
   kongAfter: { tile: Tile; variant: 'concealed' | 'small' } | null;
+  /** When the current (non-pass) choice became visible on the table. */
+  shownAt?: number;
   /**
    * Claim kinds this seat has already made visible in this phase. The phase
    * timer resets only on first-time announcements, so cycling a claim on and
@@ -118,8 +120,19 @@ interface RobPhase {
   tile: Tile;
   /** Seats that can rob, mapped to their choice. */
   slots: Map<number, 'undecided' | 'pass' | 'mahjong'>;
+  /** When each robber's MAHJONG call became visible. */
+  shownAt?: Map<number, number>;
   pungMeld: Meld;
 }
+
+/**
+ * A losing claim's keyword must have been on screen at least this long in
+ * total before it goes; one that had less (a bot outranked the instant it
+ * spoke) lingers past resolution for the remainder only.
+ */
+const LOSING_CLAIM_MIN_VISIBLE_MS = 900;
+/** How much longer the winning claim's keyword stays than any losing one. */
+const WINNING_CLAIM_EXTRA_MS = 500;
 
 export class Game {
   readonly gameIndex: number;
@@ -738,6 +751,7 @@ export class Game {
         // not mistaken for a frozen screen.
         this.announce(seat, 'cancel', 1400);
       }
+      if (choice.kind !== 'pass' && slot.choice?.kind !== choice.kind) slot.shownAt = Date.now();
       slot.choice = choice;
       // Acting consumes this seat's reopening; a visible claim reopens the
       // options of every other seat that has already acted.
@@ -1054,17 +1068,30 @@ export class Game {
     const [seat, kind] = best;
     const slot = c.slots.get(seat)!;
 
-    // Losing visible claims outlive resolution as timed announcements, so
-    // every claimant's keyword stays on screen even when a higher-priority
-    // claim (a mahjong especially) wins the tile instantly (v0.2.4 #3).
+    // Contested claims: a losing keyword always leaves the screen BEFORE the
+    // winning one. A loser that has already been visible long enough goes at
+    // resolution; one outranked the instant it spoke (a bot beaten by a
+    // mahjong in the same beat) lingers just long enough to be read. The
+    // winner then outlasts every loser: mahjong and kong carry their own
+    // 1.6s announcements, a winning pung/chow is given one here.
     const now = Date.now();
+    let contested = false;
+    let maxLinger = 0;
     for (const [ls, lslot] of c.slots) {
       if (ls === seat || !lslot.choice || lslot.choice.kind === 'pass') continue;
       // A timed-out unconfirmed pung/chow already shows CANCEL (above).
       if (this.announcements.some((a) => a.seat === ls && a.kind === 'cancel' && a.expires > now)) {
         continue;
       }
-      this.announce(ls, lslot.choice.kind, 1400);
+      contested = true;
+      const linger = LOSING_CLAIM_MIN_VISIBLE_MS - (now - (lslot.shownAt ?? now));
+      if (linger > 0) {
+        this.announce(ls, lslot.choice.kind, linger);
+        maxLinger = Math.max(maxLinger, linger);
+      }
+    }
+    if (contested && (kind === 'pung' || kind === 'chow')) {
+      this.announce(seat, kind, maxLinger + WINNING_CLAIM_EXTRA_MS);
     }
 
     if (kind === 'mahjong') {
@@ -1248,6 +1275,7 @@ export class Game {
     if (!r || this.phase !== 'robbing') return;
     if (!r.slots.has(seat)) return;
     if (action.kind === 'claim' && action.claim === 'mahjong') {
+      if (r.slots.get(seat) !== 'mahjong') (r.shownAt ??= new Map()).set(seat, Date.now());
       r.slots.set(seat, 'mahjong');
     } else if (action.kind === 'claim' && action.claim === 'pass') {
       r.slots.set(seat, 'pass');
@@ -1283,9 +1311,13 @@ export class Game {
       return;
     }
     const winner = entries[0][0];
-    // Losing robbers' MAHJONG calls stay visible past resolution, like
-    // losing claims do (v0.2.4 #3, interception rule).
-    for (const [ls] of entries.slice(1)) this.announce(ls, 'mahjong', 1400);
+    // Losing robbers' MAHJONG calls follow the same rule as losing claims:
+    // gone before the winner's, lingering only to reach a readable minimum.
+    const robNow = Date.now();
+    for (const [ls] of entries.slice(1)) {
+      const linger = LOSING_CLAIM_MIN_VISIBLE_MS - (robNow - (r.shownAt?.get(ls) ?? robNow));
+      if (linger > 0) this.announce(ls, 'mahjong', linger);
+    }
     this.rob = null;
     this.winByDiscard(winner, r.konger, r.tile, true);
   }
