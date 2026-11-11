@@ -364,7 +364,7 @@ describe('match simulation', () => {
       const steps = replayGame(g);
       expect(steps).toHaveLength(g.moves.length + 1);
       // A win claimed off another player's tile is flagged on the final
-      // step (the viewer lays that tile sideways); self-draws are not.
+      // step (the viewer fades it if it was drawn-and-discarded); self-draws are not.
       const last = steps[steps.length - 1];
       if (g.result.winBy === 'discard') {
         expect(last.claimedWin?.seat).toBe(g.result.winnerSeat);

@@ -1,7 +1,7 @@
 import { matchFromTxt, MatchRecord, ReplayStep, replayGame } from '../../../shared/src/records';
 import { apiDelete, apiGet } from '../account';
 import { net } from '../net';
-import { meldEl, orientedTile, tileEl } from '../tileui';
+import { meldEl, tileEl } from '../tileui';
 import { escapeHtml } from './play';
 
 interface MatchListEntry {
@@ -235,7 +235,7 @@ function buildViewer(body: HTMLElement, rec: MatchRecord): void {
       head.innerHTML = `<b style="color:var(--text)">${SEAT_LETTERS[seat]}</b>
         <span>${escapeHtml(player.name)}${player.isBot ? ' 🤖' : ''}</span>
         <span style="color:var(--text-dim)">${before > 0 ? '+' : ''}${before}</span>
-        ${isWinner ? `<span class="win-gold">MAHJONG ${game.result.value} pts</span>` : ''}
+        ${isWinner ? `<span class="win-gold">${game.result.winBy === 'self' ? 'Self-Draw 自摸' : 'Mahjong 和'} · ${game.result.value} pts</span>` : ''}
         ${stepIdx === steps.length - 1 && game.result.responsibleSeat === seat ? '<span class="lose-gray">Discarder 放銃</span>' : ''}`;
       seatDiv.appendChild(head);
 
@@ -255,13 +255,11 @@ function buildViewer(body: HTMLElement, rec: MatchRecord): void {
         const drawnRow = document.createElement('div');
         drawnRow.className = 'tile-row';
         drawnRow.style.marginLeft = '8px';
-        // A tile won off a discard lies sideways — and faded when that
-        // discard had itself just been drawn from the wall.
+        // A tile won off a discard is faded when that discard had itself
+        // just been drawn from the wall, like such tiles in the discards.
         const claimed = step.claimedWin?.seat === seat ? step.claimedWin : null;
         drawnRow.appendChild(
-          claimed
-            ? orientedTile(step.drawn[seat], 90, { highlight: true, dimmed: claimed.fromDraw })
-            : tileEl(step.drawn[seat], { highlight: true }),
+          tileEl(step.drawn[seat], { highlight: true, dimmed: claimed?.fromDraw === true }),
         );
         handLine.appendChild(drawnRow);
       }

@@ -516,8 +516,8 @@ export interface ReplayStep {
   bonus: Tile[][];
   /**
    * Set once a win was claimed off another player's tile: the winner's
-   * `drawn` tile is that claimed tile (shown sideways), and `fromDraw` says
-   * the discard had itself just been drawn from the wall (shown faded).
+   * `drawn` tile is that claimed tile, and `fromDraw` says the discard had
+   * itself just been drawn from the wall (the viewer shows it faded).
    */
   claimedWin?: { seat: number; fromDraw: boolean };
 }
