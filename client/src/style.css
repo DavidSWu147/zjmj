@@ -1365,6 +1365,66 @@ dialog::backdrop {
   font-size: 13px;
   text-align: right;
 }
+/* Result panel footer: the countdown note with the hide/show toggle in the
+   panel's bottom-right corner. */
+.result-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}
+.result-foot .result-next {
+  margin-top: 0;
+}
+.result-hide-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 28px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.result-hide-btn:hover {
+  border-color: var(--text-dim);
+  color: var(--text);
+}
+/* Hidden: no scrim, and nothing of the card but its footer, which stays
+   exactly where it was (so the toggle never moves) on a small dark pill. */
+.overlay.panel-hidden {
+  background: transparent;
+  pointer-events: none;
+}
+.overlay.panel-hidden .result-card {
+  background: transparent;
+  border-color: transparent;
+  overflow: hidden;
+}
+.overlay.panel-hidden .result-card > :not(.result-foot) {
+  visibility: hidden;
+}
+.overlay.panel-hidden .result-foot {
+  /* Drawn with shadows, not padding: the footer's box must not change
+     size, or the centered card would shift and move the toggle. */
+  width: fit-content;
+  margin-left: auto;
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow:
+    0 0 0 7px var(--panel),
+    0 0 0 8px var(--line);
+  pointer-events: auto;
+}
+.overlay.panel-hidden .result-hide-btn {
+  color: var(--text);
+  border-color: var(--text-dim);
+}
 .win-gold {
   color: var(--kw-mahjong);
 }

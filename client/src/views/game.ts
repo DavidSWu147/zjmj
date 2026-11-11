@@ -71,6 +71,8 @@ const RAINBOW = ['#e0342c', '#f28c1b', '#f5d327', '#39b54a', '#28c8d4', '#2e6fe4
 let mountEl: HTMLElement | null = null;
 /** In-match overlay panel currently open (top-bar Settings/Help buttons). */
 let panelOpen: 'settings' | 'help' | null = null;
+/** The scoring / match-over panel is hidden so the board shows through. */
+let resultHidden = false;
 /**
  * Auto Mode (v0.2): auto-discard the draw and pass claims, but always take a
  * win. 'manual' is the player's own A-button toggle (expires each game);
@@ -654,6 +656,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     ownClickRect = null;
     lastViewKey = '';
     shownBigPattern = '';
+    resultHidden = false;
     clearFlights();
     freeOrder = null; // every game starts from the sorted deal (v0.2.1 #20)
     // Manually set Auto Mode never carries into a new game: accidentally
@@ -2052,6 +2055,39 @@ function scoresAfterEl(view: GameView): HTMLElement {
   return wrap;
 }
 
+/**
+ * A result panel's footer: its countdown note (if any) plus the hide/show
+ * toggle in the panel's bottom-right corner. Hiding removes the scrim and
+ * everything in the card except this footer, so the discards underneath
+ * can be read; the footer keeps its place so the toggle never moves. The
+ * flag survives re-renders and resets with each new game.
+ */
+function resultFoot(overlay: HTMLElement, note: HTMLElement | null): HTMLElement {
+  overlay.classList.toggle('panel-hidden', resultHidden);
+  const foot = document.createElement('div');
+  foot.className = 'result-foot';
+  if (note) foot.appendChild(note);
+  const b = document.createElement('button');
+  b.className = 'result-hide-btn';
+  // A wide rectangle (the panel) struck through from top right to bottom left.
+  b.innerHTML =
+    '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="10" rx="1.5"/><line x1="21" y1="3.5" x2="3" y2="20.5"/></svg>';
+  const sync = (): void => {
+    b.title = resultHidden ? 'Show the panel' : 'Hide the panel to see the board';
+    b.setAttribute('aria-label', b.title);
+    b.setAttribute('aria-pressed', String(resultHidden));
+  };
+  sync();
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    resultHidden = !resultHidden;
+    overlay.classList.toggle('panel-hidden', resultHidden);
+    sync();
+  });
+  foot.appendChild(b);
+  return foot;
+}
+
 function gameResultOverlay(view: GameView): HTMLElement {
   const r = view.gameResult!;
   const overlay = document.createElement('div');
@@ -2063,7 +2099,7 @@ function gameResultOverlay(view: GameView): HTMLElement {
     card.innerHTML = `<h2 class="draw-green">Drawn Game 流局</h2>
       <p style="color:var(--text-dim)">The live wall is exhausted. Nobody scores.</p>`;
     card.appendChild(scoresAfterEl(view));
-    card.appendChild(nextGameNote(view, r));
+    card.appendChild(resultFoot(overlay, nextGameNote(view, r)));
     overlay.appendChild(card);
     return overlay;
   }
@@ -2132,7 +2168,7 @@ function gameResultOverlay(view: GameView): HTMLElement {
   card.appendChild(deltas);
 
   card.appendChild(scoresAfterEl(view));
-  card.appendChild(nextGameNote(view, r));
+  card.appendChild(resultFoot(overlay, nextGameNote(view, r)));
 
   overlay.appendChild(card);
   return overlay;
@@ -2216,6 +2252,7 @@ function matchResultOverlay(view: GameView): HTMLElement {
     location.reload();
   };
   card.querySelector('#tolobby')!.addEventListener('click', exit);
+  let endNote: HTMLElement | null = null;
   // The standings screen closes itself after the server's window — except
   // in the tutorial, which waits for the lesson panel's Finish (v0.2.1 #12).
   if (!view.tutorial) {
@@ -2236,8 +2273,9 @@ function matchResultOverlay(view: GameView): HTMLElement {
       }
       tick();
     }, 250);
-    card.appendChild(note);
+    endNote = note;
   }
+  card.appendChild(resultFoot(overlay, endNote));
   overlay.appendChild(card);
   return overlay;
 }
