@@ -80,6 +80,22 @@ Also changed after release:
 - The username hanging under the wall or discards, and the username centred
   over the hand strip. It must share the top opponent's vertical line.
 
+## Planned for v0.2.5 (as told by David, 2026-11-11)
+
+No written list exists in the repo yet; ask David for it. What he has said:
+
+- **TrivialBot**: a bot one step above ChickenBot. It aims for the trivial
+  patterns (category 1.0 in the pattern list) and other easy-to-score
+  patterns such as Value Honor, so it does better than ChickenBot when the
+  Chicken Hand setting is "not allowed". It still plays mostly for speed,
+  not value.
+- **A stronger bot after that**, probably called **StandardBot**, which
+  plays for value as well as speed.
+- There are other items he did not list. Existing bot code to build on:
+  `server/src/chickenbot.ts` (`BotKind`, `chooseClaim`) and the bot-kind
+  plumbing in `server/src/match.ts` and `server/src/rooms.ts`
+  (`botDifficulty`, currently `'dummy' | 'chicken'`).
+
 ## Open items
 
 - **Push and check `961124c`.** Play against ChickenBots: pung while a bot
