@@ -97,10 +97,10 @@ export function installTileHighlight(): void {
     lit = [];
   };
   // Scoring screens, the claim/variant preview bars, the settings previews,
-  // and the stats playstyle emblem don't count as "visible tiles": they
-  // neither trigger nor receive the highlight.
+  // and the stats page's best hand and playstyle emblem don't count as
+  // "visible tiles": they neither trigger nor receive the highlight.
   const excluded = (el: HTMLElement) =>
-    el.closest('.result-card, .variant-bar, .tile-preview, .playstyle') !== null;
+    el.closest('.result-card, .variant-bar, .tile-preview, .playstyle, .best-hand-card') !== null;
   document.addEventListener('pointerover', (e) => {
     const target = e.target as HTMLElement | null;
     const tile = target?.closest?.<HTMLElement>('.tile[data-t]') ?? null;
