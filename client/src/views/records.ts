@@ -236,7 +236,7 @@ function buildViewer(body: HTMLElement, rec: MatchRecord): void {
         <span>${escapeHtml(player.name)}${player.isBot ? ' 🤖' : ''}</span>
         <span style="color:var(--text-dim)">${before > 0 ? '+' : ''}${before}</span>
         ${isWinner ? `<span class="win-gold">${game.result.winBy === 'self' ? 'SELF-DRAW 自摸' : 'MAHJONG 和'} · ${game.result.value} pts</span>` : ''}
-        ${stepIdx === steps.length - 1 && game.result.responsibleSeat === seat ? '<span class="lose-gray">Discarder 放銃</span>' : ''}`;
+        ${stepIdx === steps.length - 1 && game.result.responsibleSeat === seat ? '<span class="lose-gray">DISCARDER 放銃</span>' : ''}`;
       seatDiv.appendChild(head);
 
       const rows = document.createElement('div');
