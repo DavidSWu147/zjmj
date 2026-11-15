@@ -33,6 +33,7 @@ import {
 } from '../../shared/src/protocol';
 import { GameRecord, GameResultRecord, MoveRecord, MovePart1 } from '../../shared/src/records';
 import { BotKind, chooseClaim, chooseDiscard, ClaimDecision, wantsOwnKong } from './chickenbot';
+import { MeldLite, patternClaim, patternTurn } from './patternbot';
 
 /** All seat indices in this module are *current* seats (0 = this game's East). */
 
@@ -459,8 +460,30 @@ export class Game {
         if (this.phase !== 'preDiscard' || this.turnSeat !== seat || this.ended) return;
       }
     }
-    if (this.host.botKind(seat) !== 'chicken') {
+    const kind = this.host.botKind(seat);
+    if (kind === 'dummy') {
       this.doDiscard(seat, this.drawn[seat]!, true);
+      return;
+    }
+    if (kind !== 'chicken') {
+      // TrivialBot / StandardBot (v0.2.5): pattern-driven kong or discard.
+      const dec = patternTurn(
+        kind,
+        {
+          hand: this.hands[seat],
+          drawn: this.drawn[seat],
+          meldCount: this.melds[seat].length,
+          melds: this.meldsLite(seat),
+          seat,
+          unseen: this.unseenFor(seat),
+        },
+        this.kongOptionsFor(seat),
+      );
+      if (dec.kind === 'kong') {
+        this.handleAction(seat, { kind: 'kong', tile: dec.tile, variant: dec.variant });
+      } else {
+        this.doDiscard(seat, dec.tile, dec.fromDrawn);
+      }
       return;
     }
     const ctx = {
@@ -480,6 +503,11 @@ export class Game {
     // 4.4: minimize distance from ready, then maximize outs, then tile order.
     const pick = chooseDiscard(ctx);
     this.doDiscard(seat, pick.tile, pick.fromDrawn);
+  }
+
+  /** A seat's declared melds in the pattern bots' compact form. */
+  private meldsLite(seat: number): MeldLite[] {
+    return this.melds[seat].map((m) => ({ kind: m.kind, idx: tileIndex(m.tile) }));
   }
 
   /** Unseen copies of each tile type from this seat's point of view. */
@@ -590,7 +618,8 @@ export class Game {
       if (this.host.isBot(s)) {
         // Dummy-driven seats claim nothing except a win (v0.2.1 #18 — the
         // same rule Auto Mode plays by); chicken bots decide per spec 4.5.
-        if (this.host.botKind(s) !== 'chicken') {
+        const kind = this.host.botKind(s);
+        if (kind === 'dummy') {
           const avail = this.computeAvail(s, discarder, tile, riverbed);
           if (avail.mahjong) {
             botClaims.set(s, { kind: 'mahjong' });
@@ -612,16 +641,17 @@ export class Game {
         if (avail.mahjong) {
           dec = { kind: 'mahjong' }; // 4.1: always call Mahjong
         } else if (avail.kong || avail.pung || avail.chows.length > 0) {
-          dec = chooseClaim(
-            {
-              hand: this.hands[s],
-              meldCount: this.melds[s].length,
-              seat: s,
-              unseen: this.unseenFor(s),
-            },
-            tile,
-            { kong: avail.kong, pung: avail.pung, chows: avail.chows },
-          );
+          const ctx = {
+            hand: this.hands[s],
+            meldCount: this.melds[s].length,
+            seat: s,
+            unseen: this.unseenFor(s),
+          };
+          const opts = { kong: avail.kong, pung: avail.pung, chows: avail.chows };
+          dec =
+            kind === 'chicken'
+              ? chooseClaim(ctx, tile, opts)
+              : patternClaim(kind, { ...ctx, melds: this.meldsLite(s) }, tile, opts);
         }
         if (dec) {
           botClaims.set(s, dec);
@@ -1652,7 +1682,7 @@ export class Game {
       // pending decision timers.
       for (const [seat, slot] of this.claim.slots) {
         if (this.claim === null) break; // a mahjong claim resolved the phase
-        if (this.host.isBot(seat) && this.host.botKind(seat) !== 'chicken' && slot.choice === null) {
+        if (this.host.isBot(seat) && this.host.botKind(seat) === 'dummy' && slot.choice === null) {
           if (slot.avail.mahjong) {
             this.handleClaimAction(seat, { kind: 'claim', claim: 'mahjong' });
           } else {
@@ -1663,7 +1693,7 @@ export class Game {
       if (this.claim !== null) this.checkClaimResolution();
     } else if (this.phase === 'robbing' && this.rob) {
       for (const [seat, v] of this.rob.slots) {
-        if (this.host.isBot(seat) && this.host.botKind(seat) !== 'chicken' && v === 'undecided') {
+        if (this.host.isBot(seat) && this.host.botKind(seat) === 'dummy' && v === 'undecided') {
           this.rob.slots.set(seat, 'mahjong');
         }
       }

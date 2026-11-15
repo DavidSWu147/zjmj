@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
-import { ClientMsg, GameView, ServerMsg } from '../../shared/src/protocol';
+import { BOT_DIFFICULTIES, ClientMsg, GameView, ServerMsg } from '../../shared/src/protocol';
 import { broadAbandoned } from '../../shared/src/records';
 import { sanitizeDisplayName } from '../../shared/src/names';
 import { makeApi } from './api';
@@ -254,7 +254,7 @@ function handleMsg(session: Session, msg: ClientMsg): void {
     case 'setBotDifficulty': {
       const err = rooms.setBotDifficulty(
         session.playerId,
-        msg.difficulty === 'chicken' ? 'chicken' : 'dummy',
+        BOT_DIFFICULTIES.includes(msg.difficulty) ? msg.difficulty : 'dummy',
       );
       if (err) send(session, { type: 'toast', message: err });
       break;

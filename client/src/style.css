@@ -1425,6 +1425,22 @@ dialog::backdrop {
   color: var(--text);
   border-color: var(--text-dim);
 }
+/* Match-over card (v0.2.5): game.ts scales it up from its natural size
+   (same proportions, still centred) until the footer clears the player's
+   discards; the footer is pinned to the bottom of the enlarged card. */
+.result-card.match-card {
+  display: flex;
+  flex-direction: column;
+  max-width: 92vw;
+  max-height: 92vh;
+}
+.match-card .dialog-btns {
+  margin-bottom: 16px;
+}
+.match-card .result-foot {
+  margin-top: auto;
+  flex-shrink: 0;
+}
 .win-gold {
   color: var(--kw-mahjong);
 }
