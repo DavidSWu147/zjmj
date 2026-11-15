@@ -1020,7 +1020,9 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   // walls render (the walls block refines it with the real wall metrics).
   // The own username must stay below this line (v0.2.4 follow-up).
   let ownFurnitureBottom = cy + P / 2 + gap + 3 * dh;
-  board.dataset.ownFloor = String(ownFurnitureBottom); // for fitMatchCard
+  // The player's own 3×6 discard block (x, y, width, height): the
+  // match-over panel sizes itself to keep its footer off it (fitMatchCard).
+  board.dataset.ownDiscards = [cx + P / 2 - 6 * dt, cy + P / 2 + gap, 6 * dt, 3 * dh].join(',');
 
   // ── physical tile walls (desktop only) ────────────────────────────
   // The four walls form a pinwheel around the discard windmill the way four
@@ -1053,7 +1055,6 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     // Bottom wall outer edge: base row at cy + inner, wh tall, top tiles
     // stacked a peek further out.
     ownFurnitureBottom = cy + inner + wh + peek;
-    board.dataset.ownFloor = String(ownFurnitureBottom);
 
     const lp = wi.livePointer;
     const kd = wi.kongDrawn;
@@ -2237,9 +2238,9 @@ function matchResultOverlay(view: GameView): HTMLElement {
     )
     .join('');
   card.classList.add('match-card');
-  card.innerHTML = `${banner}<div class="match-body"><h2>Match Over 終局</h2>
+  card.innerHTML = `${banner}<h2>Match Over 終局</h2>
     <table class="pattern-list">${rows}</table>
-    <div class="dialog-btns"><button id="tolobby">${view.tutorial ? 'Back to Help' : 'Back to Lobby'}</button></div></div>`;
+    <div class="dialog-btns"><button id="tolobby">${view.tutorial ? 'Back to Help' : 'Back to Lobby'}</button></div>`;
   const exit = () => {
     const wasTutorial = view.tutorial === true;
     autoMode = 'off';
@@ -2285,23 +2286,54 @@ function matchResultOverlay(view: GameView): HTMLElement {
 }
 
 /**
- * Grows the match-over card so its hide/show toggle sits in the empty band
- * between the player's discards (and the wall under them) and their hand
- * (v0.2.5) — hidden, the toggle used to rest on the player's own discards.
- * The card is centred, so adding 2·d of height moves the toggle down by d.
+ * Sizes the match-over card (v0.2.5). It stays centred and keeps the
+ * proportions of its natural size, but is scaled up until the footer — the
+ * countdown and the hide/show toggle, which is all that remains once the
+ * panel is hidden — just clears the player's own discards: their 3×6 block
+ * and any overflow tiles actually on the table.
  */
 function fitMatchCard(overlay: HTMLElement, card: HTMLElement): void {
   const board = overlay.parentElement;
   const btn = card.querySelector('.result-hide-btn');
-  const hand = board?.querySelector('.hand-area');
-  const ownFloor = Number(board?.dataset.ownFloor);
-  if (!board || !btn || !hand || !Number.isFinite(ownFloor)) return;
-  // Bottom of the player's third discard row, or of the wall beneath it.
-  const floor = board.getBoundingClientRect().top + ownFloor;
-  const ceiling = hand.getBoundingClientRect().top;
+  const block = (board?.dataset.ownDiscards ?? '').split(',').map(Number);
+  if (!board || !btn || block.length !== 4 || block.some((n) => !Number.isFinite(n))) return;
+  const origin = board.getBoundingClientRect();
+  const natural = card.getBoundingClientRect();
+  if (natural.width === 0) return;
   const b = btn.getBoundingClientRect();
-  const half = b.height / 2 + 9; // the hidden pill's outline
-  const target = Math.max(floor + half + 2, Math.min((floor + ceiling) / 2, ceiling - half - 2));
-  const shift = target - (b.top + b.bottom) / 2;
-  if (shift > 0) card.style.minHeight = `${card.getBoundingClientRect().height + 2 * shift}px`;
+  const note = card.querySelector('.result-foot .result-next')?.getBoundingClientRect();
+  // The hidden panel's pill: the footer's content plus its 8px outline,
+  // and the clearance wanted around it.
+  const PAD = 8 + 8;
+  const pill = {
+    l: (note ? Math.min(note.left, b.left) : b.left) - PAD,
+    t: b.top - PAD,
+    r: b.right + PAD,
+    b: b.bottom + PAD,
+  };
+  const obstacles = [
+    { l: origin.left + block[0], t: origin.top + block[1], r: origin.left + block[0] + block[2], b: origin.top + block[1] + block[3] },
+  ];
+  const zone = board.querySelector('.discard-zone'); // the first is the viewer's
+  for (const el of Array.from(zone?.querySelectorAll('.tile') ?? [])) {
+    const r = el.getBoundingClientRect();
+    if (r.width > 0) obstacles.push({ l: r.left, t: r.top, r: r.right, b: r.bottom });
+  }
+  const bounds = overlay.getBoundingClientRect();
+  const maxK = Math.min((bounds.width * 0.92) / natural.width, (bounds.height * 0.92) / natural.height);
+  const hitAt = (dx: number, dy: number): boolean =>
+    obstacles.some((o) => pill.l + dx < o.r && pill.r + dx > o.l && pill.t + dy < o.b && pill.b + dy > o.t);
+  // A centred card grown by k moves its bottom-right corner out by half
+  // the added size.
+  let k = 1;
+  while (k < maxK && hitAt(((k - 1) * natural.width) / 2, ((k - 1) * natural.height) / 2)) k += 0.005;
+  k = Math.min(k, Math.max(1, maxK));
+  const width = natural.width * k;
+  let height = natural.height * k;
+  // A window too narrow to get clear in proportion: keep growing downward.
+  const maxH = bounds.height * 0.92;
+  while (height < maxH && hitAt((width - natural.width) / 2, (height - natural.height) / 2)) height += 2;
+  if (width <= natural.width && height <= natural.height) return;
+  card.style.width = `${width}px`;
+  card.style.height = `${height}px`;
 }

@@ -88,6 +88,29 @@ function baseView(): GameView {
   };
 }
 
+/** A scoring screen for a 10-point win off a discard. */
+function resultView(): GameView {
+  const v = baseView();
+  v.phase = 'gameEnd';
+  v.gameResult = {
+    draw: false,
+    winnerSeat: 0,
+    winBy: 'discard',
+    responsibleSeat: 2,
+    winningHand: {
+      concealed: ['B4', 'B5', 'B6', 'C1', 'C2', 'C3', 'D1', 'D2', 'D3', 'E '],
+      melds: [{ ...chow, fromDraw: true }],
+      winTile: 'E ',
+    },
+    patterns: [],
+    total: 10,
+    deltas: [30, -5, -20, -5],
+    nextAt: Date.now() + 10000,
+    lastGame: false,
+  };
+  return v;
+}
+
 const scenario = new URLSearchParams(location.search).get('s') ?? 'walls';
 const done = () => ((window as unknown as { reproDone: boolean }).reproDone = true);
 
@@ -146,33 +169,17 @@ if (scenario === 'walls') {
   // Scoring screen for a win off a discard: a meld claimed from a
   // drawn-and-discarded tile is NOT faded here (that fade belongs to the
   // live board only), and the winning tile stays upright.
-  const v = baseView();
-  v.phase = 'gameEnd';
-  v.gameResult = {
-    draw: false,
-    winnerSeat: 0,
-    winBy: 'discard',
-    responsibleSeat: 2,
-    winningHand: {
-      concealed: ['B4', 'B5', 'B6', 'C1', 'C2', 'C3', 'D1', 'D2', 'D3', 'E '],
-      melds: [{ ...chow, fromDraw: true }],
-      winTile: 'E ',
-    },
-    patterns: [],
-    total: 10,
-    deltas: [30, -5, -20, -5],
-    nextAt: Date.now() + 10000,
-    lastGame: false,
-  };
-  renderGame(app, v);
+  renderGame(app, resultView());
   requestAnimationFrame(done);
 } else if (scenario === 'matchover') {
-  // Match-over panel: its hide/show toggle (bottom-right corner) must sit
-  // below the player's own discards, also once the panel is hidden.
-  // tr=1 adds the tournament Rank Points column, ach=n achievement banners.
+  // Match-over panel: centred, in its natural proportions, scaled up until
+  // its footer (countdown + hide/show toggle) just clears the player's own
+  // discards. od=n sets the number of own discards (default 20); prev=1
+  // shows a scoring screen first; tr=1 adds Rank Points, ach=n banners.
   const q = new URLSearchParams(location.search);
   const v = baseView();
   v.phase = 'matchEnd';
+  if (q.get('od')) v.seats[0].discards = v.seats[0].discards.slice(0, Number(q.get('od')));
   v.matchResult = {
     standings: [
       { name: 'AVeryLongUsername20', isBot: false, score: 120, result: 'WIN' },
@@ -186,8 +193,25 @@ if (scenario === 'walls') {
       name: `Achievement ${i + 1}`,
     })),
   };
-  renderGame(app, v);
-  requestAnimationFrame(done);
+  const box = (sel: string): number[] => {
+    const r = document.querySelector(sel)!.getBoundingClientRect();
+    return [r.left, r.top, r.width, r.height];
+  };
+  if (q.get('prev')) {
+    // The real sequence: the last game's scoring screen, then match over.
+    // The toggle must not move between the two (window.prevBtn/prevCard).
+    renderGame(app, resultView());
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        Object.assign(window, { prevBtn: box('.result-hide-btn'), prevCard: box('.result-card') });
+        renderGame(app, v);
+        requestAnimationFrame(done);
+      }),
+    );
+  } else {
+    renderGame(app, v);
+    requestAnimationFrame(done);
+  }
 } else if (scenario === 'kongs') {
   // Every player melds four big kongs: hands must extend away from the
   // fixed drawn-tile spot instead of drifting or colliding.
