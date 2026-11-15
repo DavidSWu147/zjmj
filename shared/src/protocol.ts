@@ -48,7 +48,22 @@ export function isTournamentRoomId(id: number): boolean {
 }
 
 /** Brain used for the bots that fill a match's empty seats (0.1.4 #5). */
-export type BotDifficulty = 'dummy' | 'chicken';
+/**
+ * How a room's empty seats are filled. 'medley' (v0.2.5) seats different
+ * bots, strongest first: Standard, Trivial, Chicken (then Dummy) — except
+ * that a single empty seat gets Trivial or Standard at random.
+ */
+export type BotDifficulty = 'dummy' | 'chicken' | 'trivial' | 'standard' | 'medley';
+/** Cycle order of the room's Bot Difficulty button (v0.2.5). */
+export const BOT_DIFFICULTIES: BotDifficulty[] = ['dummy', 'chicken', 'trivial', 'standard', 'medley'];
+/** Bot name stems ("ChickenBot1", "TrivialBot2", …) and the button label. */
+export const BOT_NAMES: Record<BotDifficulty, string> = {
+  dummy: 'DummyBot',
+  chicken: 'ChickenBot',
+  trivial: 'TrivialBot',
+  standard: 'StandardBot',
+  medley: 'BotMedley',
+};
 
 /**
  * The rebindable action hotkeys, as KeyboardEvent.key values (letters stored

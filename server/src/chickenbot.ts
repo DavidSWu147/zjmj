@@ -25,7 +25,7 @@ import {
   winningTileIndices,
 } from '../../shared/src/index';
 
-export type BotKind = 'dummy' | 'chicken';
+export type BotKind = 'dummy' | 'chicken' | 'trivial' | 'standard';
 
 /** Hand plan per spec 4.2/4.3: pursue a special shape or play normally. */
 export type ChickenMode = 'thirteen' | 'pairs' | 'normal';
@@ -276,6 +276,16 @@ export interface HandContext {
   seat: number;
   /** Unseen copies of each tile type from this player's perspective. */
   unseen: number[];
+  /**
+   * Optional discard veto (TrivialBot's protected Value Honor triplet):
+   * called with the tile index, the concealed counts after the discard and,
+   * for a claim's follow-up discard, the meld just made.
+   */
+  allow?: (
+    discardIdx: number,
+    countsAfter: number[],
+    claimed: { kind: 'pung' | 'chow'; idx: number } | null,
+  ) => boolean;
 }
 
 /**
@@ -297,8 +307,10 @@ export function chooseDiscard(ctx: HandContext & { drawn: Tile | null }): {
   for (let d = 0; d < 34; d++) {
     if (counts[d] === 0) continue;
     counts[d]--;
+    const ok = !ctx.allow || ctx.allow(d, counts, null);
     const v = modalDistance(counts, ctx.meldCount, mode);
     counts[d]++;
+    if (!ok) continue;
     if (v < bestDist) {
       bestDist = v;
       pool = [d];
@@ -306,6 +318,8 @@ export function chooseDiscard(ctx: HandContext & { drawn: Tile | null }): {
       pool.push(d);
     }
   }
+  // Every tile vetoed (cannot really happen): fall back to the plain rule.
+  if (pool.length === 0) return chooseDiscard({ ...ctx, allow: undefined });
   if (pool.length > 1) {
     let bestOuts = -1;
     let outsPool: number[] = [];
@@ -405,8 +419,10 @@ export function chooseClaim(
     for (let d = 0; d < 34; d++) {
       if (counts[d] === 0) continue;
       counts[d]--;
+      const ok = !ctx.allow || ctx.allow(d, counts, { kind, idx: low });
       const v = regularDistance(counts, ctx.meldCount + 1);
       counts[d]++;
+      if (!ok) continue;
       if (v < dist) {
         dist = v;
         pool = [d];

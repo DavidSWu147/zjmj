@@ -1,4 +1,4 @@
-import { RoomSettings, RoomSummary } from '../../../shared/src/protocol';
+import { BOT_DIFFICULTIES, BOT_NAMES, RoomSettings, RoomSummary } from '../../../shared/src/protocol';
 import { displayName, isAccount } from '../account';
 import { getSettings } from '../settings';
 import { net } from '../net';
@@ -220,13 +220,15 @@ function roomRow(room: RoomSummary, myRoom: number | null): HTMLElement {
       mk('Leave', () => net.send({ type: 'leaveRoom' }), false, 'leave');
       if (room.id !== 0) mk('Delete', () => net.send({ type: 'deleteRoom' }), !iAmHost, 'delete');
       // Empty seats are filled by bots; the host picks their brain (0.1.4 #5).
-      const diff = room.botDifficulty === 'chicken' ? 'Chicken' : 'Dummy';
+      const diff = BOT_NAMES[room.botDifficulty].replace('Bot', '');
+      const nextDiff =
+        BOT_DIFFICULTIES[(BOT_DIFFICULTIES.indexOf(room.botDifficulty) + 1) % BOT_DIFFICULTIES.length];
       mk(
         `Bot Difficulty: ${diff}`,
         () =>
           net.send({
             type: 'setBotDifficulty',
-            difficulty: room.botDifficulty === 'chicken' ? 'dummy' : 'chicken',
+            difficulty: nextDiff,
           }),
         !iAmHost,
       );

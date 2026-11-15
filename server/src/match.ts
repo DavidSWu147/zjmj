@@ -1,4 +1,4 @@
-import { BotDifficulty, GameResultView, GameView, MatchResultView, RoomSettings } from '../../shared/src/protocol';
+import { BOT_NAMES, BotDifficulty, GameResultView, GameView, MatchResultView, RoomSettings } from '../../shared/src/protocol';
 import { achievementById } from '../../shared/src/achievements';
 import { GameRecord, MatchRecord } from '../../shared/src/records';
 import { Tile } from '../../shared/src/tiles';
@@ -117,13 +117,23 @@ export class Match {
 
     const seated: MatchPlayer[] = [...humans];
     let botNum = 1;
-    const botName = botDifficulty === 'chicken' ? 'ChickenBot' : 'DummyBot';
+    // BotMedley (v0.2.5) seats different bots, strongest first; a single
+    // empty seat would always be StandardBot, so it draws Trivial/Standard.
+    const empty = 4 - seated.length;
+    const medley: BotKind[] =
+      empty === 1
+        ? [this.rng() < 0.5 ? 'trivial' : 'standard']
+        : ['standard', 'trivial', 'chicken', 'dummy'];
+    const perKind = new Map<BotKind, number>();
     while (seated.length < 4) {
+      const kind: BotKind = botDifficulty === 'medley' ? medley[botNum - 1] : botDifficulty;
+      const n = (perKind.get(kind) ?? 0) + 1;
+      perKind.set(kind, n);
       seated.push({
         id: `bot-${this.matchId}-${botNum}`,
-        name: `${botName}${botNum}`,
+        name: `${BOT_NAMES[kind]}${n}`,
         isBot: true,
-        kind: botDifficulty,
+        kind,
       });
       botNum++;
     }
@@ -180,7 +190,9 @@ export class Match {
       // disconnected human plays at the match's bot difficulty too.
       botKind: (seat) => {
         const p = this.playerAt(seat);
-        return p.isBot ? (p.kind ?? 'dummy') : this.botDifficulty;
+        if (p.isBot) return p.kind ?? 'dummy';
+        // A medley has no single difficulty: its takeover plays as StandardBot.
+        return this.botDifficulty === 'medley' ? 'standard' : this.botDifficulty;
       },
       isBotPlayer: (seat) => this.playerAt(seat).isBot,
       nameOf: (seat) => this.playerAt(seat).name,
