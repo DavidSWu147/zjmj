@@ -1020,6 +1020,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
   // walls render (the walls block refines it with the real wall metrics).
   // The own username must stay below this line (v0.2.4 follow-up).
   let ownFurnitureBottom = cy + P / 2 + gap + 3 * dh;
+  board.dataset.ownFloor = String(ownFurnitureBottom); // for fitMatchCard
 
   // ── physical tile walls (desktop only) ────────────────────────────
   // The four walls form a pinwheel around the discard windmill the way four
@@ -1052,6 +1053,7 @@ export function renderGame(el: HTMLElement, view: GameView): void {
     // Bottom wall outer edge: base row at cy + inner, wh tall, top tiles
     // stacked a peek further out.
     ownFurnitureBottom = cy + inner + wh + peek;
+    board.dataset.ownFloor = String(ownFurnitureBottom);
 
     const lp = wi.livePointer;
     const kd = wi.kongDrawn;
@@ -2234,9 +2236,10 @@ function matchResultOverlay(view: GameView): HTMLElement {
         ${escapeHtml(a.name)}</span>${starSvg(22)}</div>`,
     )
     .join('');
-  card.innerHTML = `${banner}<h2>Match Over 終局</h2>
+  card.classList.add('match-card');
+  card.innerHTML = `${banner}<div class="match-body"><h2>Match Over 終局</h2>
     <table class="pattern-list">${rows}</table>
-    <div class="dialog-btns"><button id="tolobby">${view.tutorial ? 'Back to Help' : 'Back to Lobby'}</button></div>`;
+    <div class="dialog-btns"><button id="tolobby">${view.tutorial ? 'Back to Help' : 'Back to Lobby'}</button></div></div>`;
   const exit = () => {
     const wasTutorial = view.tutorial === true;
     autoMode = 'off';
@@ -2277,5 +2280,28 @@ function matchResultOverlay(view: GameView): HTMLElement {
   }
   card.appendChild(resultFoot(overlay, endNote));
   overlay.appendChild(card);
+  requestAnimationFrame(() => fitMatchCard(overlay, card));
   return overlay;
+}
+
+/**
+ * Grows the match-over card so its hide/show toggle sits in the empty band
+ * between the player's discards (and the wall under them) and their hand
+ * (v0.2.5) — hidden, the toggle used to rest on the player's own discards.
+ * The card is centred, so adding 2·d of height moves the toggle down by d.
+ */
+function fitMatchCard(overlay: HTMLElement, card: HTMLElement): void {
+  const board = overlay.parentElement;
+  const btn = card.querySelector('.result-hide-btn');
+  const hand = board?.querySelector('.hand-area');
+  const ownFloor = Number(board?.dataset.ownFloor);
+  if (!board || !btn || !hand || !Number.isFinite(ownFloor)) return;
+  // Bottom of the player's third discard row, or of the wall beneath it.
+  const floor = board.getBoundingClientRect().top + ownFloor;
+  const ceiling = hand.getBoundingClientRect().top;
+  const b = btn.getBoundingClientRect();
+  const half = b.height / 2 + 9; // the hidden pill's outline
+  const target = Math.max(floor + half + 2, Math.min((floor + ceiling) / 2, ceiling - half - 2));
+  const shift = target - (b.top + b.bottom) / 2;
+  if (shift > 0) card.style.minHeight = `${card.getBoundingClientRect().height + 2 * shift}px`;
 }

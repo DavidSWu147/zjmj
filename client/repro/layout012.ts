@@ -166,6 +166,28 @@ if (scenario === 'walls') {
   };
   renderGame(app, v);
   requestAnimationFrame(done);
+} else if (scenario === 'matchover') {
+  // Match-over panel: its hide/show toggle (bottom-right corner) must sit
+  // below the player's own discards, also once the panel is hidden.
+  // tr=1 adds the tournament Rank Points column, ach=n achievement banners.
+  const q = new URLSearchParams(location.search);
+  const v = baseView();
+  v.phase = 'matchEnd';
+  v.matchResult = {
+    standings: [
+      { name: 'AVeryLongUsername20', isBot: false, score: 120, result: 'WIN' },
+      { name: 'StandardBot1', isBot: true, score: 15, result: 'WIN' },
+      { name: 'StandardBot2', isBot: true, score: -40, result: 'LOSE' },
+      { name: 'StandardBot3', isBot: true, score: -95, result: 'LOSE' },
+    ].map((s) => (q.get('tr') ? { ...s, rankPoints: Math.max(50, s.score + 500) } : s)) as never,
+    endsAt: Date.now() + 30000,
+    newAchievements: Array.from({ length: Number(q.get('ach') ?? 0) }, (_, i) => ({
+      id: `a${i}`,
+      name: `Achievement ${i + 1}`,
+    })),
+  };
+  renderGame(app, v);
+  requestAnimationFrame(done);
 } else if (scenario === 'kongs') {
   // Every player melds four big kongs: hands must extend away from the
   // fixed drawn-tile spot instead of drifting or colliding.

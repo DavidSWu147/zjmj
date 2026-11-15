@@ -1395,6 +1395,39 @@ dialog::backdrop {
   border-color: var(--text-dim);
   color: var(--text);
 }
+/* Match-over card (v0.2.5): tall enough that the toggle clears the
+   player's discards (min-height is set from the board in fitMatchCard),
+   with the standings centred and enlarged to suit and the footer pinned
+   to the bottom edge. */
+.result-card.match-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 600px;
+  max-height: 94vh;
+}
+.match-card .match-body {
+  margin: auto 0;
+}
+.match-card h2 {
+  font-size: 28px;
+  margin-bottom: 20px;
+}
+.match-card .pattern-list {
+  font-size: 20px;
+}
+.match-card .pattern-list td {
+  padding: 12px 10px;
+}
+.match-card .dialog-btns {
+  margin-top: 26px;
+}
+.match-card .dialog-btns button {
+  font-size: 16px;
+  padding: 10px 20px;
+}
+.match-card .result-foot {
+  flex-shrink: 0;
+}
 /* Hidden: no scrim, and nothing of the card but its footer, which stays
    exactly where it was (so the toggle never moves) on a small dark pill. */
 .overlay.panel-hidden {
