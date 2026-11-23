@@ -4,7 +4,9 @@ A web app for playing the Zung Jung (中庸) variation of Mahjong online. Four p
 to a room, Tenhou-inspired minimalist interface. Now on Version 0.2.5
 
 Tile graphics: 
+
 Chinese style: https://demching.itch.io/mahjong
+
 Japanese style: https://commons.wikimedia.org/wiki/Category:SVG_Planar_illustrations_of_Mahjong_tiles
 
 ## Structure
